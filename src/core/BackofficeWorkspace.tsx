@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ArrowLeft,
   BarChart3,
@@ -33,7 +33,12 @@ import {
   THEME
 } from '../types';
 import { PLUGIN_REGISTRY } from '../plugins/registry';
-import { testGeminiApiKey } from '../services/aiRouter';
+import {
+  fetchAvailableGeminiModels,
+  getPreferredModelMode,
+  setPreferredModelMode,
+  testGeminiApiKey
+} from '../services/aiRouter';
 import { exportDayPlanIcs, exportSalesLogsCsv } from '../services/exportBridge';
 
 interface BackofficeWorkspaceProps {
@@ -115,6 +120,24 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
     ok?: boolean;
     text?: string;
   }>({ loading: false });
+  const [preferredModel, setPreferredModel] = useState<string>(getPreferredModelMode);
+  const [discoveredModels, setDiscoveredModels] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (userApiKey && userApiKey.trim().length > 10) {
+      fetchAvailableGeminiModels(userApiKey).then((models) => {
+        if (models && models.length > 0) {
+          setDiscoveredModels(models);
+        }
+      });
+    }
+  }, [userApiKey]);
+
+  const handleModelChange = (mode: string) => {
+    setPreferredModel(mode);
+    setPreferredModelMode(mode);
+    onNotify(`Gemini-Modell eingestellt: ${mode}`);
+  };
 
   const [scratchTitle, setScratchTitle] = useState('');
   const [scratchContent, setScratchContent] = useState('');
@@ -130,6 +153,9 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
     setApiTestStatus({ loading: true });
     const res = await testGeminiApiKey(userApiKey);
     setApiTestStatus({ loading: false, ok: res.ok, text: res.message });
+    if (res.availableModels && res.availableModels.length > 0) {
+      setDiscoveredModels(res.availableModels);
+    }
   };
 
   const handleBackupUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -326,6 +352,41 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
               placeholder="AIzaSy... (Deinen Google Gemini API-Key hier einfügen)"
               className="w-full px-3 py-2.5 rounded-xl text-xs font-mono bg-[#181A1B] text-white border border-white/15 focus:outline-none focus:border-[#14B8A6]"
             />
+
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-semibold text-[#9CA3AF] flex items-center justify-between">
+                <span>Modell-Auswahl (Paid AI Studio / Pro-Support):</span>
+                {discoveredModels.length > 0 && (
+                  <span className="text-[10px] text-[#14B8A6] font-mono">
+                    {discoveredModels.length} Live-Modelle erkannt
+                  </span>
+                )}
+              </label>
+              <select
+                value={preferredModel}
+                onChange={(e) => handleModelChange(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl text-xs bg-[#181A1B] text-white border border-white/15 focus:outline-none focus:border-[#14B8A6]"
+              >
+                <option value="SMART_PRO">
+                  ✨ Smart-Mix (Flash für schnelles Sortieren + Höchstes Pro-Modell für Fragen/Fotos)
+                </option>
+                <option value="ALWAYS_PRO">
+                  🧠 Immer höchstes Pro-Modell nutzen (Maximale Intelligenz)
+                </option>
+                <option value="ALWAYS_FLASH">
+                  ⚡ Immer Flash nutzen (Maximale Geschwindigkeit)
+                </option>
+                {discoveredModels.length > 0 && (
+                  <optgroup label="Freigeschaltete Modelle in deinem Account:">
+                    {discoveredModels.map((m) => (
+                      <option key={m} value={m}>
+                        🎯 {m}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+              </select>
+            </div>
             <div className="flex items-center gap-2">
               <button
                 type="button"

@@ -1,5 +1,24 @@
 import { AiActionType, Attachment, PriorityType } from '../types';
 
+const MODEL_STORAGE_KEY = 'nexusflow_preferred_gemini_model';
+
+// Standard: 'SMART_PRO' nutzt für Fragen/Fotos automatisch das höhere Pro-Modell
+export function getPreferredModelMode(): string {
+  try {
+    return localStorage.getItem(MODEL_STORAGE_KEY) || 'SMART_PRO';
+  } catch {
+    return 'SMART_PRO';
+  }
+}
+
+export function setPreferredModelMode(mode: string): void {
+  try {
+    localStorage.setItem(MODEL_STORAGE_KEY, mode);
+  } catch {
+    // ignore
+  }
+}
+
 export interface StructuredAiActionPlan {
   actionType: AiActionType;
   targetProjectId: string;
@@ -26,6 +45,141 @@ export const enforceMaxSixWords = (str: string, fallback = 'Neuer Eintrag'): str
   const words = str.trim().replace(/\s+/g, ' ').split(' ');
   return words.length <= 6 ? words.join(' ') : words.slice(0, 6).join(' ');
 };
+
+/**
+ * Fragt live bei Google AI Studio ab, welche Modelle für diesen API-Key freigeschaltet sind,
+ * und sortiert höhere Modelle (Pro / neuere Versionen) nach oben.
+ */
+export async function fetchAvailableGeminiModels(apiKey: string): Promise<string[]> {
+  const cleanKey = apiKey.trim();
+  if (!cleanKey) return [];
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(cleanKey)}`
+    );
+    if (!res.ok) return [];
+    const data = await res.json();
+    const models: string[] = (data.models || [])
+      .filter(
+        (m: any) =>
+          Array.isArray(m.supportedGenerationMethods) &&
+          m.supportedGenerationMethods.includes('generateContent') &&
+          typeof m.name === 'string' &&
+          m.name.includes('gemini') &&
+          !m.name.includes('embedding') &&
+          !m.name.includes('vision-only')
+      )
+      .map((m: any) => String(m.name).replace(/^models\//, ''));
+
+    // Sortiere nach Versionsnummer absteigend und bevorzuge Pro vor Flash
+    return models.sort((a, b) => {
+      const verA = parseFloat(a.match(/gemini-(\d+(?:\.\d+)?)/)?.[1] || '0');
+      const verB = parseFloat(b.match(/gemini-(\d+(?:\.\d+)?)/)?.[1] || '0');
+      if (verB !== verA) return verB - verA;
+      const isProA = a.includes('pro') ? 1 : 0;
+      const isProB = b.includes('pro') ? 1 : 0;
+      return isProB - isProA;
+    });
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Baut eine intelligente Modell-Reihenfolge auf:
+ * Versucht zuerst das gewählte höhere Modell und fällt bei einem 404 automatisch
+ * auf das nächsthöhere verfügbare Modell im Account zurück.
+ */
+async function buildModelCandidateList(
+  apiKey: string,
+  task: 'sort' | 'qa'
+): Promise<string[]> {
+  const mode = getPreferredModelMode();
+  const defaultsProFirst = [
+    'gemini-3.8-pro',
+    'gemini-3.8-flash',
+    'gemini-3.5-pro',
+    'gemini-3.5-flash',
+    'gemini-3.0-pro',
+    'gemini-3.0-flash'
+  ];
+  const defaultsFlashFirst = [
+    'gemini-3.8-flash',
+    'gemini-3.8-pro',
+    'gemini-3.5-flash',
+    'gemini-3.5-pro'
+  ];
+
+  let baseList: string[] = [];
+  if (mode === 'ALWAYS_PRO') {
+    baseList = defaultsProFirst;
+  } else if (mode === 'ALWAYS_FLASH') {
+    baseList = defaultsFlashFirst;
+  } else if (mode === 'SMART_PRO') {
+    baseList = task === 'qa' ? defaultsProFirst : defaultsFlashFirst;
+  } else {
+    // Spezifisches vom Nutzer gewähltes Modell zuerst
+    baseList = [mode, ...defaultsProFirst];
+  }
+
+  return Array.from(new Set(baseList));
+}
+
+async function callGeminiWithAutoFallback(
+  apiKey: string,
+  task: 'sort' | 'qa',
+  payload: Record<string, unknown>
+): Promise<{ ok: boolean; data?: any; usedModel: string; errorMessage?: string }> {
+  const cleanKey = apiKey.trim();
+  const candidates = await buildModelCandidateList(cleanKey, task);
+  let lastError = 'Unbekannter API-Fehler';
+
+  for (const modelName of candidates) {
+    const endpoint =
+      `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=` +
+      encodeURIComponent(cleanKey);
+
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      return { ok: true, data, usedModel: modelName };
+    }
+
+    const errData = await res.json().catch(() => ({}));
+    lastError = errData?.error?.message || `HTTP ${res.status}`;
+
+    // Falls 404 (Modellname existiert nicht oder wurde aktualisiert), probiere sofort den nächsten Kandidaten
+    if (res.status === 404) {
+      continue;
+    } else {
+      break;
+    }
+  }
+
+  // Letzter Rettungsanker: Frage live die verfügbaren Account-Modelle ab und nimm das höchste!
+  const liveModels = await fetchAvailableGeminiModels(cleanKey);
+  for (const liveModel of liveModels.slice(0, 3)) {
+    const endpoint =
+      `https://generativelanguage.googleapis.com/v1beta/models/${liveModel}:generateContent?key=` +
+      encodeURIComponent(cleanKey);
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return { ok: true, data, usedModel: liveModel };
+    }
+  }
+
+  return { ok: false, usedModel: candidates[0], errorMessage: lastError };
+}
 
 const AI_ROUTER_RESPONSE_SCHEMA = {
   type: 'OBJECT',
@@ -134,8 +288,7 @@ REITER-ZUORDNUNG (actionType):
 - "ADD_TASK": Für alle konkreten To-dos, Aufgaben und Bauschritte.
 
 ZUSATZREGEL:
-- Wenn der Nutzer eine reine Frage stellt (z. B. "Wie hoch muss der Arbeitsdruck beim Ofen sein?"), setze isQuestion=true, schreibe die Antwort in directAnswer und lasse actions leer [].
-- Wenn der Nutzer mehrere Dinge in einem Satz nennt, zerlege sie sauber in mehrere Einträge im Array actions.
+- Wenn der Nutzer eine reine Frage stellt, setze isQuestion=true, schreibe die Antwort in directAnswer und lasse actions leer [].
 - shortCheckableTitle darf STRIKT maximal 6 Wörter lang sein!`;
 
 export function buildLocalFallbackPlan(
@@ -249,51 +402,39 @@ export async function routeVoiceCommand(
 
   if (cleanKey) {
     try {
-      const endpoint =
-        'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' +
-        encodeURIComponent(cleanKey);
-
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          systemInstruction: {
-            parts: [{ text: SYSTEM_PROMPT }]
-          },
-          contents: [
-            {
-              role: 'user',
-              parts: [
-                {
-                  text: `Aktuell geöffnetes Standard-Projekt (falls im Satz nichts anderes erwähnt wird): "${defaultProjectId}".\nEingesprochener Text des Nutzers:\n"${rawText}"`
-                }
-              ]
-            }
-          ],
-          generationConfig: {
-            temperature: 0.15,
-            responseMimeType: 'application/json',
-            responseSchema: AI_ROUTER_RESPONSE_SCHEMA
+      const result = await callGeminiWithAutoFallback(cleanKey, 'sort', {
+        systemInstruction: {
+          parts: [{ text: SYSTEM_PROMPT }]
+        },
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              {
+                text: `Aktuell geöffnetes Standard-Projekt: "${defaultProjectId}".\nEingesprochener Text des Nutzers:\n"${rawText}"`
+              }
+            ]
           }
-        })
+        ],
+        generationConfig: {
+          temperature: 0.15,
+          responseMimeType: 'application/json',
+          responseSchema: AI_ROUTER_RESPONSE_SCHEMA
+        }
       });
 
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        const errMsg = errData?.error?.message || `HTTP ${res.status}`;
+      if (!result.ok) {
         const fallback = buildLocalFallbackPlan(rawText, defaultProjectId);
         return {
           plan: {
             ...fallback,
-            summary: `${fallback.summary} (Hinweis: Gemini API meldete "${errMsg}" – lokaler Sortierer genutzt)`
+            summary: `${fallback.summary} (Hinweis: API meldete "${result.errorMessage}")`
           },
-          engine: `Fallback (API-Fehler: ${res.status})`
+          engine: `Fallback (${result.errorMessage})`
         };
       }
 
-      const data = await res.json();
-      const rawJsonText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-
+      const rawJsonText = result.data?.candidates?.[0]?.content?.parts?.[0]?.text;
       if (rawJsonText) {
         const parsed = JSON.parse(rawJsonText) as StructuredAiResponse;
         const sanitizedActions = Array.isArray(parsed.actions)
@@ -305,7 +446,7 @@ export async function routeVoiceCommand(
               quantityOrMeasure: act.quantityOrMeasure || '1x',
               estimatedPrice: act.estimatedPrice || '',
               changeFooterNote: enforceMaxSixWords(
-                act.changeFooterNote || 'Per Gemini KI einsortiert',
+                act.changeFooterNote || `Per ${result.usedModel} einsortiert`,
                 'Per Gemini KI einsortiert'
               ),
               estimatedMinutes: Number(act.estimatedMinutes) || 25,
@@ -319,14 +460,14 @@ export async function routeVoiceCommand(
             directAnswer: parsed.directAnswer || '',
             summary:
               parsed.summary ||
-              `${sanitizedActions.length} Aktion(en) automatisch durch Gemini einsortiert.`,
+              `${sanitizedActions.length} Aktion(en) durch ${result.usedModel} einsortiert.`,
             actions: sanitizedActions
           },
-          engine: 'Gemini 2.5 Flash (Auto-Router)'
+          engine: `${result.usedModel}`
         };
       }
     } catch (err: any) {
-      console.warn('[NexusFlow AI-Router] Netzwerk-/Parse-Fehler:', err);
+      console.warn('[NexusFlow AI-Router] Fehler:', err);
     }
   }
 
@@ -346,13 +487,9 @@ export async function askQuickAssistantQuestion(
 
   if (cleanKey) {
     try {
-      const endpoint =
-        'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' +
-        encodeURIComponent(cleanKey);
-
       const parts: any[] = [
         {
-          text: `Du bist der Praxis-Assistent für das Projekt "${projectName}". Antworte kurz, präzise und handwerklich direkt auf folgende Frage:\n${question}`
+          text: `Du bist der leitende Fach- und Praxis-Assistent für das Projekt "${projectName}". Antworte präzise, fundiert und handwerklich direkt auf folgende Frage:\n${question}`
         }
       ];
 
@@ -369,22 +506,16 @@ export async function askQuickAssistantQuestion(
         }
       }
 
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ role: 'user', parts }],
-          generationConfig: { temperature: 0.25 }
-        })
+      const result = await callGeminiWithAutoFallback(cleanKey, 'qa', {
+        contents: [{ role: 'user', parts }],
+        generationConfig: { temperature: 0.25 }
       });
 
-      if (res.ok) {
-        const data = await res.json();
-        const reply = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (reply) return reply.trim();
+      if (result.ok) {
+        const reply = result.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (reply) return `[Modell: ${result.usedModel}]\n${reply.trim()}`;
       } else {
-        const errData = await res.json().catch(() => ({}));
-        return `⚠️ Gemini API-Fehler (${res.status}): ${errData?.error?.message || 'Bitte API-Key in den Einstellungen prüfen.'}`;
+        return `⚠️ Gemini API-Fehler: ${result.errorMessage || 'Bitte API-Key prüfen.'}`;
       }
     } catch (err: any) {
       return `⚠️ Verbindungsfehler zur Gemini API: ${err?.message || 'Bitte Internetverbindung prüfen.'}`;
@@ -394,36 +525,39 @@ export async function askQuickAssistantQuestion(
   return [
     `⚠️ Kein aktiver Gemini API-Key gefunden (${projectName}):`,
     `• Deine Frage: „${question}“`,
-    '• Bitte hinterlege in den Einstellungen unter „KI-Schnittstelle (Gemini API-Key)“ deinen Schlüssel, damit Live-Antworten und Foto-Analysen funktionieren.'
+    '• Bitte hinterlege in den Einstellungen unter „KI-Schnittstelle“ deinen Schlüssel.'
   ].join('\n');
 }
 
 export async function testGeminiApiKey(
   apiKey: string
-): Promise<{ ok: boolean; message: string }> {
+): Promise<{ ok: boolean; message: string; availableModels?: string[] }> {
   const cleanKey = apiKey.trim();
   if (!cleanKey) {
     return { ok: false, message: 'Kein API-Key eingegeben.' };
   }
   try {
-    const endpoint =
-      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' +
-      encodeURIComponent(cleanKey);
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ role: 'user', parts: [{ text: 'Antworte nur mit: OK' }] }],
-        generationConfig: { maxOutputTokens: 10 }
-      })
+    const availableModels = await fetchAvailableGeminiModels(cleanKey);
+    const result = await callGeminiWithAutoFallback(cleanKey, 'qa', {
+      contents: [{ role: 'user', parts: [{ text: 'Antworte nur mit: OK' }] }],
+      generationConfig: { maxOutputTokens: 10 }
     });
-    if (res.ok) {
-      return { ok: true, message: 'Verbindung steht! Gemini 2.5 Flash antwortet einwandfrei.' };
+
+    if (result.ok) {
+      const topList =
+        availableModels.length > 0
+          ? ` | Höchste verfügbare Modelle in deinem Account: ${availableModels.slice(0, 5).join(', ')}`
+          : '';
+      return {
+        ok: true,
+        message: `Verbindung steht! Aktives Modell: "${result.usedModel}"${topList}`,
+        availableModels
+      };
     }
-    const err = await res.json().catch(() => ({}));
     return {
       ok: false,
-      message: `API-Fehler (${res.status}): ${err?.error?.message || 'Key ungültig oder gesperrt.'}`
+      message: `API-Fehler: ${result.errorMessage || 'Key ungültig oder gesperrt.'}`,
+      availableModels
     };
   } catch (e: any) {
     return { ok: false, message: `Netzwerkfehler: ${e?.message || 'Keine Verbindung.'}` };
