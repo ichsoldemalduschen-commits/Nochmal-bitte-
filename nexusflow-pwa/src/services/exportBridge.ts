@@ -122,3 +122,6 @@ export function exportScheduledTasksToIcs(projects: Project[]): number {
   URL.revokeObjectURL(url);
   return count;
 }
+
+export const exportDayPlanIcs = exportScheduledTasksToIcs;
+export const exportSalesLogsCsv = exportEventSalesToCsv;

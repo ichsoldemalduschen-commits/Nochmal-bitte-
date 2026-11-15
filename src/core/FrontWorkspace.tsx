@@ -1,12 +1,10 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   BookOpen,
   Check,
   ChevronDown,
-  ChevronRight,
   ChevronUp,
   Edit3,
-  Eye,
   FileText,
   Image as ImageIcon,
   Plus,
@@ -23,6 +21,7 @@ import {
   CustomMeta,
   DomainType,
   EventSalesLog,
+  PriorityType,
   Project,
   ProjectTabId,
   THEME
@@ -48,11 +47,17 @@ interface FrontWorkspaceProps {
     section: 'tasks' | 'explanations' | 'infos' | 'cart',
     itemId: string
   ) => void;
-  onResetChecklist: (projectId: string) => void;
+  onResetChecklist?: (projectId: string) => void;
+  onResetChecklistForDeployment?: (projectId: string) => void;
   onToggleTask: (projectId: string, taskId: string) => void;
-  onAddTask: (projectId: string, title: string) => void;
+  onAddTask: (
+    projectId: string,
+    title: string,
+    priority?: PriorityType,
+    estimatedMinutes?: number
+  ) => void;
   onDeleteTask: (projectId: string, taskId: string) => void;
-  onSendTaskToCart: (projectId: string, title: string) => void;
+  onSendTaskToCart?: (projectId: string, title: string) => void;
   onAddExplanation: (projectId: string, title: string, steps: string) => void;
   onUpdateExplanation: (projectId: string, expId: string, title: string, steps: string) => void;
   onAddInfo: (projectId: string, title: string, content: string) => void;
@@ -84,6 +89,7 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
   onResetProjectLogo,
   onConfirmRedDot,
   onResetChecklist,
+  onResetChecklistForDeployment,
   onToggleTask,
   onAddTask,
   onDeleteTask,
@@ -101,10 +107,9 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
   onOpenAddonsBackoffice,
   onNotify
 }) => {
-  const [isAccordionCollapsed, setIsAccordionCollapsed] = useState(true);
+  const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Formular-States
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [newExpTitle, setNewExpTitle] = useState('');
   const [newExpSteps, setNewExpSteps] = useState('');
@@ -117,193 +122,255 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
   const [newCartQty, setNewCartQty] = useState('1x');
   const [newCartPrice, setNewCartPrice] = useState('');
 
-  const [openExplanations, setOpenExplanations] = useState<Record<string, boolean>>({
-    'tsa-exp-all6': true
-  });
-  const [openInfos, setOpenInfos] = useState<Record<string, boolean>>({
-    'tsa-info-1': true
-  });
-  const [openProcurements, setOpenProcurements] = useState<Record<string, boolean>>({
-    'tsa-c1': true
-  });
+  const [openExplanations, setOpenExplanations] = useState<Record<string, boolean>>({});
+  const [openInfos, setOpenInfos] = useState<Record<string, boolean>>({});
+  const [openProcurements, setOpenProcurements] = useState<Record<string, boolean>>({});
+
+  const themeColors = useMemo(() => {
+    if (activeDomain === 'privat') {
+      return { primary: '#4F46E5', highlight: '#818CF8' };
+    }
+    if (activeProject?.id === 'proj-baeckerei') {
+      return { primary: '#D97706', highlight: '#F59E0B' };
+    }
+    return { primary: '#0A9396', highlight: '#14B8A6' };
+  }, [activeDomain, activeProject?.id]);
 
   const activePlugins = PLUGIN_REGISTRY.filter((pl) =>
-    activeProject?.enabledPlugins.includes(pl.id)
+    (activeProject?.enabledPlugins || []).includes(pl.id)
   );
 
+  const sortedTasks = useMemo(() => {
+    if (!activeProject) return [];
+    return [...activeProject.tasks]
+      .filter(
+        (t) =>
+          !searchQuery.trim() ||
+          t.title.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+      .sort((a, b) => Number(a.completed) - Number(b.completed));
+  }, [activeProject, searchQuery]);
+
+  const sortedCart = useMemo(() => {
+    if (!activeProject) return [];
+    return [...activeProject.cart]
+      .filter(
+        (c) =>
+          !searchQuery.trim() ||
+          c.title.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+      .sort((a, b) => Number(a.completed) - Number(b.completed));
+  }, [activeProject, searchQuery]);
+
+  const handleResetTasks = (projectId: string) => {
+    if (onResetChecklist) onResetChecklist(projectId);
+    else if (onResetChecklistForDeployment) onResetChecklistForDeployment(projectId);
+  };
+
+  const handleCopyTaskToCart = (projectId: string, title: string) => {
+    if (onSendTaskToCart) {
+      onSendTaskToCart(projectId, title);
+    } else {
+      onAddCartItems(projectId, [
+        { title, quantity: '1x', price: '', reason: 'Aus Tasks übernommen' }
+      ]);
+    }
+  };
+
   return (
-    <div className="space-y-3">
-      {/* 1. Domänen-Umschalter: ARBEIT vs. PRIVAT */}
+    <div className="space-y-2.5">
       <div
-        className="grid grid-cols-2 p-1 rounded-xl border border-white/10"
+        className="grid grid-cols-2 p-1 rounded-2xl border border-white/10"
         style={{ backgroundColor: THEME.bgCard }}
       >
         <button
-          onClick={() => {
-            onSwitchDomain('arbeit');
-            setIsAccordionCollapsed(false);
-          }}
-          className={`py-2 rounded-lg text-xs font-bold transition-all ${
-            activeDomain === 'arbeit' ? 'text-white shadow' : 'text-[#9CA3AF] hover:text-white'
+          type="button"
+          onClick={() => onSwitchDomain('arbeit')}
+          className={`py-2 rounded-xl text-xs font-bold transition-all ${
+            activeDomain === 'arbeit' ? 'text-white shadow-md' : 'text-[#9CA3AF] hover:text-white'
           }`}
-          style={activeDomain === 'arbeit' ? { backgroundColor: THEME.accentPrimary } : {}}
+          style={
+            activeDomain === 'arbeit'
+              ? {
+                  backgroundColor:
+                    activeProject?.id === 'proj-baeckerei' ? '#D97706' : '#0A9396'
+                }
+              : {}
+          }
         >
-          ?? ARBEIT
+          🛠️ ARBEIT
         </button>
         <button
-          onClick={() => {
-            onSwitchDomain('privat');
-            setIsAccordionCollapsed(false);
-          }}
-          className={`py-2 rounded-lg text-xs font-bold transition-all ${
-            activeDomain === 'privat' ? 'text-white shadow' : 'text-[#9CA3AF] hover:text-white'
+          type="button"
+          onClick={() => onSwitchDomain('privat')}
+          className={`py-2 rounded-xl text-xs font-bold transition-all ${
+            activeDomain === 'privat' ? 'text-white shadow-md' : 'text-[#9CA3AF] hover:text-white'
           }`}
-          style={activeDomain === 'privat' ? { backgroundColor: THEME.accentPrimary } : {}}
+          style={activeDomain === 'privat' ? { backgroundColor: '#4F46E5' } : {}}
         >
-          ? PRIVAT
+          🏠 PRIVAT
         </button>
       </div>
 
-      {/* 2. Ziehharmonika-Projektfokus */}
-      {isAccordionCollapsed && activeProject ? (
-        <div
-          className="px-3 py-2.5 rounded-xl border flex items-center justify-between gap-2 shadow-md"
-          style={{
-            backgroundColor: THEME.bgCard,
-            borderColor: activeProject.accentColor || THEME.accentPrimary
-          }}
-        >
-          <div className="flex items-center gap-2.5 min-w-0">
-            <div className="relative shrink-0">
-              <ProjectAvatar project={activeProject} sizeClass="w-9 h-9" />
-              <label
-                title="Eigenes Projekt-/Waschbär-Logo aus Galerie wählen"
-                className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-[#0A9396] text-white flex items-center justify-center cursor-pointer border border-black"
-              >
-                <ImageIcon className="w-2.5 h-2.5" />
-                <input
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (f) onUploadProjectLogo(activeProject.id, f);
-                    e.target.value = '';
-                  }}
+      <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 no-scrollbar">
+        {domainProjects.map((proj) => {
+          const isSelected = activeProject?.id === proj.id;
+          const projColor =
+            proj.domain === 'privat'
+              ? '#4F46E5'
+              : proj.id === 'proj-baeckerei'
+              ? '#D97706'
+              : '#0A9396';
+          const openCount = proj.tasks.filter((t) => !t.completed).length;
+          const hasAiDot =
+            proj.tasks.some((t) => t.aiTouched) ||
+            proj.explanations.some((e) => e.aiTouched) ||
+            proj.infos.some((i) => i.aiTouched) ||
+            proj.cart.some((c) => c.aiTouched);
+
+          return (
+            <button
+              type="button"
+              key={proj.id}
+              onClick={() => onSelectProject(proj.id)}
+              className={`px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-2 shrink-0 border transition-all active:scale-95 ${
+                isSelected ? 'text-white shadow-md' : 'text-[#9CA3AF] bg-[#24292E]'
+              }`}
+              style={{
+                backgroundColor: isSelected ? projColor : THEME.bgCard,
+                borderColor: isSelected ? 'rgba(255,255,255,0.28)' : 'rgba(255,255,255,0.08)'
+              }}
+            >
+              <ProjectAvatar project={proj} sizeClass="w-5 h-5" />
+              <span className="truncate max-w-[145px]">
+                {proj.id === 'proj-foodtruck'
+                  ? 'Pizza Bandit'
+                  : proj.id === 'proj-baeckerei'
+                  ? 'Baustelle Bäckerei'
+                  : proj.name}
+              </span>
+              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-full bg-black/30 text-white">
+                {openCount}
+              </span>
+              {hasAiDot && (
+                <span
+                  className="w-1.5 h-1.5 rounded-full shrink-0"
+                  style={{ backgroundColor: THEME.aiRedDot }}
                 />
-              </label>
-            </div>
-            <div className="min-w-0">
-              <div className="text-xs font-bold text-[#F8F9FA] truncate">
-                <span className="text-[#9CA3AF] font-normal mr-1">
-                  {activeDomain === 'arbeit' ? '??' : '?'}
-                </span>
-                {activeProject.name}
-              </div>
-              <p className="text-[10px] text-[#9CA3AF] truncate">
-                {activeProject.tasks.filter((t) => !t.completed).length} offene Tasks •{' '}
-                {activeProject.cart.filter((c) => !c.completed).length} im Einkaufswagen
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-1 shrink-0">
-            {activeProject.customLogoUrl && (
-              <button
-                onClick={() => onResetProjectLogo(activeProject.id)}
-                title="Standard-Logo wiederherstellen"
-                className="p-1.5 rounded-lg bg-[#2F363D] text-[#9CA3AF] hover:text-white"
-              >
-                <RotateCcw className="w-3 h-3" />
-              </button>
-            )}
-            <button
-              onClick={() => setIsAccordionCollapsed(false)}
-              className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-[#2F363D] text-[#14B8A6] hover:text-white border border-white/10 flex items-center gap-1"
-            >
-              <span>Wechseln</span>
-              <ChevronDown className="w-3.5 h-3.5" />
+              )}
             </button>
-          </div>
-        </div>
-      ) : (
-        <div
-          className="p-3 rounded-2xl border border-white/10 space-y-2.5 shadow-lg"
-          style={{ backgroundColor: THEME.bgCard }}
+          );
+        })}
+
+        <button
+          type="button"
+          onClick={onOpenNewProjectModal}
+          title="Neues Projekt anlegen"
+          className="px-2.5 py-2 rounded-xl text-xs font-bold bg-[#24292E] text-[#9CA3AF] hover:text-white border border-white/10 shrink-0 flex items-center gap-1"
         >
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-[#14B8A6]">
-              Projekt wählen:
-            </span>
-            <button
-              onClick={onOpenNewProjectModal}
-              className="text-[11px] font-semibold text-[#14B8A6] flex items-center gap-1 hover:underline"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              Neues Projekt
-            </button>
-          </div>
+          <Plus className="w-3.5 h-3.5" />
+        </button>
+      </div>
 
-          <div className="space-y-2">
-            {domainProjects.map((proj) => {
-              const hasAiDot =
-                proj.tasks.some((t) => t.aiTouched) ||
-                proj.explanations.some((e) => e.aiTouched) ||
-                proj.infos.some((i) => i.aiTouched) ||
-                proj.cart.some((c) => c.aiTouched);
-
-              return (
-                <div
-                  key={proj.id}
-                  onClick={() => {
-                    onSelectProject(proj.id);
-                    setIsAccordionCollapsed(true);
-                  }}
-                  className="p-3 rounded-xl border flex items-center justify-between gap-3 cursor-pointer transition hover:border-[#14B8A6]"
-                  style={{
-                    backgroundColor: activeProject?.id === proj.id ? THEME.bgSub : '#1C2024',
-                    borderColor:
-                      activeProject?.id === proj.id ? proj.accentColor : 'rgba(255,255,255,0.08)'
-                  }}
-                >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <ProjectAvatar project={proj} sizeClass="w-10 h-10" />
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-bold text-white truncate">{proj.name}</span>
-                        {hasAiDot && (
-                          <span
-                            className="w-1.5 h-1.5 rounded-full shrink-0"
-                            style={{ backgroundColor: THEME.aiRedDot }}
-                          />
-                        )}
-                      </div>
-                      <p className="text-[11px] text-[#9CA3AF] truncate">{proj.subtitle}</p>
-                    </div>
-                  </div>
-                  <ChevronRight className="w-4 h-4 text-[#9CA3AF] shrink-0" />
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* 3. Die 5 festen Projekt-Reiter */}
       {activeProject && (
         <div
-          className="rounded-2xl border border-white/10 overflow-hidden shadow-xl"
-          style={{ backgroundColor: THEME.bgCard }}
+          className="rounded-2xl border overflow-hidden shadow-xl transition-colors duration-300"
+          style={{
+            backgroundColor: THEME.bgCard,
+            borderColor: `${themeColors.primary}66`
+          }}
         >
+          <div className="px-3 py-2 border-b border-white/10 flex items-center justify-between gap-2 bg-[#1C2024]">
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="relative shrink-0">
+                <ProjectAvatar project={activeProject} sizeClass="w-7 h-7" />
+                <label
+                  title="Eigenes Projekt-Logo wählen"
+                  className="absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full text-white flex items-center justify-center cursor-pointer border border-black"
+                  style={{ backgroundColor: themeColors.primary }}
+                >
+                  <ImageIcon className="w-2 h-2" />
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) onUploadProjectLogo(activeProject.id, f);
+                      e.target.value = '';
+                    }}
+                  />
+                </label>
+              </div>
+              <div className="min-w-0">
+                <h2 className="text-xs font-bold text-white truncate">{activeProject.name}</h2>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1 shrink-0">
+              {activeProject.customLogoUrl && (
+                <button
+                  type="button"
+                  onClick={() => onResetProjectLogo(activeProject.id)}
+                  title="Standard-Logo wiederherstellen"
+                  className="p-1.5 rounded-lg bg-[#2F363D] text-[#9CA3AF] hover:text-white"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  setShowSearch((s) => !s);
+                  if (showSearch) setSearchQuery('');
+                }}
+                className={`p-1.5 rounded-lg border text-xs flex items-center gap-1 ${
+                  showSearch || searchQuery
+                    ? 'text-white border-white/30'
+                    : 'bg-[#2F363D] text-[#9CA3AF] border-white/5'
+                }`}
+                style={
+                  showSearch || searchQuery ? { backgroundColor: themeColors.primary } : {}
+                }
+                title="In Listen suchen"
+              >
+                <Search className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+
+          {showSearch && (
+            <div className="px-3 py-2 border-b border-white/10 bg-[#181A1B] flex items-center gap-2">
+              <Search className="w-3.5 h-3.5 text-[#9CA3AF] shrink-0" />
+              <input
+                type="text"
+                autoFocus
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder={`In ${activeProject.name} suchen...`}
+                className="flex-1 bg-transparent text-xs text-white focus:outline-none"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="text-[#9CA3AF] hover:text-white"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          )}
+
           <div
             className="grid grid-cols-5 border-b border-white/10"
-            style={{ backgroundColor: '#1C2024' }}
+            style={{ backgroundColor: '#181A1B' }}
           >
             {[
               {
                 id: 'tasks' as ProjectTabId,
                 label: 'Tasks',
-                count: activeProject.tasks.length,
+                count: activeProject.tasks.filter((t) => !t.completed).length,
                 redDot: activeProject.tasks.some((t) => t.aiTouched)
               },
               {
@@ -320,13 +387,13 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
               },
               {
                 id: 'cart' as ProjectTabId,
-                label: 'Wagen',
-                count: activeProject.cart.length,
+                label: 'Einkauf',
+                count: activeProject.cart.filter((c) => !c.completed).length,
                 redDot: activeProject.cart.some((c) => c.aiTouched)
               },
               {
                 id: 'extras' as ProjectTabId,
-                label: '? Extras',
+                label: 'Extras',
                 count: activePlugins.length,
                 redDot: false
               }
@@ -334,14 +401,15 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
               const active = activeTab === t.id;
               return (
                 <button
+                  type="button"
                   key={t.id}
                   onClick={() => onChangeTab(t.id)}
-                  className={`py-2.5 px-1 text-[10px] sm:text-[11px] font-bold flex flex-col items-center justify-center gap-0.5 border-b-2 transition ${
+                  className={`py-2.5 px-1 text-[11px] font-bold flex flex-col items-center justify-center gap-0.5 border-b-2 transition ${
                     active
                       ? 'text-white bg-[#24292E]'
                       : 'text-[#9CA3AF] hover:text-white border-transparent'
                   }`}
-                  style={active ? { borderBottomColor: THEME.accentHighlight } : {}}
+                  style={active ? { borderBottomColor: themeColors.highlight } : {}}
                 >
                   <div className="flex items-center gap-1 max-w-full">
                     <span className="truncate">{t.label}</span>
@@ -352,55 +420,25 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
                       />
                     )}
                   </div>
-                  <span className="text-[9px] font-mono text-[#14B8A6]">({t.count})</span>
+                  <span
+                    className="text-[9px] font-mono"
+                    style={{ color: active ? themeColors.highlight : '#9CA3AF' }}
+                  >
+                    ({t.count})
+                  </span>
                 </button>
               );
             })}
           </div>
 
-          {/* Filter & Einsatz-Reset */}
-          {activeTab !== 'extras' && (
-            <div className="px-3 py-2 border-b border-white/10 flex flex-wrap items-center justify-between gap-2 bg-[#1E2226]">
-              <div className="relative flex-1 min-w-[120px]">
-                <Search className="w-3 h-3 text-[#9CA3AF] absolute left-2.5 top-1/2 -translate-y-1/2" />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Einträge filtern..."
-                  className="w-full pl-7 pr-6 py-1 rounded-lg text-[11px] bg-[#181A1B] text-[#F8F9FA] border border-white/10 focus:outline-none focus:border-[#14B8A6]"
-                />
-                {searchQuery && (
-                  <button
-                    onClick={() => setSearchQuery('')}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-[#9CA3AF]"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                )}
-              </div>
-
-              {activeTab === 'tasks' && (
-                <button
-                  onClick={() => onResetChecklist(activeProject.id)}
-                  className="px-2.5 py-1 rounded-lg text-[10px] font-semibold bg-[#2F363D] text-[#14B8A6] hover:text-white border border-white/10 flex items-center gap-1 shrink-0"
-                >
-                  <RotateCcw className="w-3 h-3" />
-                  <span>Checkliste für Einsatz zurücksetzen</span>
-                </button>
-              )}
-            </div>
-          )}
-
-          <div className="p-3 space-y-3">
-            {/* TAB 1: TASKS */}
+          <div className="p-3 space-y-2.5">
             {activeTab === 'tasks' && (
               <div className="space-y-2.5">
                 <form
                   onSubmit={(e) => {
                     e.preventDefault();
                     if (!newTaskTitle.trim()) return;
-                    onAddTask(activeProject.id, newTaskTitle.trim());
+                    onAddTask(activeProject.id, newTaskTitle.trim(), 'Mittel', 25);
                     setNewTaskTitle('');
                   }}
                   className="flex items-center gap-1.5"
@@ -409,60 +447,61 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
                     type="text"
                     value={newTaskTitle}
                     onChange={(e) => setNewTaskTitle(e.target.value)}
-                    placeholder="Neuer Task / Baugruppen-Schritt..."
-                    className="flex-1 px-3 py-2 rounded-xl text-xs bg-[#181A1B] text-white border border-white/10 focus:outline-none focus:border-[#14B8A6]"
+                    placeholder="Neuen Punkt schnell eintippen..."
+                    className="flex-1 px-3 py-2 rounded-xl text-xs bg-[#181A1B] text-white border border-white/10 focus:outline-none"
                   />
                   <button
                     type="submit"
-                    className="px-3 py-2 rounded-xl text-xs font-bold text-white"
-                    style={{ backgroundColor: THEME.accentPrimary }}
+                    className="px-3.5 py-2 rounded-xl text-xs font-bold text-white shrink-0"
+                    style={{ backgroundColor: themeColors.primary }}
                   >
                     <Plus className="w-4 h-4" />
                   </button>
                 </form>
 
                 <div className="space-y-2">
-                  {activeProject.tasks
-                    .filter(
-                      (t) =>
-                        !searchQuery.trim() ||
-                        t.title.toLowerCase().includes(searchQuery.toLowerCase())
-                    )
-                    .map((task) => (
-                      <div
-                        key={task.id}
-                        id={`item-card-${task.id}`}
-                        className="p-3 rounded-xl border transition-all flex items-center justify-between gap-2.5"
-                        style={{
-                          backgroundColor: THEME.bgSub,
-                          borderColor:
-                            highlightedItemId === task.id
-                              ? THEME.accentHighlight
-                              : 'rgba(255,255,255,0.08)'
-                        }}
-                      >
+                  {sortedTasks.map((task) => (
+                    <div
+                      key={task.id}
+                      id={`item-card-${task.id}`}
+                      className={`p-3 rounded-xl border transition-all flex items-center justify-between gap-2.5 ${
+                        task.completed ? 'opacity-75' : ''
+                      }`}
+                      style={{
+                        backgroundColor: THEME.bgSub,
+                        borderColor:
+                          highlightedItemId === task.id
+                            ? themeColors.highlight
+                            : 'rgba(255,255,255,0.08)'
+                      }}
+                    >
+                      <div className="flex items-center gap-2.5 flex-1 min-w-0">
                         {task.aiTouched && (
                           <button
-                            onClick={() => onConfirmRedDot(activeProject.id, 'tasks', task.id)}
-                            title="Von KI bearbeitet – Antippen zum Bestätigen"
-                            className="w-1.5 h-1.5 rounded-full shrink-0"
+                            type="button"
+                            onClick={() =>
+                              onConfirmRedDot(activeProject.id, 'tasks', task.id)
+                            }
+                            title="Von KI einsortiert – antippen zum Bestätigen"
+                            className="w-2 h-2 rounded-full shrink-0"
                             style={{ backgroundColor: THEME.aiRedDot }}
                           />
                         )}
-
                         <button
+                          type="button"
                           onClick={() => onToggleTask(activeProject.id, task.id)}
                           className="w-5 h-5 rounded-md flex items-center justify-center border shrink-0"
                           style={{
                             backgroundColor: task.completed
-                              ? THEME.accentPrimary
+                              ? themeColors.primary
                               : 'rgba(24, 26, 27, 0.7)',
-                            borderColor: task.completed ? THEME.accentHighlight : '#9CA3AF'
+                            borderColor: task.completed ? themeColors.highlight : '#9CA3AF'
                           }}
                         >
-                          {task.completed && <Check className="w-3.5 h-3.5 text-white stroke-[3]" />}
+                          {task.completed && (
+                            <Check className="w-3.5 h-3.5 text-white stroke-[3]" />
+                          )}
                         </button>
-
                         <div
                           onClick={() => onToggleTask(activeProject.id, task.id)}
                           className="flex-1 min-w-0 cursor-pointer"
@@ -471,36 +510,54 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
                             {task.title}
                           </span>
                           {task.completed && (
-                            <span className="text-[10px] font-semibold text-[#14B8A6]">
-                              ? Erledigt
+                            <span
+                              className="text-[10px] font-semibold"
+                              style={{ color: themeColors.highlight }}
+                            >
+                              ✓ Erledigt
                             </span>
                           )}
                         </div>
-
-                        <div className="flex items-center gap-1 shrink-0">
-                          <button
-                            onClick={() => onSendTaskToCart(activeProject.id, task.title)}
-                            title="Als Position in den Einkaufswagen kopieren"
-                            className="p-1.5 rounded-lg bg-[#181A1B] text-[#14B8A6] hover:bg-[#0A9396] hover:text-white border border-white/10"
-                          >
-                            <ShoppingCart className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() => onDeleteTask(activeProject.id, task.id)}
-                            className="p-1 text-[#9CA3AF] hover:text-red-400"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
                       </div>
-                    ))}
+
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => handleCopyTaskToCart(activeProject.id, task.title)}
+                          title="In den Einkaufswagen kopieren"
+                          className="p-1.5 rounded-lg bg-[#181A1B] text-[#9CA3AF] hover:text-white border border-white/10"
+                        >
+                          <ShoppingCart className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onDeleteTask(activeProject.id, task.id)}
+                          className="p-1.5 text-[#9CA3AF] hover:text-red-400"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
+
+                {activeProject.tasks.some((t) => t.completed) && (
+                  <div className="pt-2 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => handleResetTasks(activeProject.id)}
+                      className="px-2.5 py-1.5 rounded-lg text-[10px] font-semibold bg-[#181A1B] text-[#9CA3AF] hover:text-white border border-white/10 flex items-center gap-1"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                      <span>Alle Haken für neuen Einsatz zurücksetzen</span>
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 
-            {/* TAB 2: ARBEITSERKLÄRUNGEN */}
             {activeTab === 'explanations' && (
-              <div className="space-y-3">
+              <div className="space-y-2.5">
                 <form
                   onSubmit={(e) => {
                     e.preventDefault();
@@ -521,13 +578,13 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
                       type="text"
                       value={newExpTitle}
                       onChange={(e) => setNewExpTitle(e.target.value)}
-                      placeholder="Neue Arbeitserklärung / Rezeptur / Bauanleitung..."
+                      placeholder="Neuer Ablauf / Anleitung..."
                       className="flex-1 px-2.5 py-1.5 rounded-lg text-xs bg-[#181A1B] text-white border border-white/10"
                     />
                     <button
                       type="submit"
                       className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white shrink-0"
-                      style={{ backgroundColor: THEME.accentPrimary }}
+                      style={{ backgroundColor: themeColors.primary }}
                     >
                       + Neu
                     </button>
@@ -537,7 +594,7 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
                       rows={3}
                       value={newExpSteps}
                       onChange={(e) => setNewExpSteps(e.target.value)}
-                      placeholder="Schritt-für-Schritt Ablauf..."
+                      placeholder="Schritte eintragen..."
                       className="w-full p-2 rounded-lg text-xs bg-[#181A1B] text-white border border-white/10"
                     />
                   )}
@@ -554,7 +611,6 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
                     .map((exp) => {
                       const isOpen = !!openExplanations[exp.id];
                       const isEditing = editingExpId === exp.id;
-
                       return (
                         <div
                           key={exp.id}
@@ -571,21 +627,26 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
                             <div className="flex items-center gap-2 min-w-0">
                               {exp.aiTouched && (
                                 <button
+                                  type="button"
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     onConfirmRedDot(activeProject.id, 'explanations', exp.id);
                                   }}
-                                  className="w-1.5 h-1.5 rounded-full shrink-0"
+                                  className="w-2 h-2 rounded-full shrink-0"
                                   style={{ backgroundColor: THEME.aiRedDot }}
                                 />
                               )}
-                              <BookOpen className="w-3.5 h-3.5 text-[#14B8A6] shrink-0" />
+                              <BookOpen
+                                className="w-3.5 h-3.5 shrink-0"
+                                style={{ color: themeColors.highlight }}
+                              />
                               <h4 className="text-xs sm:text-sm font-bold text-[#F8F9FA] truncate">
                                 {exp.title}
                               </h4>
                             </div>
                             <div className="flex items-center gap-1 shrink-0">
                               <button
+                                type="button"
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   setEditingExpId(exp.id);
@@ -623,12 +684,14 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
                                   />
                                   <div className="flex justify-end gap-2">
                                     <button
+                                      type="button"
                                       onClick={() => setEditingExpId(null)}
                                       className="px-2.5 py-1 text-xs text-[#9CA3AF]"
                                     >
                                       Abbrechen
                                     </button>
                                     <button
+                                      type="button"
                                       onClick={() => {
                                         onUpdateExplanation(
                                           activeProject.id,
@@ -639,7 +702,7 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
                                         setEditingExpId(null);
                                       }}
                                       className="px-3 py-1 rounded text-xs font-semibold text-white"
-                                      style={{ backgroundColor: THEME.accentPrimary }}
+                                      style={{ backgroundColor: themeColors.primary }}
                                     >
                                       Speichern
                                     </button>
@@ -651,7 +714,7 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
                                 </div>
                               )}
                               <div className="pt-1.5 border-t border-white/5 text-[10px] text-[#9CA3AF]/75">
-                                Stand: {exp.lastModified} • {exp.changeReason} ({exp.source})
+                                Stand: {exp.lastModified} • {exp.changeReason}
                               </div>
                             </div>
                           )}
@@ -662,9 +725,8 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
               </div>
             )}
 
-            {/* TAB 3: ALLGEMEINE INFOS & INDEXEDDB DATEI-ANHÄNGE */}
             {activeTab === 'infos' && (
-              <div className="space-y-3">
+              <div className="space-y-2.5">
                 <form
                   onSubmit={(e) => {
                     e.preventDefault();
@@ -681,13 +743,13 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
                       type="text"
                       value={newInfoTitle}
                       onChange={(e) => setNewInfoTitle(e.target.value)}
-                      placeholder="Neue Info-Karte / Maße / Schaltplan..."
+                      placeholder="Neue Info / Maße / Notiz..."
                       className="flex-1 px-2.5 py-1.5 rounded-lg text-xs bg-[#181A1B] text-white border border-white/10"
                     />
                     <button
                       type="submit"
                       className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white shrink-0"
-                      style={{ backgroundColor: THEME.accentPrimary }}
+                      style={{ backgroundColor: themeColors.primary }}
                     >
                       + Info
                     </button>
@@ -697,13 +759,13 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
                       rows={2}
                       value={newInfoContent}
                       onChange={(e) => setNewInfoContent(e.target.value)}
-                      placeholder="Referenzdaten eintragen..."
+                      placeholder="Details oder Maße eintragen..."
                       className="w-full p-2 rounded-lg text-xs bg-[#181A1B] text-white border border-white/10"
                     />
                   )}
                 </form>
 
-                <div className="space-y-2.5">
+                <div className="space-y-2">
                   {activeProject.infos
                     .filter(
                       (inf) =>
@@ -721,21 +783,27 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
                           style={{ backgroundColor: THEME.bgSub }}
                         >
                           <div
-                            onClick={() => setOpenInfos((p) => ({ ...p, [info.id]: !p[info.id] }))}
+                            onClick={() =>
+                              setOpenInfos((p) => ({ ...p, [info.id]: !p[info.id] }))
+                            }
                             className="p-3 flex items-center justify-between gap-2 cursor-pointer"
                           >
                             <div className="flex items-center gap-2 min-w-0">
                               {info.aiTouched && (
                                 <button
+                                  type="button"
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     onConfirmRedDot(activeProject.id, 'infos', info.id);
                                   }}
-                                  className="w-1.5 h-1.5 rounded-full shrink-0"
+                                  className="w-2 h-2 rounded-full shrink-0"
                                   style={{ backgroundColor: THEME.aiRedDot }}
                                 />
                               )}
-                              <FileText className="w-3.5 h-3.5 text-[#14B8A6] shrink-0" />
+                              <FileText
+                                className="w-3.5 h-3.5 shrink-0"
+                                style={{ color: themeColors.highlight }}
+                              />
                               <h4 className="text-xs sm:text-sm font-bold text-[#F8F9FA] truncate">
                                 {info.title}
                               </h4>
@@ -755,14 +823,14 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
 
                               <div className="flex items-center justify-between pt-1">
                                 <span className="text-[10px] text-[#9CA3AF]">
-                                  IndexedDB-Anhänge ({info.attachments.length})
+                                  Anhänge ({info.attachments.length})
                                 </span>
                                 <label
                                   className="cursor-pointer px-2.5 py-1 rounded-lg text-[10px] font-semibold text-white flex items-center gap-1"
-                                  style={{ backgroundColor: THEME.accentPrimary }}
+                                  style={{ backgroundColor: themeColors.primary }}
                                 >
                                   <Upload className="w-3 h-3" />
-                                  Foto / PDF / Text
+                                  Foto / PDF
                                   <input
                                     type="file"
                                     accept="image/*,.pdf,.txt,.md"
@@ -782,12 +850,12 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
                                     <div
                                       key={att.id}
                                       onClick={() => onPreviewAttachment(att)}
-                                      className="p-2 rounded-lg bg-[#24292E] border border-white/10 flex items-center justify-between text-xs cursor-pointer hover:border-[#14B8A6]"
+                                      className="p-2 rounded-lg bg-[#24292E] border border-white/10 flex items-center justify-between text-xs cursor-pointer"
                                     >
-                                      <span className="truncate text-[#F8F9FA]">
-                                        {att.name} ({att.size})
+                                      <span className="text-white truncate">{att.name}</span>
+                                      <span className="text-[10px] text-[#9CA3AF] shrink-0 ml-2">
+                                        {att.size}
                                       </span>
-                                      <Eye className="w-3.5 h-3.5 text-[#14B8A6] shrink-0" />
                                     </div>
                                   ))}
                                 </div>
@@ -801,9 +869,8 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
               </div>
             )}
 
-            {/* TAB 4: EINKAUFSWAGEN INKL. BESCHAFFUNGS-CHECK PLUGIN */}
             {activeTab === 'cart' && (
-              <div className="space-y-3">
+              <div className="space-y-2.5">
                 <form
                   onSubmit={(e) => {
                     e.preventDefault();
@@ -826,156 +893,153 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
                     type="text"
                     value={newCartTitle}
                     onChange={(e) => setNewCartTitle(e.target.value)}
-                    placeholder="Artikel hinzufügen (aktiviert automatisch Beschaffungs-Check)..."
+                    placeholder="Material / Artikel für Einkaufswagen..."
                     className="w-full px-2.5 py-1.5 rounded-lg text-xs bg-[#181A1B] text-white border border-white/10"
                   />
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex gap-1.5">
                     <input
                       type="text"
                       value={newCartQty}
                       onChange={(e) => setNewCartQty(e.target.value)}
-                      placeholder="Menge"
+                      placeholder="Menge (1x)"
                       className="w-24 px-2.5 py-1.5 rounded-lg text-xs bg-[#181A1B] text-white border border-white/10"
                     />
                     <input
                       type="text"
                       value={newCartPrice}
                       onChange={(e) => setNewCartPrice(e.target.value)}
-                      placeholder="Preis €"
-                      className="w-24 px-2.5 py-1.5 rounded-lg text-xs bg-[#181A1B] text-white border border-white/10 font-mono"
+                      placeholder="Preis € (opt.)"
+                      className="w-28 px-2.5 py-1.5 rounded-lg text-xs bg-[#181A1B] text-white border border-white/10"
                     />
                     <button
                       type="submit"
                       className="flex-1 py-1.5 rounded-lg text-xs font-bold text-white flex items-center justify-center gap-1"
-                      style={{ backgroundColor: THEME.accentPrimary }}
+                      style={{ backgroundColor: themeColors.primary }}
                     >
                       <Plus className="w-3.5 h-3.5" />
-                      In den Wagen
+                      Reinlegen
                     </button>
                   </div>
                 </form>
 
                 <div className="space-y-2">
-                  {activeProject.cart
-                    .filter(
-                      (c) =>
-                        !searchQuery.trim() ||
-                        c.title.toLowerCase().includes(searchQuery.toLowerCase())
-                    )
-                    .map((item) => {
-                      const isProcOpen = !!openProcurements[item.id];
-                      return (
-                        <div
-                          key={item.id}
-                          id={`item-card-${item.id}`}
-                          className="rounded-xl border border-white/10 overflow-hidden"
-                          style={{ backgroundColor: THEME.bgSub }}
-                        >
-                          <div className="p-3 flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-2.5 flex-1 min-w-0">
-                              {item.aiTouched && (
-                                <button
-                                  onClick={() => onConfirmRedDot(activeProject.id, 'cart', item.id)}
-                                  className="w-1.5 h-1.5 rounded-full shrink-0"
-                                  style={{ backgroundColor: THEME.aiRedDot }}
-                                />
-                              )}
-
+                  {sortedCart.map((item) => {
+                    const isProcOpen = !!openProcurements[item.id];
+                    return (
+                      <div
+                        key={item.id}
+                        id={`item-card-${item.id}`}
+                        className={`rounded-xl border border-white/10 overflow-hidden ${
+                          item.completed ? 'opacity-75' : ''
+                        }`}
+                        style={{ backgroundColor: THEME.bgSub }}
+                      >
+                        <div className="p-3 flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2.5 flex-1 min-w-0">
+                            {item.aiTouched && (
                               <button
-                                onClick={() => onToggleCartItem(activeProject.id, item.id)}
-                                className="w-5 h-5 rounded-md flex items-center justify-center border shrink-0"
-                                style={{
-                                  backgroundColor: item.completed
-                                    ? THEME.accentPrimary
-                                    : 'rgba(24, 26, 27, 0.7)',
-                                  borderColor: item.completed ? THEME.accentHighlight : '#9CA3AF'
-                                }}
-                              >
-                                {item.completed && (
-                                  <Check className="w-3.5 h-3.5 text-white stroke-[3]" />
-                                )}
-                              </button>
-
-                              <div className="min-w-0 flex-1">
-                                <span className="text-xs sm:text-sm font-semibold text-[#F8F9FA] block truncate">
-                                  {item.title}
-                                </span>
-                                <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
-                                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[#181A1B] text-[#14B8A6]">
-                                    {item.quantity}
-                                  </span>
-                                  {item.price && (
-                                    <span className="text-[10px] font-mono text-[#9CA3AF]">
-                                      {item.price} €
-                                    </span>
-                                  )}
-                                  {item.completed && (
-                                    <span className="text-[10px] font-bold text-[#14B8A6]">
-                                      ? Besorgt
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-
-                            <div className="flex items-center gap-1 shrink-0">
-                              <button
+                                type="button"
                                 onClick={() =>
-                                  setOpenProcurements((p) => ({
-                                    ...p,
-                                    [item.id]: !p[item.id]
-                                  }))
+                                  onConfirmRedDot(activeProject.id, 'cart', item.id)
                                 }
-                                className={`px-2 py-1 rounded-lg text-[10px] font-semibold border flex items-center gap-1 transition ${
-                                  isProcOpen
-                                    ? 'bg-[#0A9396] text-white border-[#14B8A6]'
-                                    : 'bg-[#181A1B] text-[#14B8A6] border-white/10'
-                                }`}
-                              >
-                                <span>? Check</span>
-                                {isProcOpen ? (
-                                  <ChevronUp className="w-3 h-3" />
-                                ) : (
-                                  <ChevronDown className="w-3 h-3" />
+                                className="w-2 h-2 rounded-full shrink-0"
+                                style={{ backgroundColor: THEME.aiRedDot }}
+                              />
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => onToggleCartItem(activeProject.id, item.id)}
+                              className="w-5 h-5 rounded-md flex items-center justify-center border shrink-0"
+                              style={{
+                                backgroundColor: item.completed
+                                  ? themeColors.primary
+                                  : 'rgba(24, 26, 27, 0.7)',
+                                borderColor: item.completed ? themeColors.highlight : '#9CA3AF'
+                              }}
+                            >
+                              {item.completed && (
+                                <Check className="w-3.5 h-3.5 text-white stroke-[3]" />
+                              )}
+                            </button>
+                            <div
+                              onClick={() => onToggleCartItem(activeProject.id, item.id)}
+                              className="min-w-0 flex-1 cursor-pointer"
+                            >
+                              <span className="text-xs sm:text-sm font-semibold text-[#F8F9FA] block truncate">
+                                {item.title}
+                              </span>
+                              <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
+                                <span
+                                  className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[#181A1B]"
+                                  style={{ color: themeColors.highlight }}
+                                >
+                                  {item.quantity}
+                                </span>
+                                {item.price && (
+                                  <span className="text-[10px] font-mono text-[#9CA3AF]">
+                                    ca. {item.price} €
+                                  </span>
                                 )}
-                              </button>
-                              <button
-                                onClick={() => onDeleteCartItem(activeProject.id, item.id)}
-                                className="p-1 text-[#9CA3AF] hover:text-red-400"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
+                              </div>
                             </div>
                           </div>
 
-                          {isProcOpen && (
-                            <ProcurementCheckPanel
-                              title={item.title}
-                              customCheck={item.procurementCheck}
-                            />
-                          )}
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setOpenProcurements((p) => ({
+                                  ...p,
+                                  [item.id]: !p[item.id]
+                                }))
+                              }
+                              className="px-2 py-1 rounded-lg text-[10px] font-semibold border border-white/10 bg-[#181A1B] text-[#9CA3AF] hover:text-white flex items-center gap-1"
+                            >
+                              <span>🔍 Check</span>
+                              {isProcOpen ? (
+                                <ChevronUp className="w-3 h-3" />
+                              ) : (
+                                <ChevronDown className="w-3 h-3" />
+                              )}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => onDeleteCartItem(activeProject.id, item.id)}
+                              className="p-1 text-[#9CA3AF] hover:text-red-400"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </div>
-                      );
-                    })}
+
+                        {isProcOpen && (
+                          <ProcurementCheckPanel
+                            title={item.title}
+                            customCheck={item.procurementCheck}
+                          />
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}
 
-            {/* TAB 5: ? EXTRAS (ISOLIERTE STECKKARTEN-PLUGINS) */}
             {activeTab === 'extras' && (
               <div className="space-y-3">
                 {activePlugins.length === 0 ? (
-                  <div className="p-4 rounded-xl bg-[#2F363D] border border-white/10 text-center space-y-2">
-                    <Puzzle className="w-6 h-6 text-[#14B8A6] mx-auto" />
-                    <p className="text-xs text-white font-semibold">
-                      Noch keine Steckkarten für „{activeProject.name}“ aktiviert.
+                  <div className="p-4 rounded-xl bg-[#181A1B] border border-white/10 text-center space-y-2">
+                    <Puzzle className="w-6 h-6 mx-auto text-[#9CA3AF]" />
+                    <p className="text-xs text-[#9CA3AF]">
+                      Für dieses Projekt sind aktuell keine Zusatz-Tools eingeschaltet.
                     </p>
                     <button
+                      type="button"
                       onClick={onOpenAddonsBackoffice}
                       className="px-3 py-1.5 rounded-lg text-xs font-bold text-white"
-                      style={{ backgroundColor: THEME.accentPrimary }}
+                      style={{ backgroundColor: themeColors.primary }}
                     >
-                      In der Add-on Zentrale aktivieren
+                      In den Einstellungen aktivieren
                     </button>
                   </div>
                 ) : (
@@ -986,8 +1050,7 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
                         onUpdateProjectMeta: (patch) =>
                           onUpdateProjectMeta(activeProject.id, patch),
                         onAddCartItems: (items) => onAddCartItems(activeProject.id, items),
-                        onAddInfoCard: (title, content) =>
-                          onAddInfo(activeProject.id, title, content),
+                        onAddInfoCard: (title, content) => onAddInfo(activeProject.id, title, content),
                         onRecordEventSale,
                         onNotify
                       })}
