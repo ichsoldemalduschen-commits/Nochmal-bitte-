@@ -1,8 +1,8 @@
-import { AiActionType, Attachment, PriorityType } from '../types';
+import { AiActionType, Attachment, PriorityType, Project } from '../types';
 
 const MODEL_STORAGE_KEY = 'nexusflow_preferred_gemini_model';
+const TTS_STORAGE_KEY = 'nexusflow_tts_enabled';
 
-// Standard: 'SMART_PRO' nutzt für Fragen/Fotos automatisch das höhere Pro-Modell
 export function getPreferredModelMode(): string {
   try {
     return localStorage.getItem(MODEL_STORAGE_KEY) || 'SMART_PRO';
@@ -16,6 +16,50 @@ export function setPreferredModelMode(mode: string): void {
     localStorage.setItem(MODEL_STORAGE_KEY, mode);
   } catch {
     // ignore
+  }
+}
+
+export function getTtsEnabled(): boolean {
+  try {
+    const val = localStorage.getItem(TTS_STORAGE_KEY);
+    return val === null ? true : val === 'true';
+  } catch {
+    return true;
+  }
+}
+
+export function setTtsEnabled(enabled: boolean): void {
+  try {
+    localStorage.setItem(TTS_STORAGE_KEY, String(enabled));
+  } catch {
+    // ignore
+  }
+}
+
+export function speakText(text: string, onEnd?: () => void): void {
+  if (!getTtsEnabled() || typeof window === 'undefined' || !('speechSynthesis' in window)) {
+    if (onEnd) onEnd();
+    return;
+  }
+  try {
+    window.speechSynthesis.cancel();
+    const clean = text.replace(/[*#_`~]/g, '').trim();
+    if (!clean) {
+      if (onEnd) onEnd();
+      return;
+    }
+    const utter = new SpeechSynthesisUtterance(clean);
+    utter.lang = 'de-DE';
+    utter.rate = 1.08;
+    utter.onend = () => {
+      if (onEnd) onEnd();
+    };
+    utter.onerror = () => {
+      if (onEnd) onEnd();
+    };
+    window.speechSynthesis.speak(utter);
+  } catch {
+    if (onEnd) onEnd();
   }
 }
 
@@ -33,9 +77,16 @@ export interface StructuredAiActionPlan {
 
 export interface StructuredAiResponse {
   summary: string;
-  actions: StructuredAiActionPlan[];
-  isQuestion?: boolean;
+  spokenFeedback: string;
   directAnswer?: string;
+  isQuestion?: boolean;
+  needsClarification?: boolean;
+  actions: StructuredAiActionPlan[];
+}
+
+export interface ChatTurnHistory {
+  role: 'user' | 'assistant';
+  text: string;
 }
 
 export const DEMO_VOICE_COMMANDS: Array<{ id: string; label: string; text: string }> = [];
@@ -46,10 +97,6 @@ export const enforceMaxSixWords = (str: string, fallback = 'Neuer Eintrag'): str
   return words.length <= 6 ? words.join(' ') : words.slice(0, 6).join(' ');
 };
 
-/**
- * Fragt live bei Google AI Studio ab, welche Modelle für diesen API-Key freigeschaltet sind,
- * und sortiert höhere Modelle (Pro / neuere Versionen) nach oben.
- */
 export async function fetchAvailableGeminiModels(apiKey: string): Promise<string[]> {
   const cleanKey = apiKey.trim();
   if (!cleanKey) return [];
@@ -71,7 +118,6 @@ export async function fetchAvailableGeminiModels(apiKey: string): Promise<string
       )
       .map((m: any) => String(m.name).replace(/^models\//, ''));
 
-    // Sortiere nach Versionsnummer absteigend und bevorzuge Pro vor Flash
     return models.sort((a, b) => {
       const verA = parseFloat(a.match(/gemini-(\d+(?:\.\d+)?)/)?.[1] || '0');
       const verB = parseFloat(b.match(/gemini-(\d+(?:\.\d+)?)/)?.[1] || '0');
@@ -85,11 +131,6 @@ export async function fetchAvailableGeminiModels(apiKey: string): Promise<string
   }
 }
 
-/**
- * Baut eine intelligente Modell-Reihenfolge auf:
- * Versucht zuerst das gewählte höhere Modell und fällt bei einem 404 automatisch
- * auf das nächsthöhere verfügbare Modell im Account zurück.
- */
 async function buildModelCandidateList(
   apiKey: string,
   task: 'sort' | 'qa'
@@ -99,9 +140,7 @@ async function buildModelCandidateList(
     'gemini-3.8-pro',
     'gemini-3.8-flash',
     'gemini-3.5-pro',
-    'gemini-3.5-flash',
-    'gemini-3.0-pro',
-    'gemini-3.0-flash'
+    'gemini-3.5-flash'
   ];
   const defaultsFlashFirst = [
     'gemini-3.8-flash',
@@ -111,16 +150,10 @@ async function buildModelCandidateList(
   ];
 
   let baseList: string[] = [];
-  if (mode === 'ALWAYS_PRO') {
-    baseList = defaultsProFirst;
-  } else if (mode === 'ALWAYS_FLASH') {
-    baseList = defaultsFlashFirst;
-  } else if (mode === 'SMART_PRO') {
-    baseList = task === 'qa' ? defaultsProFirst : defaultsFlashFirst;
-  } else {
-    // Spezifisches vom Nutzer gewähltes Modell zuerst
-    baseList = [mode, ...defaultsProFirst];
-  }
+  if (mode === 'ALWAYS_PRO') baseList = defaultsProFirst;
+  else if (mode === 'ALWAYS_FLASH') baseList = defaultsFlashFirst;
+  else if (mode === 'SMART_PRO') baseList = task === 'qa' ? defaultsProFirst : defaultsFlashFirst;
+  else baseList = [mode, ...defaultsProFirst];
 
   return Array.from(new Set(baseList));
 }
@@ -152,16 +185,10 @@ async function callGeminiWithAutoFallback(
 
     const errData = await res.json().catch(() => ({}));
     lastError = errData?.error?.message || `HTTP ${res.status}`;
-
-    // Falls 404 (Modellname existiert nicht oder wurde aktualisiert), probiere sofort den nächsten Kandidaten
-    if (res.status === 404) {
-      continue;
-    } else {
-      break;
-    }
+    if (res.status === 404) continue;
+    else break;
   }
 
-  // Letzter Rettungsanker: Frage live die verfügbaren Account-Modelle ab und nimm das höchste!
   const liveModels = await fetchAvailableGeminiModels(cleanKey);
   for (const liveModel of liveModels.slice(0, 3)) {
     const endpoint =
@@ -186,15 +213,23 @@ const AI_ROUTER_RESPONSE_SCHEMA = {
   properties: {
     isQuestion: {
       type: 'BOOLEAN',
-      description: 'TRUE, wenn der Nutzer nur eine Frage stellt und nichts einsortiert werden soll. FALSE bei Aufgaben, Notizen, Infos oder Einkäufen.'
+      description: 'TRUE bei Fragen, Beratungen, Bestandsabfragen oder Rückfragen. FALSE bei reinen Befehlen/Eintragungen.'
+    },
+    needsClarification: {
+      type: 'BOOLEAN',
+      description: 'TRUE, wenn die Eingabe unklar ist und der Nutzer direkt antworten soll (Mikrofon öffnet sich danach automatisch).'
+    },
+    spokenFeedback: {
+      type: 'STRING',
+      description: 'Kurze gesprochene Rückmeldung für die Sprachausgabe. Bei einfachen Befehlen nur 2-5 Wörter (z. B. "Ist erledigt." oder "Unter Pizza Bandit eingetragen."). Bei Fragen oder Rückfragen die prägnante gesprochene Antwort.'
     },
     directAnswer: {
       type: 'STRING',
-      description: 'Falls isQuestion=true: Kurze, präzise Antwort auf die Frage des Nutzers. Sonst leerer String.'
+      description: 'Ausführliche, sachliche Textantwort für das Chatfenster (ohne Emojis). Wird bei Fragen, Analysen, Zusammenfassungen oder Rückfragen angezeigt.'
     },
     summary: {
       type: 'STRING',
-      description: 'Kurze Zusammenfassung für das Protokoll, z. B. "2 Punkte einsortiert (Pizza Bandit, Privat)".'
+      description: 'Sachliche Kurzfassung der ausgeführten Aktionen.'
     },
     actions: {
       type: 'ARRAY',
@@ -212,38 +247,27 @@ const AI_ROUTER_RESPONSE_SCHEMA = {
             ]
           },
           targetProjectId: {
-            type: 'STRING',
-            enum: [
-              'proj-foodtruck',
-              'proj-baeckerei',
-              'proj-smarthome',
-              'proj-gewohnheiten',
-              'proj-alltag'
-            ]
+            type: 'STRING'
           },
           shortCheckableTitle: {
             type: 'STRING',
-            description: 'STRIKT maximal 6 Wörter! Kurzer, klarer Abhak-Titel ohne Füllwörter.'
+            description: 'STRIKT maximal 6 Wörter, sachlich, ohne Emojis.'
           },
           detailedExplanation: {
             type: 'STRING',
-            description: 'Ausführliche Details, Maße, Abläufe oder Hintergrundinfos aus dem Gesprochenen.'
+            description: 'Alle technischen Details, Maße oder Ablaufschritte.'
           },
           quantityOrMeasure: {
-            type: 'STRING',
-            description: 'Menge oder Maß bei Einkäufen (z. B. "2 Stück", "5 kg", "1200 mm"), sonst "1x".'
+            type: 'STRING'
           },
           estimatedPrice: {
-            type: 'STRING',
-            description: 'Geschätzter Preis in Euro (z. B. "24.90") oder leerer String.'
+            type: 'STRING'
           },
           changeFooterNote: {
-            type: 'STRING',
-            description: 'Kurzer Änderungsvermerk (max. 5 Wörter), z. B. "Per Sprachnotiz automatisch einsortiert".'
+            type: 'STRING'
           },
           estimatedMinutes: {
-            type: 'NUMBER',
-            description: 'Geschätzte Dauer in Minuten (z. B. 15, 30, 60).'
+            type: 'NUMBER'
           },
           priority: {
             type: 'STRING',
@@ -261,35 +285,51 @@ const AI_ROUTER_RESPONSE_SCHEMA = {
       }
     }
   },
-  required: ['isQuestion', 'summary', 'actions']
+  required: ['isQuestion', 'needsClarification', 'spokenFeedback', 'directAnswer', 'summary', 'actions']
 };
 
-const SYSTEM_PROMPT = `Du bist der vollautomatische KI-Sortier-Router der App NexusFlow.
-Deine Aufgabe: Analysiere den eingesprochenen Text des Nutzers und sortiere ihn OHNE Rückfrage in die richtigen Projekte und Reiter ein.
+function buildWorkspaceContextSummary(projects: Project[]): string {
+  if (!Array.isArray(projects) || projects.length === 0) return 'Keine Projekte geladen.';
+  return projects
+    .filter((p) => !p.archived)
+    .map((p) => {
+      const openTasks = p.tasks
+        .filter((t) => !t.completed)
+        .slice(0, 12)
+        .map((t) => `- [Task] ${t.title}`)
+        .join('\n');
+      const openCart = p.cart
+        .filter((c) => !c.completed)
+        .slice(0, 10)
+        .map((c) => `- [Einkauf] ${c.title} (${c.quantity})`)
+        .join('\n');
+      const infoTitles = p.infos
+        .slice(0, 8)
+        .map((i) => `- [Info] ${i.title}: ${i.content.slice(0, 120)}`)
+        .join('\n');
+      return `PROJEKT ID="${p.id}" | NAME="${p.name}" | BEREICH="${p.domain}":\n${
+        openTasks || '(Keine offenen Tasks)'
+      }\n${openCart || ''}\n${infoTitles || ''}`;
+    })
+    .join('\n\n');
+}
 
-WICHTIGE PROJEKT-REGELN (STRIKT EINHALTEN!):
-1. "proj-foodtruck" (ARBEIT – Pizza Bandit: Foodtruck & Gesamtbetrieb):
-   - Hierhin gehört ALLES rund um den Pizza-Anhänger (TSA-Ausbau, Auszugtisch, Saladette-Lift, Pizzaofen, Gas, Waschbecken, 12V/230V-Elektrik, Euroboxen) SOWIE das komplette Back- und Lebensmittelgeschäft (Pizzateig, Mehl, Sauerteig, Dinkel, Zutaten, Rezepte, Events, Kalkulation, Verkauf).
-2. "proj-baeckerei" (ARBEIT – Baustelle Bäckerei / Umbau):
-   - ACHTUNG: Dieses Projekt ist AUSSCHLIESSLICH eine Baustelle (Renovierung/Umbau der 150m² Backstube)!
-   - Hierhin gehören NUR Bau- und Umbau-Themen der Räumlichkeiten: Decke abhängen/spachteln, Wände, Fliesen, Lüftungsbau/Abluftrohre, Baustrom, Trockenbau, Malerarbeiten in der Backstube. KEINE Backrezepte oder Lebensmittel!
-3. "proj-smarthome" (PRIVAT – Smart Home & Technik):
-   - Home Assistant, Proxmox, Zigbee, Sensoren, Netzwerk, VLAN, private Automatisierung.
-4. "proj-gewohnheiten" (PRIVAT – Gewohnheiten & Routinen):
-   - Sport, Gesundheit, Morgen-/Abendroutine, Mobilität, Training, Wasser trinken.
-5. "proj-alltag" (PRIVAT – Alltag & Haushalt):
-   - Private Erledigungen, Familie, Auto, Versicherungen, Steuer, privater Haushaltseinkauf, Wochenende.
+const SYSTEM_PROMPT = `Du bist der autonome KI-Projekt- und System-Agent von NexusFlow.
+Du arbeitest NICHT nach starren Schlüsselwörtern, sondern verstehst natürliche Sprache wie ein erfahrener technischer Partner.
+Verwende KEINE Emojis in Titeln oder Antworten. Halte den Ton klar, sachlich und präzise.
 
-REITER-ZUORDNUNG (actionType):
-- "ADD_CART_ITEM": Wenn etwas gekauft, bestellt oder besorgt werden muss (Material, Werkzeug, Zutaten, Einkauf).
-- "UPDATE_EXPLANATION": Wenn ein Ablauf, eine Anleitung, ein Rezept oder eine Schritt-für-Schritt-Erklärung beschrieben wird.
-- "ADD_INFO": Wenn reine Maße, Daten, Kontakte, Notizen oder technische Fakten festgehalten werden sollen.
-- "CHECK_OFF_TASK": Wenn der Nutzer sagt, dass etwas erledigt oder abgehakt ist.
-- "ADD_TASK": Für alle konkreten To-dos, Aufgaben und Bauschritte.
-
-ZUSATZREGEL:
-- Wenn der Nutzer eine reine Frage stellt, setze isQuestion=true, schreibe die Antwort in directAnswer und lasse actions leer [].
-- shortCheckableTitle darf STRIKT maximal 6 Wörter lang sein!`;
+DEINE KOMPETENZEN:
+1. Vollständiger Überblick: Du siehst im Kontext alle Projekte, offenen Tasks, Einkäufe und Infos des Nutzers.
+2. Autonomes Handeln: Wenn der Nutzer Aufgaben, Einkäufe, Maße, Abläufe oder erledigte Schritte erwähnt, führst du die passenden Aktionen im Array "actions" aus – auch mehrere gleichzeitig über verschiedene Projekte hinweg.
+3. Projekt-Abgrenzung:
+   - "proj-foodtruck" (Pizza Bandit): Alles rund um den DDR-TSA-Anhänger (Auszugtisch, Saladette-Lift, Ofen, Gas, Waschbecken, 12V/230V-Elektrik, Euroboxen) SOWIE das gesamte Back-, Teig-, Rezept- und Event-Geschäft.
+   - "proj-baeckerei" (Baustelle Bäckerei): AUSSCHLIESSLICH baulicher Umbau und Renovierung der 150m² Backstube (Decke, Wände, Lüftung, Trockenbau, Baustrom). Keine Backrezepte.
+   - "proj-smarthome", "proj-gewohnheiten", "proj-alltag": Private Projekte.
+4. Fragen & Beratung: Wenn der Nutzer eine Frage zu seinen Beständen, Maßen oder Projekten stellt, beantworte sie präzise in "directAnswer". Du kannst gleichzeitig eine Frage beantworten UND Aktionen in "actions" ausführen.
+5. Rückfragen bei Unklarheit: Wenn eine Eingabe mehrdeutig ist (z. B. unklar welches Projekt oder welches Maß), setze "needsClarification": true und stelle in "spokenFeedback" sowie "directAnswer" eine kurze, gezielte Rückfrage.
+6. Sprachausgabe-Steuerung ("spokenFeedback"):
+   - Wenn der Nutzer nur kurz etwas diktiert ("Merke dir...", "Pack X auf die Liste"), halte "spokenFeedback" extrem kurz (z. B. "Ist erledigt." oder "Im Einkaufswagen Pizza Bandit notiert.").
+   - Bei Fragen oder Rückfragen formuliere "spokenFeedback" so, dass man es gut anhören kann.`;
 
 export function buildLocalFallbackPlan(
   rawText: string,
@@ -298,21 +338,23 @@ export function buildLocalFallbackPlan(
   const trimmed = rawText.trim();
   const isQuestion =
     trimmed.endsWith('?') ||
-    /^(wie|was|wo|wann|warum|welche|welcher|welches|kannst du|weißt du)\b/i.test(trimmed);
+    /^(wie|was|wo|wann|warum|welche|welcher|welches|kannst du|weißt du|zeig mir)/i.test(trimmed);
 
   if (isQuestion) {
     return {
       isQuestion: true,
+      needsClarification: false,
+      spokenFeedback: 'Bitte prüfe den API-Schlüssel in den Einstellungen.',
       directAnswer:
-        'Hinweis (Offline-Modus aktiv): Für direkte KI-Fachantworten bitte in den Einstellungen unter „KI-Schnittstelle“ prüfen, ob dein Gemini API-Key aktiv ist.',
-      summary: 'Frage erkannt (Offline-Modus)',
+        'Offline-Modus aktiv: Für autonome Antworten und Datenbank-Abfragen bitte in den Einstellungen unter KI-Schnittstelle den Gemini API-Key prüfen.',
+      summary: 'Frage im Offline-Modus',
       actions: []
     };
   }
 
   const segments = trimmed
     .split(
-      /;|\.\s+|\s+(?:außerdem|zusätzlich|und\s+dann\s+noch|und\s+ergänze|und\s+erstelle|und\s+füge|und\s+lege|und\s+notiere|und\s+packe|und\s+kaufe|und\s+brauche)\s+/i
+      /;|\.\s+|\s+(?:außerdem|zusätzlich|und\s+dann\s+noch|und\s+ergänze|und\s+erstelle|und\s+notiere|und\s+packe|und\s+kaufe|und\s+brauche)\s+/i
     )
     .map((s) => s.trim())
     .filter(Boolean);
@@ -322,73 +364,60 @@ export function buildLocalFallbackPlan(
     let targetProjectId = defaultProjectId || 'proj-foodtruck';
 
     if (
-      /(baustelle\s*bäckerei|backstube.*umbau|umbau.*bäckerei|decke\s+spachteln|tiefgrund|lüftungsrohr|abluft|wickelfalz|trockenbau|fliesen|wände\s+streichen|baustelle)/i.test(
+      /(baustelle\s*bäckerei|backstube.*umbau|umbau.*bäckerei|decke|tiefgrund|lüftung|abluft|wickelfalz|trockenbau|fliesen|wände|baustelle)/i.test(
         lower
       )
     ) {
       targetProjectId = 'proj-baeckerei';
     } else if (
-      /(pizza|bandit|anhänger|tsa|auszug|saladette|ofen|gas|sauerteig|mehl|dinkel|teig|teigballen|backen|event|stand|waschbecken|eurobox)/i.test(
+      /(pizza|bandit|anhänger|tsa|auszug|saladette|ofen|gas|sauerteig|mehl|dinkel|teig|backen|event|waschbecken|eurobox)/i.test(
         lower
       )
     ) {
       targetProjectId = 'proj-foodtruck';
-    } else if (/(smart\s*home|zigbee|proxmox|home\s*assistant|sensor|vlan|router)/i.test(lower)) {
+    } else if (/(smart\s*home|zigbee|proxmox|home\s*assistant|sensor|vlan)/i.test(lower)) {
       targetProjectId = 'proj-smarthome';
-    } else if (/(gewohnheit|spaziergang|routine|mobilität|training|sport|wasser\s+trinken)/i.test(lower)) {
+    } else if (/(gewohnheit|routine|mobilität|training|sport)/i.test(lower)) {
       targetProjectId = 'proj-gewohnheiten';
-    } else if (/(privat|alltag|haushalt|steuer|auto|wochenende|familie|urlaub|einkaufen\s+für\s+zuhause)/i.test(lower)) {
+    } else if (/(privat|alltag|haushalt|steuer|auto|wochenende|familie)/i.test(lower)) {
       targetProjectId = 'proj-alltag';
     }
 
     let actionType: AiActionType = 'ADD_TASK';
-    if (
-      /(einkauf|kaufe|besorgen|bestellen|brauche\s+noch|säcke|paar|rollen|set|pakete|kartusche|schrauben|winkel|baumarkt|amazon)/i.test(
-        lower
-      )
-    ) {
+    if (/(einkauf|kaufe|besorgen|bestellen|brauche|säcke|paar|rollen|set|pakete|kartusche|schrauben|winkel)/i.test(lower)) {
       actionType = 'ADD_CART_ITEM';
-    } else if (/(erklärung|anleitung|rezept|ablauf|schritt\s+für\s+schritt|zuerst.*dann)/i.test(lower)) {
+    } else if (/(erklärung|anleitung|rezept|ablauf|schritt)/i.test(lower)) {
       actionType = 'UPDATE_EXPLANATION';
-    } else if (/(allgemeine\s+info|maß\s+ist|maße|notiere\s+info|merke\s+dir|daten:)/i.test(lower)) {
+    } else if (/(info|maß|maße|merke|notiere\s+info|daten)/i.test(lower)) {
       actionType = 'ADD_INFO';
-    } else if (/(erledigt|abgehakt|ist\s+fertig|habe\s+ich\s+gemacht)/i.test(lower)) {
+    } else if (/(erledigt|abgehakt|ist\s+fertig|gemacht)/i.test(lower)) {
       actionType = 'CHECK_OFF_TASK';
     }
 
     const cleanTitle = seg
-      .replace(/^(packe|ergänze|erstelle|füge|lege|notiere|ich\s+muss\s+noch|wir\s+müssen\s+noch|bitte)\s+/i, '')
-      .replace(
-        /bei der bäckerei|auf der baustelle|in der bäckerei|bei pizza bandit|beim foodtruck|bei smart home|im alltag|privat|bei gewohnheiten|in den einkaufswagen|unter allgemeine infos/gi,
-        ''
-      )
+      .replace(/^(packe|ergänze|erstelle|füge|lege|notiere|merke\s+dir|ich\s+muss\s+noch|bitte)\s+/i, '')
       .split(/[:–-]/)[0]
       .trim();
-
-    const shortCheckableTitle = enforceMaxSixWords(cleanTitle, 'Neuer Sprach-Eintrag');
-    const colonParts = seg.split(':');
-    const detailedExplanation =
-      colonParts.length > 1 ? colonParts.slice(1).join(':').trim() : seg;
-    const qtyMatch = seg.match(
-      /(\d+\s*(?:Säcke|Paar|Pakete|Kartons|Rollen|Set|Stück|Kartuschen|kg|g|m|cm|mm|L|Liter))/i
-    );
 
     return {
       actionType,
       targetProjectId,
-      shortCheckableTitle,
-      detailedExplanation,
-      quantityOrMeasure: qtyMatch ? qtyMatch[1] : '1x',
+      shortCheckableTitle: enforceMaxSixWords(cleanTitle, 'Neuer Eintrag'),
+      detailedExplanation: seg,
+      quantityOrMeasure: '1x',
       estimatedPrice: '',
-      changeFooterNote: 'Per Sprache einsortiert (Offline)',
+      changeFooterNote: 'Lokal zugeordnet',
       estimatedMinutes: 25,
-      priority: /(dringend|wichtig|sofort|gas|sicherheit|heute)/i.test(lower) ? 'Hoch' : 'Mittel'
+      priority: 'Mittel'
     };
   });
 
   return {
     isQuestion: false,
-    summary: `${actions.length} Punkt(e) lokal erkannt und zugeordnet.`,
+    needsClarification: false,
+    spokenFeedback: 'Ist erledigt.',
+    directAnswer: `${actions.length} Eintrag/Einträge lokal zugeordnet.`,
+    summary: `${actions.length} Punkt(e) zugeordnet.`,
     actions
   };
 }
@@ -396,28 +425,57 @@ export function buildLocalFallbackPlan(
 export async function routeVoiceCommand(
   rawText: string,
   apiKey: string,
-  defaultProjectId: string
+  defaultProjectId: string,
+  allProjects?: Project[],
+  chatHistory?: ChatTurnHistory[],
+  attachment?: Attachment | null
 ): Promise<{ plan: StructuredAiResponse; engine: string }> {
   const cleanKey = apiKey ? apiKey.trim() : '';
 
   if (cleanKey) {
     try {
-      const result = await callGeminiWithAutoFallback(cleanKey, 'sort', {
+      const workspaceContext = allProjects ? buildWorkspaceContextSummary(allProjects) : '';
+      const historyText =
+        chatHistory && chatHistory.length > 0
+          ? chatHistory
+              .slice(-6)
+              .map((h) => `${h.role === 'user' ? 'Nutzer' : 'Agent'}: ${h.text}`)
+              .join('\n')
+          : 'Kein vorheriger Gesprächsverlauf.';
+
+      const userParts: any[] = [
+        {
+          text: [
+            `AKTUELL GEÖFFNETES PROJEKT: "${defaultProjectId}"`,
+            `LETZTER GESPRÄCHSVERLAUF:\n${historyText}`,
+            `AKTUELLER DATENBESTAND DER APP:\n${workspaceContext}`,
+            `NEUE EINGABE DES NUTZERS:\n"${rawText}"`
+          ].join('\n\n')
+        }
+      ];
+
+      if (attachment && attachment.dataUrl && attachment.dataUrl.startsWith('data:image/')) {
+        const [meta, base64Data] = attachment.dataUrl.split(',');
+        const mimeMatch = meta.match(/data:(.*?);base64/);
+        if (base64Data) {
+          userParts.push({
+            inlineData: {
+              mimeType: mimeMatch ? mimeMatch[1] : 'image/jpeg',
+              data: base64Data
+            }
+          });
+        }
+      }
+
+      const taskType = rawText.trim().endsWith('?') || Boolean(attachment) ? 'qa' : 'sort';
+
+      const result = await callGeminiWithAutoFallback(cleanKey, taskType, {
         systemInstruction: {
           parts: [{ text: SYSTEM_PROMPT }]
         },
-        contents: [
-          {
-            role: 'user',
-            parts: [
-              {
-                text: `Aktuell geöffnetes Standard-Projekt: "${defaultProjectId}".\nEingesprochener Text des Nutzers:\n"${rawText}"`
-              }
-            ]
-          }
-        ],
+        contents: [{ role: 'user', parts: userParts }],
         generationConfig: {
-          temperature: 0.15,
+          temperature: 0.2,
           responseMimeType: 'application/json',
           responseSchema: AI_ROUTER_RESPONSE_SCHEMA
         }
@@ -428,7 +486,8 @@ export async function routeVoiceCommand(
         return {
           plan: {
             ...fallback,
-            summary: `${fallback.summary} (Hinweis: API meldete "${result.errorMessage}")`
+            directAnswer: `Hinweis: API meldete "${result.errorMessage}". Lokale Zuordnung wurde genutzt.`,
+            summary: `${fallback.summary} (API-Fehler)`
           },
           engine: `Fallback (${result.errorMessage})`
         };
@@ -441,13 +500,13 @@ export async function routeVoiceCommand(
           ? parsed.actions.map((act) => ({
               ...act,
               targetProjectId: act.targetProjectId || defaultProjectId || 'proj-foodtruck',
-              shortCheckableTitle: enforceMaxSixWords(act.shortCheckableTitle, 'Neuer KI-Punkt'),
+              shortCheckableTitle: enforceMaxSixWords(act.shortCheckableTitle, 'Neuer Punkt'),
               detailedExplanation: act.detailedExplanation || rawText,
               quantityOrMeasure: act.quantityOrMeasure || '1x',
               estimatedPrice: act.estimatedPrice || '',
               changeFooterNote: enforceMaxSixWords(
-                act.changeFooterNote || `Per ${result.usedModel} einsortiert`,
-                'Per Gemini KI einsortiert'
+                act.changeFooterNote || `Durch ${result.usedModel}`,
+                'Durch KI zugeordnet'
               ),
               estimatedMinutes: Number(act.estimatedMinutes) || 25,
               priority: act.priority || 'Mittel'
@@ -457,13 +516,20 @@ export async function routeVoiceCommand(
         return {
           plan: {
             isQuestion: Boolean(parsed.isQuestion),
-            directAnswer: parsed.directAnswer || '',
+            needsClarification: Boolean(parsed.needsClarification),
+            spokenFeedback:
+              parsed.spokenFeedback ||
+              (sanitizedActions.length > 0 ? 'Ist erledigt.' : parsed.directAnswer || 'Verstanden.'),
+            directAnswer:
+              parsed.directAnswer ||
+              parsed.summary ||
+              `${sanitizedActions.length} Aktion(en) ausgeführt.`,
             summary:
               parsed.summary ||
-              `${sanitizedActions.length} Aktion(en) durch ${result.usedModel} einsortiert.`,
+              `${sanitizedActions.length} Aktion(en) ausgeführt.`,
             actions: sanitizedActions
           },
-          engine: `${result.usedModel}`
+          engine: result.usedModel
         };
       }
     } catch (err: any) {
@@ -473,7 +539,7 @@ export async function routeVoiceCommand(
 
   return {
     plan: buildLocalFallbackPlan(rawText, defaultProjectId),
-    engine: cleanKey ? 'Lokaler Fallback (Verbindungsfehler)' : 'Lokaler Offline-Sortierer (Kein API-Key)'
+    engine: cleanKey ? 'Fallback (Verbindungsfehler)' : 'Lokaler Modus (Kein API-Key)'
   };
 }
 
@@ -483,50 +549,15 @@ export async function askQuickAssistantQuestion(
   apiKey: string,
   attachment: Attachment | null
 ): Promise<string> {
-  const cleanKey = apiKey ? apiKey.trim() : '';
-
-  if (cleanKey) {
-    try {
-      const parts: any[] = [
-        {
-          text: `Du bist der leitende Fach- und Praxis-Assistent für das Projekt "${projectName}". Antworte präzise, fundiert und handwerklich direkt auf folgende Frage:\n${question}`
-        }
-      ];
-
-      if (attachment && attachment.dataUrl && attachment.dataUrl.startsWith('data:image/')) {
-        const [meta, base64Data] = attachment.dataUrl.split(',');
-        const mimeMatch = meta.match(/data:(.*?);base64/);
-        if (base64Data) {
-          parts.push({
-            inlineData: {
-              mimeType: mimeMatch ? mimeMatch[1] : 'image/jpeg',
-              data: base64Data
-            }
-          });
-        }
-      }
-
-      const result = await callGeminiWithAutoFallback(cleanKey, 'qa', {
-        contents: [{ role: 'user', parts }],
-        generationConfig: { temperature: 0.25 }
-      });
-
-      if (result.ok) {
-        const reply = result.data?.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (reply) return `[Modell: ${result.usedModel}]\n${reply.trim()}`;
-      } else {
-        return `⚠️ Gemini API-Fehler: ${result.errorMessage || 'Bitte API-Key prüfen.'}`;
-      }
-    } catch (err: any) {
-      return `⚠️ Verbindungsfehler zur Gemini API: ${err?.message || 'Bitte Internetverbindung prüfen.'}`;
-    }
-  }
-
-  return [
-    `⚠️ Kein aktiver Gemini API-Key gefunden (${projectName}):`,
-    `• Deine Frage: „${question}“`,
-    '• Bitte hinterlege in den Einstellungen unter „KI-Schnittstelle“ deinen Schlüssel.'
-  ].join('\n');
+  const { plan } = await routeVoiceCommand(
+    question,
+    apiKey,
+    'proj-foodtruck',
+    undefined,
+    undefined,
+    attachment
+  );
+  return plan.directAnswer || plan.summary;
 }
 
 export async function testGeminiApiKey(
@@ -546,17 +577,17 @@ export async function testGeminiApiKey(
     if (result.ok) {
       const topList =
         availableModels.length > 0
-          ? ` | Höchste verfügbare Modelle in deinem Account: ${availableModels.slice(0, 5).join(', ')}`
+          ? ` | Verfügbare Modelle: ${availableModels.slice(0, 5).join(', ')}`
           : '';
       return {
         ok: true,
-        message: `Verbindung steht! Aktives Modell: "${result.usedModel}"${topList}`,
+        message: `Verbindung aktiv. Modell: "${result.usedModel}"${topList}`,
         availableModels
       };
     }
     return {
       ok: false,
-      message: `API-Fehler: ${result.errorMessage || 'Key ungültig oder gesperrt.'}`,
+      message: `API-Fehler: ${result.errorMessage || 'Schlüssel ungültig.'}`,
       availableModels
     };
   } catch (e: any) {

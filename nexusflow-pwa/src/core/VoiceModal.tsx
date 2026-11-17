@@ -1,100 +1,148 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { CheckCircle2, Keyboard, Loader2, Mic, MicOff, Send, Sparkles, Upload, X } from 'lucide-react';
-import { Attachment, THEME } from '../types';
+import {
+  ArrowUpRight,
+  ChevronDown,
+  Loader2,
+  Mic,
+  MicOff,
+  Paperclip,
+  Send,
+  Trash2,
+  Undo2,
+  Volume2,
+  VolumeX
+} from 'lucide-react';
+import { AiExecutedAction, AiLogEntry, Attachment, Project, THEME } from '../types';
+import { getTtsEnabled, setTtsEnabled, speakText } from '../services/aiRouter';
+
+export interface ConversationMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  text: string;
+  timestamp: string;
+  engine?: string;
+  logId?: string;
+  actions?: AiExecutedAction[];
+  attachmentName?: string;
+}
 
 interface VoiceModalProps {
   open: boolean;
+  autoStartMic?: boolean;
   activeProjectName: string;
+  projects?: Project[];
+  aiLogs?: AiLogEntry[];
   onClose: () => void;
-  onExecuteCommand: (rawText: string, attachment: Attachment | null) => Promise<void>;
+  onExecuteCommand: (
+    rawText: string,
+    attachment: Attachment | null
+  ) => Promise<{
+    replyText: string;
+    spokenText: string;
+    needsClarification: boolean;
+    engine: string;
+    logId?: string;
+    actions: AiExecutedAction[];
+  } | void>;
   onAskQuestion: (question: string, attachment: Attachment | null) => Promise<string>;
   onSaveAnswerToInfos: (question: string, answer: string, attachment: Attachment | null) => void;
+  onJumpToAction?: (act: AiExecutedAction) => void;
+  onUndoAiAction?: (logId: string, actionId: string) => void;
+  onMoveAiAction?: (logId: string, actionId: string, newProjectId: string) => void;
 }
 
-const SILENCE_AUTO_SEND_MS = 5500;
+const SILENCE_AUTO_SEND_MS = 5000;
+const CHAT_STORAGE_KEY = 'nexusflow_persistent_ai_chat_v2';
 
 function buildCleanTranscriptFromResults(results: any): string {
   const segments: string[] = [];
-
   for (let i = 0; i < results.length; i++) {
     const rawChunk = String(results[i]?.[0]?.transcript || '').trim();
     if (!rawChunk) continue;
-
     if (segments.length === 0) {
       segments.push(rawChunk);
       continue;
     }
-
     const prev = segments[segments.length - 1];
     const prevLower = prev.toLowerCase();
     const currLower = rawChunk.toLowerCase();
-
-    if (currLower === prevLower) {
-      continue;
-    }
+    if (currLower === prevLower) continue;
     if (currLower.startsWith(prevLower)) {
       segments[segments.length - 1] = rawChunk;
       continue;
     }
-    if (prevLower.endsWith(currLower)) {
-      continue;
-    }
-
+    if (prevLower.endsWith(currLower)) continue;
     segments.push(rawChunk);
   }
 
   const joined = segments.join(' ').replace(/\s+/g, ' ').trim();
-
   const words = joined.split(' ');
-  const dedupedWords: string[] = [];
+  const deduped: string[] = [];
   for (let i = 0; i < words.length; i++) {
     const w = words[i];
-    const prevW = dedupedWords[dedupedWords.length - 1];
-    if (prevW && prevW.toLowerCase() === w.toLowerCase()) {
-      continue;
-    }
+    const prevW = deduped[deduped.length - 1];
+    if (prevW && prevW.toLowerCase() === w.toLowerCase()) continue;
     if (
-      dedupedWords.length >= 2 &&
+      deduped.length >= 2 &&
       i + 1 < words.length &&
-      dedupedWords[dedupedWords.length - 2].toLowerCase() === w.toLowerCase() &&
-      dedupedWords[dedupedWords.length - 1].toLowerCase() === words[i + 1].toLowerCase()
+      deduped[deduped.length - 2].toLowerCase() === w.toLowerCase() &&
+      deduped[deduped.length - 1].toLowerCase() === words[i + 1].toLowerCase()
     ) {
       i++;
       continue;
     }
-    dedupedWords.push(w);
+    deduped.push(w);
   }
-
-  return dedupedWords.join(' ').trim();
+  return deduped.join(' ').trim();
 }
 
 export const VoiceModal: React.FC<VoiceModalProps> = ({
   open,
+  autoStartMic = true,
   activeProjectName,
+  projects = [],
   onClose,
   onExecuteCommand,
-  onAskQuestion,
-  onSaveAnswerToInfos
+  onSaveAnswerToInfos,
+  onJumpToAction,
+  onUndoAiAction,
+  onMoveAiAction
 }) => {
+  const [messages, setMessages] = useState<ConversationMessage[]>(() => {
+    try {
+      const saved = localStorage.getItem(CHAT_STORAGE_KEY);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
   const [transcript, setTranscript] = useState('');
   const [isListening, setIsListening] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [speechNotice, setSpeechNotice] = useState('');
   const [attachment, setAttachment] = useState<Attachment | null>(null);
-  const [qaReply, setQaReply] = useState('');
-  const [showKeyboardEdit, setShowKeyboardEdit] = useState(false);
   const [remainingMs, setRemainingMs] = useState<number>(SILENCE_AUTO_SEND_MS);
+  const [ttsActive, setTtsActive] = useState<boolean>(getTtsEnabled);
 
   const recognitionRef = useRef<any>(null);
   const transcriptRef = useRef('');
-  const manualPrefixRef = useRef('');
   const lastSpeechTimestampRef = useRef<number>(0);
   const autoSendTriggeredRef = useRef(false);
   const isListeningRef = useRef(false);
+  const scrollEndRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     transcriptRef.current = transcript;
   }, [transcript]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(messages.slice(-40)));
+    } catch {
+      // ignore
+    }
+    scrollEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, open]);
 
   const stopMicrophone = () => {
     isListeningRef.current = false;
@@ -112,17 +160,15 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
 
   const startMicrophoneImmediately = () => {
     setSpeechNotice('');
-    setQaReply('');
     autoSendTriggeredRef.current = false;
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
 
     const SpeechRec =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-
     if (!SpeechRec) {
-      setSpeechNotice(
-        'Browser-Spracherkennung nicht verfügbar – bitte nutze das Textfeld unten.'
-      );
-      setShowKeyboardEdit(true);
+      setSpeechNotice('Spracherkennung im Browser nicht verfügbar – bitte Textfeld nutzen.');
       return;
     }
 
@@ -134,7 +180,6 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
       rec.interimResults = true;
       rec.maxAlternatives = 1;
 
-      manualPrefixRef.current = transcriptRef.current.trim();
       lastSpeechTimestampRef.current = Date.now();
       setRemainingMs(SILENCE_AUTO_SEND_MS);
 
@@ -147,22 +192,14 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
       rec.onresult = (event: any) => {
         lastSpeechTimestampRef.current = Date.now();
         setRemainingMs(SILENCE_AUTO_SEND_MS);
-
         const cleanSessionText = buildCleanTranscriptFromResults(event.results);
-        const combined = [manualPrefixRef.current, cleanSessionText]
-          .filter(Boolean)
-          .join(' ')
-          .trim();
-
-        setTranscript(combined);
-        transcriptRef.current = combined;
+        setTranscript(cleanSessionText);
+        transcriptRef.current = cleanSessionText;
       };
 
       rec.onerror = (event: any) => {
-        if (event?.error === 'no-speech') {
-          return;
-        }
-        setSpeechNotice(`Mikrofon-Hinweis: ${event?.error || 'Bitte Berechtigung prüfen'}`);
+        if (event?.error === 'no-speech') return;
+        setSpeechNotice(`Mikrofon-Status: ${event?.error || 'Berechtigung prüfen'}`);
         isListeningRef.current = false;
         setIsListening(false);
       };
@@ -177,37 +214,30 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
       recognitionRef.current = rec;
       rec.start();
     } catch {
-      setSpeechNotice('Mikrofon konnte nicht automatisch gestartet werden.');
-      setShowKeyboardEdit(true);
+      setSpeechNotice('Mikrofon konnte nicht gestartet werden.');
     }
   };
 
   useEffect(() => {
     if (open) {
-      setTranscript('');
-      transcriptRef.current = '';
-      manualPrefixRef.current = '';
-      setAttachment(null);
-      setQaReply('');
-      setShowKeyboardEdit(false);
       setRemainingMs(SILENCE_AUTO_SEND_MS);
       autoSendTriggeredRef.current = false;
-
-      const startTimer = window.setTimeout(() => {
-        startMicrophoneImmediately();
-      }, 60);
-
-      return () => {
-        window.clearTimeout(startTimer);
-        stopMicrophone();
-      };
+      if (autoStartMic) {
+        const timer = window.setTimeout(() => {
+          startMicrophoneImmediately();
+        }, 50);
+        return () => {
+          window.clearTimeout(timer);
+          stopMicrophone();
+        };
+      }
     } else {
       stopMicrophone();
     }
-  }, [open]);
+  }, [open, autoStartMic]);
 
   useEffect(() => {
-    if (!open || isProcessing || showKeyboardEdit || qaReply) return;
+    if (!open || !isListening || isProcessing) return;
 
     const interval = window.setInterval(() => {
       const currentText = transcriptRef.current.trim();
@@ -224,43 +254,60 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
       if (left === 0 && !autoSendTriggeredRef.current) {
         autoSendTriggeredRef.current = true;
         stopMicrophone();
-        void triggerAutoProcess(currentText);
+        void triggerProcess(currentText);
       }
     }, 150);
 
     return () => window.clearInterval(interval);
-  }, [open, isProcessing, showKeyboardEdit, qaReply]);
+  }, [open, isListening, isProcessing]);
 
-  const triggerAutoProcess = async (textToProcess: string) => {
+  const triggerProcess = async (textToProcess: string) => {
     const clean = textToProcess.trim();
     if (!clean || isProcessing) return;
 
     stopMicrophone();
     setIsProcessing(true);
+    const currentAtt = attachment;
+    setTranscript('');
+    transcriptRef.current = '';
+    setAttachment(null);
+
+    const userMsg: ConversationMessage = {
+      id: `msg-u-${Date.now()}`,
+      role: 'user',
+      text: clean,
+      timestamp: new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }),
+      attachmentName: currentAtt?.name
+    };
+    setMessages((prev) => [...prev, userMsg]);
 
     try {
-      const looksLikePureQuestion =
-        (clean.endsWith('?') ||
-          /^(wie\s+viel|welches\s+maß|welche\s+maße|wie\s+hoch|wie\s+breit|wie\s+tief|was\s+steht\s+unter|erkläre\s+mir|was\s+ist\s+auf\s+dem\s+foto)/i.test(
-            clean
-          )) &&
-        !/(packe|notiere|ergänze|erstelle|kaufe|in\s+den\s+einkaufswagen|auf\s+die\s+liste|merke)/i.test(
-          clean
-        );
-
-      if (looksLikePureQuestion) {
-        const answer = await onAskQuestion(clean, attachment);
-        setQaReply(answer);
+      const result = await onExecuteCommand(clean, currentAtt);
+      if (result) {
+        const assistantMsg: ConversationMessage = {
+          id: `msg-a-${Date.now()}`,
+          role: 'assistant',
+          text: result.replyText,
+          timestamp: new Date().toLocaleTimeString('de-DE', {
+            hour: '2-digit',
+            minute: '2-digit'
+          }),
+          engine: result.engine,
+          logId: result.logId,
+          actions: result.actions
+        };
+        setMessages((prev) => [...prev, assistantMsg]);
         setIsProcessing(false);
-        return;
-      }
 
-      await onExecuteCommand(clean, attachment);
-      setTranscript('');
-      transcriptRef.current = '';
-      setAttachment(null);
-      setIsProcessing(false);
-      onClose();
+        // Sprachausgabe + bei Rückfrage Mikrofon sofort wieder öffnen!
+        speakText(result.spokenText, () => {
+          if (result.needsClarification && open) {
+            startMicrophoneImmediately();
+          }
+        });
+      } else {
+        setIsProcessing(false);
+      }
     } catch {
       setIsProcessing(false);
     }
@@ -295,57 +342,310 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
   const hasSpokenText = transcript.trim().length > 0;
   const countdownSeconds = (remainingMs / 1000).toFixed(1);
   const progressPercent = Math.min(100, Math.max(0, (remainingMs / SILENCE_AUTO_SEND_MS) * 100));
+  const activeProjects = projects.filter((p) => !p.archived);
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-3 sm:p-4">
+    <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex flex-col justify-end">
+      {/* Klick auf den abgedunkelten oberen Rand schließt die Schublade zurück zur Liste */}
+      <div className="flex-1" onClick={onClose} />
+
       <div
-        className="w-full max-w-md rounded-3xl border border-white/15 shadow-2xl overflow-hidden transition-all"
-        style={{ backgroundColor: THEME.bgCard }}
+        className="w-full max-w-lg mx-auto h-[84vh] rounded-t-3xl border-t border-white/15 shadow-2xl flex flex-col overflow-hidden"
+        style={{ backgroundColor: THEME.bgMain }}
       >
-        <div className="px-5 py-3.5 border-b border-white/10 flex items-center justify-between">
-          <div className="flex items-center gap-2">
+        {/* Schubladen-Kopfzeile (Sachlich, ohne Emojis) */}
+        <div
+          className="px-4 py-3 border-b border-white/10 flex items-center justify-between shrink-0"
+          style={{ backgroundColor: THEME.bgCard }}
+        >
+          <div className="flex items-center gap-2.5 min-w-0">
             <span
-              className={`w-2.5 h-2.5 rounded-full ${
+              className={`w-2 h-2 rounded-full shrink-0 ${
                 isListening ? 'bg-red-500 animate-ping' : 'bg-[#14B8A6]'
               }`}
             />
-            <span className="text-xs font-bold uppercase tracking-wider text-[#14B8A6]">
-              {isProcessing
-                ? 'KI sortiert automatisch ein…'
-                : isListening
-                ? 'Mikrofon aktiv – Sprich einfach los'
-                : 'Sprach-Assistent bereit'}
-            </span>
+            <div className="min-w-0">
+              <div className="text-xs font-bold uppercase tracking-wider text-white truncate">
+                KI-Kontext &amp; Verlauf
+              </div>
+              <div className="text-[10px] text-[#9CA3AF] truncate">
+                Kontext: {activeProjectName}
+              </div>
+            </div>
           </div>
-          <button
-            onClick={() => {
-              stopMicrophone();
-              onClose();
-            }}
-            className="p-1.5 rounded-full text-[#9CA3AF] hover:text-white hover:bg-white/10"
-            title="Abbrechen"
-          >
-            <X className="w-4 h-4" />
-          </button>
+
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                const next = !ttsActive;
+                setTtsActive(next);
+                setTtsEnabled(next);
+                if (!next && typeof window !== 'undefined' && 'speechSynthesis' in window) {
+                  window.speechSynthesis.cancel();
+                }
+              }}
+              className={`px-2.5 py-1.5 rounded-lg text-[10px] font-bold border flex items-center gap-1 ${
+                ttsActive
+                  ? 'bg-[#0A9396]/25 border-[#14B8A6] text-white'
+                  : 'bg-[#181A1B] border-white/10 text-[#9CA3AF]'
+              }`}
+              title="Sprachausgabe umschalten"
+            >
+              {ttsActive ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
+              <span>{ttsActive ? 'Stimme An' : 'Stumm'}</span>
+            </button>
+
+            {messages.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setMessages([]);
+                  localStorage.removeItem(CHAT_STORAGE_KEY);
+                }}
+                className="p-1.5 rounded-lg bg-[#181A1B] text-[#9CA3AF] hover:text-white border border-white/10"
+                title="Gesprächsverlauf leeren"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={() => {
+                stopMicrophone();
+                onClose();
+              }}
+              className="px-2.5 py-1.5 rounded-lg bg-[#181A1B] text-xs font-bold text-[#9CA3AF] hover:text-white border border-white/10 flex items-center gap-1"
+            >
+              <ChevronDown className="w-4 h-4" />
+              <span>Schließen</span>
+            </button>
+          </div>
         </div>
 
-        <div className="p-5 space-y-4">
-          <div className="flex flex-col items-center justify-center py-2">
+        {/* Scrollbarer Gesprächs- und Zuordnungs-Verlauf */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+          {messages.length === 0 ? (
+            <div className="h-full flex flex-col items-center justify-center text-center px-6 space-y-2 text-[#9CA3AF]">
+              <p className="text-xs font-semibold text-white">
+                Autonomer Sprach- und System-Agent bereit
+              </p>
+              <p className="text-[11px] leading-relaxed">
+                Sprich Aufgaben, Einkäufe, Maße oder Fragen einfach frei ein. Alle Antworten und
+                Zuordnungen bleiben hier im Verlauf dauerhaft abrufbar.
+              </p>
+            </div>
+          ) : (
+            messages.map((msg) => (
+              <div
+                key={msg.id}
+                className={`flex flex-col ${
+                  msg.role === 'user' ? 'items-end' : 'items-start'
+                }`}
+              >
+                <div
+                  className={`max-w-[90%] rounded-2xl p-3 text-xs leading-relaxed ${
+                    msg.role === 'user'
+                      ? 'bg-[#0A9396] text-white rounded-br-sm'
+                      : 'bg-[#24292E] text-[#F8F9FA] border border-white/10 rounded-bl-sm'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-3 mb-1 text-[10px] opacity-70">
+                    <span>{msg.role === 'user' ? 'Eingabe' : msg.engine || 'System-Agent'}</span>
+                    <span>{msg.timestamp}</span>
+                  </div>
+                  <p className="whitespace-pre-wrap">{msg.text}</p>
+
+                  {/* Integrierte Zuordnungs-Karten (Ersetzt das unübersichtliche Protokoll) */}
+                  {msg.actions && msg.actions.length > 0 && (
+                    <div className="mt-2.5 pt-2.5 border-t border-white/10 space-y-1.5">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-[#14B8A6]">
+                        Zugeordnete Einträge ({msg.actions.length}):
+                      </div>
+                      {msg.actions.map((act) => (
+                        <div
+                          key={act.actionId}
+                          className={`p-2 rounded-xl bg-[#181A1B] border border-white/10 space-y-1.5 ${
+                            act.undone ? 'opacity-40' : ''
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (onJumpToAction) {
+                                  onJumpToAction(act);
+                                  onClose();
+                                }
+                              }}
+                              className="text-xs font-bold text-[#14B8A6] hover:underline text-left flex items-center gap-1 truncate"
+                            >
+                              <span className="truncate">{act.shortCheckableTitle}</span>
+                              <ArrowUpRight className="w-3.5 h-3.5 shrink-0" />
+                            </button>
+                            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-white/5 text-[#9CA3AF] shrink-0">
+                              {act.targetProjectName} / {act.targetSubTab}
+                            </span>
+                          </div>
+
+                          {!act.undone && msg.logId && (
+                            <div className="flex items-center justify-between gap-2 pt-1 border-t border-white/5">
+                              {onMoveAiAction && activeProjects.length > 0 && (
+                                <select
+                                  value={act.targetProjectId}
+                                  onChange={(e) =>
+                                    onMoveAiAction(msg.logId!, act.actionId, e.target.value)
+                                  }
+                                  className="px-2 py-1 rounded text-[10px] bg-[#24292E] text-white border border-white/10 flex-1"
+                                >
+                                  {activeProjects.map((p) => (
+                                    <option key={p.id} value={p.id}>
+                                      {p.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              )}
+                              {onUndoAiAction && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    onUndoAiAction(msg.logId!, act.actionId);
+                                    setMessages((prev) =>
+                                      prev.map((m) =>
+                                        m.id !== msg.id
+                                          ? m
+                                          : {
+                                              ...m,
+                                              actions: m.actions?.map((a) =>
+                                                a.actionId === act.actionId
+                                                  ? { ...a, undone: true }
+                                                  : a
+                                              )
+                                            }
+                                      )
+                                    );
+                                  }}
+                                  className="px-2 py-1 rounded text-[10px] bg-red-500/15 text-red-300 border border-red-500/30 flex items-center gap-1"
+                                >
+                                  <Undo2 className="w-3 h-3" />
+                                  <span>Rückgängig</span>
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {msg.role === 'assistant' && (!msg.actions || msg.actions.length === 0) && (
+                    <div className="mt-2 pt-1.5 border-t border-white/10 flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => onSaveAnswerToInfos('KI-Notiz', msg.text, null)}
+                        className="text-[10px] font-semibold text-[#14B8A6] hover:underline"
+                      >
+                        Als Projekt-Info speichern
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))
+          )}
+          <div ref={scrollEndRef} />
+        </div>
+
+        {/* Untere direkte Sprach- & Text-Steuerung ohne Zwischenschritte */}
+        <div
+          className="p-3.5 border-t border-white/10 space-y-2.5 shrink-0"
+          style={{ backgroundColor: THEME.bgCard }}
+        >
+          {isListening && hasSpokenText && !isProcessing && (
+            <div className="space-y-1">
+              <div className="flex justify-between text-[10px] text-[#9CA3AF]">
+                <span>Automatischer Versand nach Sprechpause</span>
+                <span className="font-mono text-[#14B8A6]">{countdownSeconds}s</span>
+              </div>
+              <div className="w-full h-1 bg-[#181A1B] rounded-full overflow-hidden">
+                <div
+                  className="h-full transition-all duration-150 rounded-full"
+                  style={{
+                    width: `${progressPercent}%`,
+                    backgroundColor: remainingMs < 1800 ? '#F59E0B' : '#14B8A6'
+                  }}
+                />
+              </div>
+            </div>
+          )}
+
+          {speechNotice && (
+            <div className="text-[11px] text-amber-300 px-2">{speechNotice}</div>
+          )}
+
+          <div className="flex items-center gap-2">
+            <label
+              className="p-2.5 rounded-xl bg-[#181A1B] border border-white/10 text-[#9CA3AF] hover:text-white cursor-pointer shrink-0"
+              title="Foto oder Dokument anhängen"
+            >
+              <Paperclip className="w-4 h-4" />
+              <input type="file" className="hidden" onChange={handleFileUpload} />
+            </label>
+
+            <input
+              type="text"
+              value={transcript}
+              onChange={(e) => {
+                setTranscript(e.target.value);
+                transcriptRef.current = e.target.value;
+                lastSpeechTimestampRef.current = Date.now();
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && transcript.trim()) {
+                  autoSendTriggeredRef.current = true;
+                  void triggerProcess(transcript);
+                }
+              }}
+              placeholder={
+                isListening
+                  ? 'Mikrofon aktiv – einfach sprechen...'
+                  : 'Sprechen oder direkt tippen...'
+              }
+              className="flex-1 px-3.5 py-2.5 rounded-xl text-xs bg-[#181A1B] text-white border border-white/15 focus:outline-none focus:border-[#14B8A6]"
+            />
+
+            {hasSpokenText && (
+              <button
+                type="button"
+                disabled={isProcessing}
+                onClick={() => {
+                  autoSendTriggeredRef.current = true;
+                  void triggerProcess(transcript);
+                }}
+                className="p-2.5 rounded-xl text-white shrink-0"
+                style={{ backgroundColor: THEME.accentPrimary }}
+                title="Sofort absenden"
+              >
+                <Send className="w-4 h-4" />
+              </button>
+            )}
+
             <button
               type="button"
               disabled={isProcessing}
               onClick={() => {
-                if (hasSpokenText && !showKeyboardEdit) {
+                if (isListening && hasSpokenText) {
                   autoSendTriggeredRef.current = true;
-                  void triggerAutoProcess(transcript);
+                  void triggerProcess(transcript);
                 } else if (isListening) {
                   stopMicrophone();
                 } else {
                   startMicrophoneImmediately();
                 }
               }}
-              className={`relative w-20 h-20 rounded-full flex items-center justify-center text-white shadow-2xl transition-transform active:scale-95 ${
-                isListening ? 'ring-8 ring-[#14B8A6]/25' : ''
+              className={`w-11 h-11 rounded-xl flex items-center justify-center text-white shrink-0 transition ${
+                isListening ? 'ring-4 ring-red-500/30' : ''
               }`}
               style={{
                 backgroundColor: isProcessing
@@ -354,140 +654,15 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                   ? '#EF4444'
                   : THEME.accentPrimary
               }}
+              title={isListening ? 'Aufnahme läuft (Tippen zum Senden/Stoppen)' : 'Mikrofon starten'}
             >
               {isProcessing ? (
-                <Loader2 className="w-9 h-9 animate-spin text-[#14B8A6]" />
+                <Loader2 className="w-5 h-5 animate-spin text-[#14B8A6]" />
               ) : isListening ? (
-                <Mic className="w-9 h-9 animate-pulse" />
+                <Mic className="w-5 h-5 animate-pulse" />
               ) : (
-                <MicOff className="w-8 h-8" />
+                <MicOff className="w-5 h-5" />
               )}
-            </button>
-
-            <p className="mt-2.5 text-xs text-center text-[#9CA3AF]">
-              {isProcessing
-                ? 'Erkenne Arbeit/Privat, Projekt & Reiter…'
-                : hasSpokenText && !showKeyboardEdit
-                ? `Auto-Sortierung in ${countdownSeconds}s Pause (oder Button antippen für Sofort-Start)`
-                : 'Ich höre zu… (5,5 Sek. Nachdenk-Puffer bei Sprechpausen)'}
-            </p>
-
-            {hasSpokenText && !showKeyboardEdit && !isProcessing && !qaReply && (
-              <div className="w-full max-w-xs h-1.5 bg-[#181A1B] rounded-full overflow-hidden mt-2 border border-white/10">
-                <div
-                  className="h-full transition-all duration-150 rounded-full"
-                  style={{
-                    width: `${progressPercent}%`,
-                    backgroundColor: remainingMs < 2000 ? '#F59E0B' : '#14B8A6'
-                  }}
-                />
-              </div>
-            )}
-          </div>
-
-          {speechNotice && (
-            <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-[11px] text-amber-300 text-center">
-              {speechNotice}
-            </div>
-          )}
-
-          <div className="rounded-2xl bg-[#181A1B] border border-white/15 p-3.5">
-            {showKeyboardEdit ? (
-              <textarea
-                rows={3}
-                autoFocus
-                value={transcript}
-                onChange={(e) => {
-                  setTranscript(e.target.value);
-                  transcriptRef.current = e.target.value;
-                  lastSpeechTimestampRef.current = Date.now();
-                }}
-                placeholder="Hier Text korrigieren oder direkt eintippen…"
-                className="w-full bg-transparent text-sm text-white focus:outline-none resize-none"
-              />
-            ) : (
-              <div className="min-h-[56px] flex items-center justify-center text-center">
-                {transcript ? (
-                  <p className="text-sm text-white font-medium leading-relaxed">„{transcript}“</p>
-                ) : (
-                  <p className="text-xs text-[#9CA3AF]/60 italic">
-                    Sag z. B.: „Ich brauche noch Spiegelschrauben für das Waschbecken“ oder
-                    „Auf der Baustelle Bäckerei morgen Lüftungsrohre ausmessen“…
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
-
-          {qaReply && (
-            <div className="p-3.5 rounded-2xl bg-[#181A1B] border border-[#14B8A6] space-y-2.5">
-              <div className="flex items-center gap-1.5 text-xs font-bold text-[#14B8A6]">
-                <Sparkles className="w-4 h-4" />
-                KI-Antwort:
-              </div>
-              <p className="text-xs text-white whitespace-pre-wrap leading-relaxed">{qaReply}</p>
-              <div className="flex gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={() => {
-                    onSaveAnswerToInfos(transcript, qaReply, attachment);
-                    onClose();
-                  }}
-                  className="flex-1 py-2 px-3 rounded-xl text-xs font-bold text-white flex items-center justify-center gap-1.5"
-                  style={{ backgroundColor: THEME.accentPrimary }}
-                >
-                  <CheckCircle2 className="w-3.5 h-3.5" />
-                  Unter „{activeProjectName} – Infos“ sichern
-                </button>
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="py-2 px-3 rounded-xl text-xs text-[#9CA3AF] bg-white/5 hover:text-white"
-                >
-                  Fertig
-                </button>
-              </div>
-            </div>
-          )}
-
-          <div className="flex items-center justify-between gap-2 pt-1">
-            <div className="flex items-center gap-1.5">
-              <label className="cursor-pointer px-2.5 py-1.5 rounded-xl bg-[#181A1B] border border-white/10 text-[11px] text-[#9CA3AF] hover:text-white flex items-center gap-1.5">
-                <Upload className="w-3.5 h-3.5 text-[#14B8A6]" />
-                {attachment ? 'Foto/Datei ✓' : 'Foto dazu'}
-                <input type="file" className="hidden" onChange={handleFileUpload} />
-              </label>
-
-              <button
-                type="button"
-                onClick={() => {
-                  stopMicrophone();
-                  setShowKeyboardEdit((prev) => !prev);
-                }}
-                className={`px-2.5 py-1.5 rounded-xl border text-[11px] flex items-center gap-1.5 ${
-                  showKeyboardEdit
-                    ? 'bg-[#14B8A6]/20 border-[#14B8A6] text-white'
-                    : 'bg-[#181A1B] border-white/10 text-[#9CA3AF] hover:text-white'
-                }`}
-                title="Timer anhalten & Text per Tastatur bearbeiten"
-              >
-                <Keyboard className="w-3.5 h-3.5" />
-                {showKeyboardEdit ? 'Tastatur aktiv' : 'Tippen / Pause'}
-              </button>
-            </div>
-
-            <button
-              type="button"
-              disabled={!hasSpokenText || isProcessing}
-              onClick={() => {
-                autoSendTriggeredRef.current = true;
-                void triggerAutoProcess(transcript);
-              }}
-              className="px-4 py-2 rounded-xl text-xs font-bold text-white flex items-center gap-1.5 disabled:opacity-40 shadow-lg"
-              style={{ backgroundColor: THEME.accentPrimary }}
-            >
-              <Send className="w-3.5 h-3.5" />
-              Sofort einsortieren
             </button>
           </div>
         </div>

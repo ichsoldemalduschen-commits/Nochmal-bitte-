@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, Layers, Mic, Settings2, X } from 'lucide-react';
+import { CheckCircle2, MessageSquare, Mic, X } from 'lucide-react';
 import {
   AiExecutedAction,
   AiLogEntry,
@@ -52,6 +52,7 @@ export default function App() {
   const [highlightedItemId, setHighlightedItemId] = useState<string | null>(null);
 
   const [voiceModalOpen, setVoiceModalOpen] = useState(false);
+  const [autoStartMicOnOpen, setAutoStartMicOnOpen] = useState(true);
   const [realityModalOpen, setRealityModalOpen] = useState(false);
   const [selfCheckModalOpen, setSelfCheckModalOpen] = useState(false);
   const [newProjectModalOpen, setNewProjectModalOpen] = useState(false);
@@ -62,7 +63,7 @@ export default function App() {
 
   const notify = (msg: string) => {
     setToast(msg);
-    window.setTimeout(() => setToast(null), 3800);
+    window.setTimeout(() => setToast(null), 3200);
   };
 
   useEffect(() => {
@@ -78,6 +79,13 @@ export default function App() {
   useEffect(() => {
     loadPersistedState(INITIAL_APP_SNAPSHOT).then((loaded) => {
       const normalizedProjects = (loaded.projects || INITIAL_APP_SNAPSHOT.projects).map((p) => {
+        if (p.id === 'proj-foodtruck') {
+          return {
+            ...p,
+            customLogoUrl: p.customLogoUrl || '/raccoon-logo.png',
+            enabledPlugins: Array.isArray(p.enabledPlugins) ? p.enabledPlugins : []
+          };
+        }
         if (p.id === 'proj-baeckerei') {
           return {
             ...p,
@@ -140,23 +148,20 @@ export default function App() {
       return {
         primary: '#4F46E5',
         highlight: '#818CF8',
-        badgeText: '🏠 PRIVAT-MODUS',
-        glow: 'rgba(79, 70, 229, 0.4)'
+        glow: 'rgba(79, 70, 229, 0.35)'
       };
     }
     if (activeProject?.id === 'proj-baeckerei') {
       return {
         primary: '#D97706',
         highlight: '#F59E0B',
-        badgeText: '🏗️ BAUSTELLE BÄCKEREI',
-        glow: 'rgba(217, 119, 6, 0.4)'
+        glow: 'rgba(217, 119, 6, 0.35)'
       };
     }
     return {
       primary: '#0A9396',
       highlight: '#14B8A6',
-      badgeText: '🍕 PIZZA BANDIT',
-      glow: 'rgba(10, 147, 150, 0.45)'
+      glow: 'rgba(10, 147, 150, 0.4)'
     };
   }, [activeDomain, activeProject?.id]);
 
@@ -188,177 +193,269 @@ export default function App() {
     const { plan, engine } = await routeVoiceCommand(
       rawText,
       state.userApiKey,
-      activeProject?.id || 'proj-foodtruck'
+      activeProject?.id || 'proj-foodtruck',
+      state.projects,
+      undefined,
+      attachment
     );
-
-    if (plan.isQuestion && plan.directAnswer) {
-      notify(plan.directAnswer);
-      return;
-    }
 
     const timestamp = formatNow();
     const executedActions: AiExecutedAction[] = [];
+    const logId = `log-${Date.now()}`;
     let firstTargetProjectId = activeProject?.id || 'proj-foodtruck';
     let firstTab: ProjectTabId = activeProjectTab;
 
-    setState((prev) => {
-      const nextProjects = prev.projects.map((p) => ({
-        ...p,
-        tasks: [...p.tasks],
-        explanations: [...p.explanations],
-        infos: [...p.infos],
-        cart: [...p.cart]
-      }));
+    if (plan.actions && plan.actions.length > 0) {
+      setState((prev) => {
+        const nextProjects = prev.projects.map((p) => ({
+          ...p,
+          tasks: [...p.tasks],
+          explanations: [...p.explanations],
+          infos: [...p.infos],
+          cart: [...p.cart]
+        }));
 
-      plan.actions.forEach((act, idx) => {
-        const target =
-          nextProjects.find((p) => p.id === act.targetProjectId) ||
-          nextProjects.find((p) => p.id === (activeProject?.id || 'proj-foodtruck')) ||
-          nextProjects[0];
+        plan.actions.forEach((act, idx) => {
+          const target =
+            nextProjects.find((p) => p.id === act.targetProjectId) ||
+            nextProjects.find((p) => p.id === (activeProject?.id || 'proj-foodtruck')) ||
+            nextProjects[0];
 
-        if (!target) return;
-        if (idx === 0) firstTargetProjectId = target.id;
+          if (!target) return;
+          if (idx === 0) firstTargetProjectId = target.id;
 
-        const itemId = `ai-${Date.now()}-${idx}`;
-        const safeTitle = enforceMaxSixWords(act.shortCheckableTitle, 'Neuer KI-Eintrag');
-        const safeNote = enforceMaxSixWords(
-          act.changeFooterNote || 'Per Sprache einsortiert',
-          'Per Sprache einsortiert'
-        );
+          const itemId = `ai-${Date.now()}-${idx}`;
+          const safeTitle = enforceMaxSixWords(act.shortCheckableTitle, 'Neuer Eintrag');
+          const safeNote = enforceMaxSixWords(
+            act.changeFooterNote || 'Durch KI zugeordnet',
+            'Durch KI zugeordnet'
+          );
 
-        if (act.actionType === 'ADD_CART_ITEM') {
-          if (idx === 0) firstTab = 'cart';
-          target.cart.unshift({
-            id: itemId,
-            title: safeTitle,
-            quantity: act.quantityOrMeasure || '1x',
-            price: act.estimatedPrice || '',
-            completed: false,
-            aiTouched: true,
-            lastModified: timestamp,
-            changeReason: safeNote,
-            source: 'KI-Zuordnung',
-            procurementCheck: buildProcurementCheck(safeTitle),
-            customMeta: {}
-          });
-          executedActions.push({
-            actionId: `act-${itemId}`,
-            actionType: act.actionType,
-            targetProjectId: target.id,
-            targetProjectName: target.name,
-            targetSubTab: 'cart',
-            targetItemId: itemId,
-            shortCheckableTitle: safeTitle,
-            detailedExplanation: act.detailedExplanation,
-            changeFooterNote: safeNote,
-            undone: false
-          } as any);
-        } else if (act.actionType === 'UPDATE_EXPLANATION') {
-          if (idx === 0) firstTab = 'explanations';
-          target.explanations.unshift({
-            id: itemId,
-            title: safeTitle,
-            stepsText: act.detailedExplanation || rawText,
-            lastModified: timestamp,
-            changeReason: safeNote,
-            source: 'KI-Zuordnung',
-            aiTouched: true,
-            customMeta: {}
-          });
-          executedActions.push({
-            actionId: `act-${itemId}`,
-            actionType: act.actionType,
-            targetProjectId: target.id,
-            targetProjectName: target.name,
-            targetSubTab: 'explanations',
-            targetItemId: itemId,
-            shortCheckableTitle: safeTitle,
-            detailedExplanation: act.detailedExplanation,
-            changeFooterNote: safeNote,
-            undone: false
-          } as any);
-        } else if (act.actionType === 'ADD_INFO') {
-          if (idx === 0) firstTab = 'infos';
-          target.infos.unshift({
-            id: itemId,
-            title: safeTitle,
-            content: act.detailedExplanation || rawText,
-            attachments: attachment ? [attachment] : [],
-            lastModified: timestamp,
-            changeReason: safeNote,
-            source: 'KI-Zuordnung',
-            aiTouched: true,
-            customMeta: {}
-          });
-          executedActions.push({
-            actionId: `act-${itemId}`,
-            actionType: act.actionType,
-            targetProjectId: target.id,
-            targetProjectName: target.name,
-            targetSubTab: 'infos',
-            targetItemId: itemId,
-            shortCheckableTitle: safeTitle,
-            detailedExplanation: act.detailedExplanation,
-            changeFooterNote: safeNote,
-            undone: false
-          } as any);
-        } else {
-          if (idx === 0) firstTab = 'tasks';
-          target.tasks.unshift({
-            id: itemId,
-            title: safeTitle,
-            completed: act.actionType === 'CHECK_OFF_TASK',
-            priority: act.priority || 'Mittel',
-            estimatedMinutes: act.estimatedMinutes || 25,
-            dayBlock: null,
-            reminderAt: '',
-            aiTouched: true,
-            lastModified: timestamp,
-            changeReason: safeNote,
-            source: 'KI-Zuordnung',
-            customMeta: {}
-          });
-          executedActions.push({
-            actionId: `act-${itemId}`,
-            actionType: act.actionType,
-            targetProjectId: target.id,
-            targetProjectName: target.name,
-            targetSubTab: 'tasks',
-            targetItemId: itemId,
-            shortCheckableTitle: safeTitle,
-            detailedExplanation: act.detailedExplanation,
-            changeFooterNote: safeNote,
-            undone: false
-          } as any);
-        }
+          if (act.actionType === 'ADD_CART_ITEM') {
+            if (idx === 0) firstTab = 'cart';
+            target.cart.unshift({
+              id: itemId,
+              title: safeTitle,
+              quantity: act.quantityOrMeasure || '1x',
+              price: act.estimatedPrice || '',
+              completed: false,
+              aiTouched: true,
+              lastModified: timestamp,
+              changeReason: safeNote,
+              source: 'KI-Zuordnung',
+              procurementCheck: buildProcurementCheck(safeTitle),
+              customMeta: {}
+            });
+            executedActions.push({
+              actionId: `act-${itemId}`,
+              actionType: act.actionType,
+              targetProjectId: target.id,
+              targetProjectName: target.name,
+              targetSubTab: 'cart',
+              targetItemId: itemId,
+              shortCheckableTitle: safeTitle,
+              detailedExplanation: act.detailedExplanation,
+              changeFooterNote: safeNote,
+              undone: false
+            } as any);
+          } else if (act.actionType === 'UPDATE_EXPLANATION') {
+            if (idx === 0) firstTab = 'explanations';
+            target.explanations.unshift({
+              id: itemId,
+              title: safeTitle,
+              stepsText: act.detailedExplanation || rawText,
+              lastModified: timestamp,
+              changeReason: safeNote,
+              source: 'KI-Zuordnung',
+              aiTouched: true,
+              customMeta: {}
+            });
+            executedActions.push({
+              actionId: `act-${itemId}`,
+              actionType: act.actionType,
+              targetProjectId: target.id,
+              targetProjectName: target.name,
+              targetSubTab: 'explanations',
+              targetItemId: itemId,
+              shortCheckableTitle: safeTitle,
+              detailedExplanation: act.detailedExplanation,
+              changeFooterNote: safeNote,
+              undone: false
+            } as any);
+          } else if (act.actionType === 'ADD_INFO') {
+            if (idx === 0) firstTab = 'infos';
+            target.infos.unshift({
+              id: itemId,
+              title: safeTitle,
+              content: act.detailedExplanation || rawText,
+              attachments: attachment ? [attachment] : [],
+              lastModified: timestamp,
+              changeReason: safeNote,
+              source: 'KI-Zuordnung',
+              aiTouched: true,
+              customMeta: {}
+            });
+            executedActions.push({
+              actionId: `act-${itemId}`,
+              actionType: act.actionType,
+              targetProjectId: target.id,
+              targetProjectName: target.name,
+              targetSubTab: 'infos',
+              targetItemId: itemId,
+              shortCheckableTitle: safeTitle,
+              detailedExplanation: act.detailedExplanation,
+              changeFooterNote: safeNote,
+              undone: false
+            } as any);
+          } else {
+            if (idx === 0) firstTab = 'tasks';
+            target.tasks.unshift({
+              id: itemId,
+              title: safeTitle,
+              completed: act.actionType === 'CHECK_OFF_TASK',
+              priority: act.priority || 'Mittel',
+              estimatedMinutes: act.estimatedMinutes || 25,
+              dayBlock: null,
+              reminderAt: '',
+              aiTouched: true,
+              lastModified: timestamp,
+              changeReason: safeNote,
+              source: 'KI-Zuordnung',
+              customMeta: {}
+            });
+            executedActions.push({
+              actionId: `act-${itemId}`,
+              actionType: act.actionType,
+              targetProjectId: target.id,
+              targetProjectName: target.name,
+              targetSubTab: 'tasks',
+              targetItemId: itemId,
+              shortCheckableTitle: safeTitle,
+              detailedExplanation: act.detailedExplanation,
+              changeFooterNote: safeNote,
+              undone: false
+            } as any);
+          }
+        });
+
+        const newLog: AiLogEntry = {
+          id: logId,
+          timestamp,
+          rawTranscript: rawText,
+          rawInput: rawText,
+          summary: plan.summary,
+          engineUsed: engine,
+          engine: engine,
+          undone: false,
+          actions: executedActions
+        } as any;
+
+        return {
+          ...prev,
+          projects: nextProjects,
+          aiLogs: [newLog, ...prev.aiLogs]
+        };
       });
 
-      const newLog: AiLogEntry = {
-        id: `log-${Date.now()}`,
-        timestamp,
-        rawTranscript: rawText,
-        rawInput: rawText,
-        summary: plan.summary,
-        engineUsed: engine,
-        engine: engine,
-        undone: false,
-        actions: executedActions
-      } as any;
+      const targetProj = state.projects.find((p) => p.id === firstTargetProjectId);
+      if (targetProj) {
+        setActiveDomain(targetProj.domain);
+        setSelectedProjectId(targetProj.id);
+        setActiveProjectTab(firstTab);
+      }
+    }
 
+    return {
+      replyText: plan.directAnswer || plan.summary,
+      spokenText: plan.spokenFeedback || plan.summary,
+      needsClarification: Boolean(plan.needsClarification),
+      engine,
+      logId,
+      actions: executedActions
+    };
+  };
+
+  const handleUndoAiAction = (logId: string, actionId: string) => {
+    setState((prev) => {
+      const log = prev.aiLogs.find((l) => l.id === logId);
+      const act = log?.actions.find((a) => a.actionId === actionId);
+      if (!act || act.undone) return prev;
       return {
         ...prev,
-        projects: nextProjects,
-        aiLogs: [newLog, ...prev.aiLogs]
+        projects: prev.projects.map((p) =>
+          p.id !== act.targetProjectId
+            ? p
+            : {
+                ...p,
+                [act.targetSubTab]: (p[act.targetSubTab] as any[]).filter(
+                  (it) => it.id !== act.targetItemId
+                )
+              }
+        ),
+        aiLogs: prev.aiLogs.map((l) =>
+          l.id !== logId
+            ? l
+            : {
+                ...l,
+                actions: l.actions.map((a) =>
+                  a.actionId === actionId ? { ...a, undone: true } : a
+                )
+              }
+        )
       };
     });
+    notify('Aktion rückgängig gemacht.');
+  };
 
-    const targetProj = state.projects.find((p) => p.id === firstTargetProjectId);
-    if (targetProj) {
-      setActiveDomain(targetProj.domain);
-      setSelectedProjectId(targetProj.id);
-      setActiveProjectTab(firstTab);
-    }
-    notify(`✓ ${plan.summary}`);
+  const handleMoveAiAction = (logId: string, actionId: string, newProjId: string) => {
+    setState((prev) => {
+      const log = prev.aiLogs.find((l) => l.id === logId);
+      const act = log?.actions.find((a) => a.actionId === actionId);
+      if (!act || act.targetProjectId === newProjId) return prev;
+      let movedItem: any = null;
+      const removed = prev.projects.map((p) => {
+        if (p.id !== act.targetProjectId) return p;
+        const list = p[act.targetSubTab] as any[];
+        movedItem = list.find((it) => it.id === act.targetItemId);
+        return {
+          ...p,
+          [act.targetSubTab]: list.filter((it) => it.id !== act.targetItemId)
+        };
+      });
+      const added = removed.map((p) => {
+        if (p.id !== newProjId || !movedItem) return p;
+        return {
+          ...p,
+          [act.targetSubTab]: [movedItem, ...(p[act.targetSubTab] as any[])]
+        };
+      });
+      return {
+        ...prev,
+        projects: added,
+        aiLogs: prev.aiLogs.map((l) =>
+          l.id !== logId
+            ? l
+            : {
+                ...l,
+                actions: l.actions.map((a) =>
+                  a.actionId === actionId ? { ...a, targetProjectId: newProjId } : a
+                )
+              }
+        )
+      };
+    });
+    notify('Eintrag verschoben.');
+  };
+
+  const handleJumpToAction = (act: AiExecutedAction) => {
+    const targetProj = state.projects.find((p) => p.id === act.targetProjectId);
+    if (!targetProj) return;
+    setIsBackoffice(false);
+    setActiveDomain(targetProj.domain);
+    setSelectedProjectId(targetProj.id);
+    setActiveProjectTab(act.targetSubTab);
+    setHighlightedItemId(act.targetItemId);
+    setTimeout(() => setHighlightedItemId(null), 2400);
   };
 
   if (flip7CoverMode) {
@@ -376,12 +473,18 @@ export default function App() {
               )
             }));
           }}
-          onOpenVoice={() => setVoiceModalOpen(true)}
+          onOpenVoice={() => {
+            setAutoStartMicOnOpen(true);
+            setVoiceModalOpen(true);
+          }}
           onExitCoverMode={() => toggleCoverMode(false)}
         />
         <VoiceModal
           open={voiceModalOpen}
+          autoStartMic={autoStartMicOnOpen}
           activeProjectName={activeProject?.name || 'Pizza Bandit'}
+          projects={state.projects}
+          aiLogs={state.aiLogs}
           onClose={() => setVoiceModalOpen(false)}
           onExecuteCommand={handleDistributeVoiceCommand}
           onAskQuestion={(q, att) =>
@@ -399,11 +502,11 @@ export default function App() {
               infos: [
                 {
                   id: `i-qa-${Date.now()}`,
-                  title: enforceMaxSixWords(q, 'KI-Schnellfrage'),
-                  content: `Frage: ${q}\n\nAntwort:\n${ans}`,
+                  title: enforceMaxSixWords(q, 'KI-Notiz'),
+                  content: ans,
                   attachments: att ? [att] : [],
                   lastModified: formatNow(),
-                  changeReason: 'Aus Sprach-Frage gespeichert',
+                  changeReason: 'Aus KI-Verlauf gespeichert',
                   source: 'KI-Zuordnung',
                   aiTouched: true,
                   customMeta: {}
@@ -411,8 +514,11 @@ export default function App() {
                 ...p.infos
               ]
             }));
-            notify('Antwort unter Infos gespeichert!');
+            notify('Unter Infos gespeichert.');
           }}
+          onJumpToAction={handleJumpToAction}
+          onUndoAiAction={handleUndoAiAction}
+          onMoveAiAction={handleMoveAiAction}
         />
       </>
     );
@@ -423,60 +529,17 @@ export default function App() {
       className="min-h-screen flex flex-col"
       style={{ backgroundColor: THEME.bgMain, color: THEME.textMain }}
     >
+      {/* Dezenter 4px Farbstreifen oben für sofortige Orientierung */}
       <div
-        className="h-1.5 w-full transition-colors duration-300"
+        className="h-1 w-full transition-colors duration-300"
         style={{ backgroundColor: activeVisualTheme.primary }}
       />
 
-      <header
-        className="sticky top-0 z-30 border-b backdrop-blur-md transition-colors duration-300"
-        style={{
-          backgroundColor: 'rgba(24, 26, 27, 0.92)',
-          borderColor: `${activeVisualTheme.highlight}44`
-        }}
-      >
-        <div className="max-w-md mx-auto px-3.5 py-2.5 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2.5 min-w-0">
-            <div
-              className="w-8 h-8 rounded-xl flex items-center justify-center text-white shrink-0 shadow-md transition-colors duration-300"
-              style={{ backgroundColor: activeVisualTheme.primary }}
-            >
-              <Layers className="w-4 h-4 text-white" />
-            </div>
-            <div className="min-w-0">
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs font-extrabold tracking-tight text-white">
-                  NEXUS
-                  <span style={{ color: activeVisualTheme.highlight }}>FLOW</span>
-                </span>
-                <span
-                  className="text-[10px] font-bold px-2 py-0.5 rounded-full text-white truncate"
-                  style={{ backgroundColor: activeVisualTheme.primary }}
-                >
-                  {activeVisualTheme.badgeText}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={() => setIsBackoffice((b) => !b)}
-            className="px-2.5 py-1.5 rounded-xl text-xs font-semibold border border-white/15 flex items-center gap-1.5 text-white shrink-0"
-            style={{
-              backgroundColor: isBackoffice ? activeVisualTheme.primary : THEME.bgCard
-            }}
-          >
-            <Settings2 className="w-3.5 h-3.5" style={{ color: activeVisualTheme.highlight }} />
-            <span>{isBackoffice ? 'Listen' : 'Menü'}</span>
-          </button>
-        </div>
-      </header>
-
-      <main className="flex-1 w-full max-w-md mx-auto px-3 pt-3 pb-28">
+      <main className="flex-1 w-full max-w-md mx-auto px-3 pt-3 pb-24">
         {!isBackoffice ? (
           <FrontWorkspace
             activeDomain={activeDomain}
+            allProjects={state.projects}
             domainProjects={domainProjects}
             activeProject={activeProject}
             activeTab={activeProjectTab}
@@ -496,13 +559,13 @@ export default function App() {
                   ...p,
                   customLogoUrl: String(ev.target?.result || '')
                 }));
-                notify('Projekt-Logo gespeichert!');
+                notify('Projekt-Logo aktualisiert.');
               };
               reader.readAsDataURL(file);
             }}
             onResetProjectLogo={(projId) => {
-              updateProject(projId, (p) => ({ ...p, customLogoUrl: null }));
-              notify('Standard-Logo wiederhergestellt.');
+              updateProject(projId, (p) => ({ ...p, customLogoUrl: '/raccoon-logo.png' }));
+              notify('Standard-Logo gesetzt.');
             }}
             onConfirmRedDot={(projId, section, itemId) => {
               const ts = formatNow();
@@ -559,7 +622,7 @@ export default function App() {
                 ...p,
                 tasks: p.tasks.map((t) => ({ ...t, completed: false, lastModified: ts }))
               }));
-              notify('Checkliste für neuen Einsatz zurückgesetzt!');
+              notify('Checkliste zurückgesetzt.');
             }}
             onAddExplanation={(projId, title, stepsText) => {
               const ts = formatNow();
@@ -638,12 +701,12 @@ export default function App() {
                           ...inf,
                           attachments: [...inf.attachments, newAtt],
                           lastModified: formatNow(),
-                          changeReason: `Anhang ${file.name} gespeichert`
+                          changeReason: `Anhang ${file.name}`
                         }
                       : inf
                   )
                 }));
-                notify(`Datei "${file.name}" gespeichert!`);
+                notify(`Datei "${file.name}" gespeichert.`);
               };
               if (isText && !isImage && !isPdf) reader.readAsText(file);
               else reader.readAsDataURL(file);
@@ -662,7 +725,7 @@ export default function App() {
                     completed: false,
                     aiTouched: false,
                     lastModified: ts,
-                    changeReason: it.reason || 'Manuell hinzugefügt',
+                    changeReason: it.reason || 'Hinzugefügt',
                     source: 'Manuell' as const,
                     procurementCheck: buildProcurementCheck(it.title),
                     customMeta: {}
@@ -670,7 +733,6 @@ export default function App() {
                   ...p.cart
                 ]
               }));
-              notify(`${items.length} Artikel in den Einkaufswagen gelegt!`);
             }}
             onToggleCartItem={(projId, cartId) => {
               const ts = formatNow();
@@ -718,86 +780,9 @@ export default function App() {
             haEmbedUrl={state.haEmbedUrl}
             onChangeTab={setBackofficeTab}
             onCloseBackoffice={() => setIsBackoffice(false)}
-            onJumpToAction={(act) => {
-              const targetProj = state.projects.find((p) => p.id === act.targetProjectId);
-              if (!targetProj) return;
-              setIsBackoffice(false);
-              setActiveDomain(targetProj.domain);
-              setSelectedProjectId(targetProj.id);
-              setActiveProjectTab(act.targetSubTab);
-              setHighlightedItemId(act.targetItemId);
-              setTimeout(() => setHighlightedItemId(null), 2400);
-            }}
-            onUndoAiAction={(logId, actionId) => {
-              setState((prev) => {
-                const log = prev.aiLogs.find((l) => l.id === logId);
-                const act = log?.actions.find((a) => a.actionId === actionId);
-                if (!act || act.undone) return prev;
-                return {
-                  ...prev,
-                  projects: prev.projects.map((p) =>
-                    p.id !== act.targetProjectId
-                      ? p
-                      : {
-                          ...p,
-                          [act.targetSubTab]: (p[act.targetSubTab] as any[]).filter(
-                            (it) => it.id !== act.targetItemId
-                          )
-                        }
-                  ),
-                  aiLogs: prev.aiLogs.map((l) =>
-                    l.id !== logId
-                      ? l
-                      : {
-                          ...l,
-                          actions: l.actions.map((a) =>
-                            a.actionId === actionId ? { ...a, undone: true } : a
-                          )
-                        }
-                  )
-                };
-              });
-              notify('KI-Aktion rückgängig gemacht.');
-            }}
-            onMoveAiAction={(logId, actionId, newProjId) => {
-              setState((prev) => {
-                const log = prev.aiLogs.find((l) => l.id === logId);
-                const act = log?.actions.find((a) => a.actionId === actionId);
-                if (!act || act.targetProjectId === newProjId) return prev;
-                let movedItem: any = null;
-                const removed = prev.projects.map((p) => {
-                  if (p.id !== act.targetProjectId) return p;
-                  const list = p[act.targetSubTab] as any[];
-                  movedItem = list.find((it) => it.id === act.targetItemId);
-                  return {
-                    ...p,
-                    [act.targetSubTab]: list.filter((it) => it.id !== act.targetItemId)
-                  };
-                });
-                const added = removed.map((p) => {
-                  if (p.id !== newProjId || !movedItem) return p;
-                  return {
-                    ...p,
-                    [act.targetSubTab]: [movedItem, ...(p[act.targetSubTab] as any[])]
-                  };
-                });
-                return {
-                  ...prev,
-                  projects: added,
-                  aiLogs: prev.aiLogs.map((l) =>
-                    l.id !== logId
-                      ? l
-                      : {
-                          ...l,
-                          actions: l.actions.map((a) =>
-                            a.actionId === actionId ? { ...a, targetProjectId: newProjId } : a
-                          )
-                        }
-                  )
-                };
-              });
-              notify('Eintrag verschoben.');
-            }}
+            onJumpToAction={handleJumpToAction}
+            onUndoAiAction={handleUndoAiAction}
+            onMoveAiAction={handleMoveAiAction}
             onToggleArchiveProject={(projId) => {
               const ts = formatNow();
               updateProject(projId, (p) => ({
@@ -837,7 +822,7 @@ export default function App() {
                       }
                 )
               }));
-              notify('Offene Aufgaben auf Tagesblöcke verteilt!');
+              notify('Aufgaben auf Tagesblöcke verteilt.');
             }}
             onTogglePluginForProject={(projId, pluginId) =>
               updateProject(projId, (p) => ({
@@ -865,7 +850,6 @@ export default function App() {
                   ...p.infos
                 ]
               }));
-              notify('In Projekt-Infos gespeichert!');
             }}
             onChangeApiKey={(key) => setState((prev) => ({ ...prev, userApiKey: key }))}
             onToggleRealityCheck={() =>
@@ -883,49 +867,67 @@ export default function App() {
                 selfChecks: prev.selfChecks,
                 eventSalesLogs: prev.eventSalesLogs
               }));
-              notify('Projekte („Baustelle Bäckerei“ & „Pizza Bandit“) sauber aktualisiert!');
+              notify('Projektstruktur aktualisiert.');
             }}
             onExportFullBackup={() => downloadStateBackupJson(state)}
             onImportFullBackup={(snap) => {
               setState(snap);
-              notify('Backup eingespielt!');
+              notify('Backup geladen.');
             }}
             onNotify={notify}
           />
         )}
       </main>
 
-      <div className="fixed bottom-4 inset-x-0 z-40 pointer-events-none">
-        <div className="max-w-md mx-auto px-4 flex items-center justify-between">
-          <button
-            type="button"
-            onClick={() => setIsBackoffice((b) => !b)}
-            className="pointer-events-auto px-4 py-3 rounded-2xl text-xs font-bold border border-white/15 shadow-xl flex items-center gap-2 active:scale-95 transition"
-            style={{ backgroundColor: THEME.bgCard, color: THEME.textMain }}
+      {/* VARIANTE 1: UNTERE KI-SCHUBLADEN-LEISTE (1-Tipp für Verlauf / 1-Tipp für Sofort-Sprechen) */}
+      <div className="fixed bottom-3 inset-x-0 z-40 pointer-events-none">
+        <div className="max-w-md mx-auto px-3">
+          <div
+            className="pointer-events-auto rounded-2xl border border-white/15 p-2 shadow-2xl flex items-center gap-2"
+            style={{ backgroundColor: '#1E2226' }}
           >
-            <Settings2 className="w-4 h-4" style={{ color: activeVisualTheme.highlight }} />
-            <span>{isBackoffice ? '📱 Zu den Listen' : '⚙️ Einstellungen'}</span>
-          </button>
+            <button
+              type="button"
+              onClick={() => {
+                setAutoStartMicOnOpen(false);
+                setVoiceModalOpen(true);
+              }}
+              className="flex-1 px-3 py-2.5 rounded-xl bg-[#181A1B] text-left text-xs text-[#9CA3AF] hover:text-white border border-white/10 flex items-center gap-2 truncate"
+            >
+              <MessageSquare
+                className="w-4 h-4 shrink-0"
+                style={{ color: activeVisualTheme.highlight }}
+              />
+              <span className="truncate">KI-Kontext &amp; Gesprächsverlauf öffnen...</span>
+            </button>
 
-          <button
-            type="button"
-            onClick={() => setVoiceModalOpen(true)}
-            aria-label="Direkt einsprechen"
-            className="pointer-events-auto px-5 h-14 rounded-2xl text-white font-bold text-xs shadow-2xl flex items-center justify-center gap-2.5 border border-white/20 active:scale-95 transition"
-            style={{
-              backgroundColor: activeVisualTheme.primary,
-              boxShadow: `0 10px 28px ${activeVisualTheme.glow}`
-            }}
-          >
-            <Mic className="w-5 h-5" />
-            <span>Sprechen</span>
-          </button>
+            <button
+              type="button"
+              onClick={() => {
+                setAutoStartMicOnOpen(true);
+                setVoiceModalOpen(true);
+              }}
+              aria-label="Sofort sprechen"
+              className="px-4 py-2.5 rounded-xl text-white font-bold text-xs flex items-center gap-2 shrink-0 active:scale-95 transition"
+              style={{
+                backgroundColor: activeVisualTheme.primary,
+                boxShadow: `0 6px 20px ${activeVisualTheme.glow}`
+              }}
+            >
+              <Mic className="w-4 h-4" />
+              <span>Sprechen</span>
+            </button>
+          </div>
         </div>
       </div>
 
+      {/* KI-KONTEXT-SCHUBLADE */}
       <VoiceModal
         open={voiceModalOpen}
+        autoStartMic={autoStartMicOnOpen}
         activeProjectName={activeProject?.name || 'Pizza Bandit'}
+        projects={state.projects}
+        aiLogs={state.aiLogs}
         onClose={() => setVoiceModalOpen(false)}
         onExecuteCommand={handleDistributeVoiceCommand}
         onAskQuestion={(q, att) =>
@@ -943,11 +945,11 @@ export default function App() {
             infos: [
               {
                 id: `i-qa-${Date.now()}`,
-                title: enforceMaxSixWords(q, 'KI-Schnellfrage'),
-                content: `Frage: ${q}\n\nAntwort:\n${ans}`,
+                title: enforceMaxSixWords(q, 'KI-Notiz'),
+                content: ans,
                 attachments: att ? [att] : [],
                 lastModified: formatNow(),
-                changeReason: 'Aus Sprach-Frage gespeichert',
+                changeReason: 'Aus KI-Verlauf gespeichert',
                 source: 'KI-Zuordnung',
                 aiTouched: true,
                 customMeta: {}
@@ -955,8 +957,11 @@ export default function App() {
               ...p.infos
             ]
           }));
-          notify('Antwort unter Infos gespeichert!');
+          notify('In Projekt-Infos gespeichert.');
         }}
+        onJumpToAction={handleJumpToAction}
+        onUndoAiAction={handleUndoAiAction}
+        onMoveAiAction={handleMoveAiAction}
       />
 
       <RealityCheckModal open={realityModalOpen} onClose={() => setRealityModalOpen(false)} />
@@ -1030,12 +1035,12 @@ export default function App() {
                   setNewProjName('');
                   setNewProjSubtitle('');
                   setNewProjectModalOpen(false);
-                  notify('Projekt erstellt!');
+                  notify('Projekt angelegt.');
                 }}
                 className="px-4 py-1.5 rounded-lg text-xs font-bold text-white"
                 style={{ backgroundColor: activeVisualTheme.primary }}
               >
-                Erstellen
+                Anlegen
               </button>
             </div>
           </div>
@@ -1087,7 +1092,7 @@ export default function App() {
 
       {toast && (
         <div
-          className="fixed top-14 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-full text-white text-xs font-bold shadow-2xl flex items-center gap-2 border border-white/20 max-w-[90vw]"
+          className="fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-full text-white text-xs font-bold shadow-2xl flex items-center gap-2 border border-white/20 max-w-[90vw]"
           style={{ backgroundColor: activeVisualTheme.primary }}
         >
           <CheckCircle2 className="w-4 h-4 shrink-0" />

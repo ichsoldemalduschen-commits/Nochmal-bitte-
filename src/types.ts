@@ -117,6 +117,7 @@ export interface AiExecutedAction {
   actionId: string;
   actionType: AiActionType;
   targetProjectId: string;
+  targetProjectName?: string;
   targetSubTab: 'tasks' | 'explanations' | 'infos' | 'cart';
   targetItemId: string;
   shortCheckableTitle: string;
@@ -130,8 +131,10 @@ export interface AiExecutedAction {
 export interface AiLogEntry {
   id: string;
   timestamp: string;
+  rawTranscript?: string;
   rawInput: string;
   summary: string;
+  engineUsed?: string;
   engine: string;
   undone: boolean;
   actions: AiExecutedAction[];
@@ -162,6 +165,7 @@ export interface EventSalesLog {
   projectId: string;
   totalPizzas: number;
   grossRevenue: number;
+  totalRevenue?: number;
   cogsTotal: number;
   grossProfit: number;
   firetruckTipFund: number;
@@ -183,7 +187,7 @@ export interface PluginContextProps {
   project: Project;
   onUpdateProjectMeta: (patch: CustomMeta) => void;
   onAddCartItems: (items: Array<{ title: string; quantity: string; price?: string; reason?: string }>) => void;
-  onAddInfoCard: (title: string, content: string) => void;
+  onAddInfoCard?: (title: string, content: string) => void;
   onRecordEventSale: (entry: EventSalesLog) => void;
   onNotify: (msg: string) => void;
 }
