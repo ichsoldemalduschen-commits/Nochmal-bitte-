@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, MessageSquare, Mic, X } from 'lucide-react';
+import { CheckCircle2, MessageSquare, Mic, Plus, X } from 'lucide-react';
 import {
   AiExecutedAction,
   AiLogEntry,
@@ -20,6 +20,7 @@ import {
 } from './services/storage';
 import {
   askQuickAssistantQuestion,
+  compressImageFile,
   enforceMaxSixWords,
   routeVoiceCommand
 } from './services/aiRouter';
@@ -29,6 +30,15 @@ import { Flip7CoverView } from './core/Flip7CoverView';
 import { VoiceModal } from './core/VoiceModal';
 import { FrontWorkspace } from './core/FrontWorkspace';
 import { BackofficeWorkspace } from './core/BackofficeWorkspace';
+
+interface PhotoMeasurePin {
+  id: string;
+  xPercent: number;
+  yPercent: number;
+  label: string;
+}
+
+const PHOTO_PINS_STORAGE_KEY = 'banditos_photo_pins_v3';
 
 function isCoverScreenEnvironment(): boolean {
   if (typeof window === 'undefined') return false;
@@ -59,6 +69,15 @@ export default function App() {
   const [newProjName, setNewProjName] = useState('');
   const [newProjSubtitle, setNewProjSubtitle] = useState('');
   const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
+  const [photoPins, setPhotoPins] = useState<Record<string, PhotoMeasurePin[]>>(() => {
+    try {
+      const raw = localStorage.getItem(PHOTO_PINS_STORAGE_KEY);
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  });
+  const [newPinLabel, setNewPinLabel] = useState('');
   const [toast, setToast] = useState<string | null>(null);
 
   const notify = (msg: string) => {
@@ -311,7 +330,7 @@ export default function App() {
             if (idx === 0) firstTab = 'tasks';
             target.tasks.unshift({
               id: itemId,
-              title: safeTitle,
+              title: act.assemblyGroup ? `[${act.assemblyGroup}] ${safeTitle}` : safeTitle,
               completed: act.actionType === 'CHECK_OFF_TASK',
               priority: act.priority || 'Mittel',
               estimatedMinutes: act.estimatedMinutes || 25,
@@ -321,6 +340,7 @@ export default function App() {
               lastModified: timestamp,
               changeReason: safeNote,
               source: 'KI-Zuordnung',
+              assemblyGroup: act.assemblyGroup,
               customMeta: {}
             });
             executedActions.push({
@@ -458,6 +478,26 @@ export default function App() {
     setTimeout(() => setHighlightedItemId(null), 2400);
   };
 
+  // Update 3: Vor-Ort Foto-Maßband (Direktes Anpinnen von Maßen auf Fotos)
+  const handleImageClickForMeasurePin = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!previewAttachment || !newPinLabel.trim()) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const xPercent = Math.round(((e.clientX - rect.left) / rect.width) * 100);
+    const yPercent = Math.round(((e.clientY - rect.top) / rect.height) * 100);
+    const pin: PhotoMeasurePin = {
+      id: `pin-${Date.now()}`,
+      xPercent,
+      yPercent,
+      label: newPinLabel.trim()
+    };
+    const current = photoPins[previewAttachment.id] || [];
+    const next = { ...photoPins, [previewAttachment.id]: [...current, pin] };
+    setPhotoPins(next);
+    localStorage.setItem(PHOTO_PINS_STORAGE_KEY, JSON.stringify(next));
+    setNewPinLabel('');
+    notify('Maß-Pin auf dem Foto verankert.');
+  };
+
   if (flip7CoverMode) {
     return (
       <>
@@ -529,9 +569,8 @@ export default function App() {
       className="min-h-screen flex flex-col"
       style={{ backgroundColor: THEME.bgMain, color: THEME.textMain }}
     >
-      {/* Dezenter 4px Farbstreifen oben für sofortige Orientierung */}
       <div
-        className="h-1 w-full transition-colors duration-300"
+        className="h-1 w-full transition-colors duration-500"
         style={{ backgroundColor: activeVisualTheme.primary }}
       />
 
@@ -552,16 +591,13 @@ export default function App() {
             onSelectProject={(id) => setSelectedProjectId(id)}
             onChangeTab={(tab) => setActiveProjectTab(tab)}
             onOpenNewProjectModal={() => setNewProjectModalOpen(true)}
-            onUploadProjectLogo={(projId, file) => {
-              const reader = new FileReader();
-              reader.onload = (ev) => {
-                updateProject(projId, (p) => ({
-                  ...p,
-                  customLogoUrl: String(ev.target?.result || '')
-                }));
-                notify('Projekt-Logo aktualisiert.');
-              };
-              reader.readAsDataURL(file);
+            onUploadProjectLogo={async (projId, file) => {
+              const { dataUrl } = await compressImageFile(file);
+              updateProject(projId, (p) => ({
+                ...p,
+                customLogoUrl: dataUrl
+              }));
+              notify('Projekt-Logo aktualisiert.');
             }}
             onResetProjectLogo={(projId) => {
               updateProject(projId, (p) => ({ ...p, customLogoUrl: '/raccoon-logo.png' }));
@@ -674,23 +710,52 @@ export default function App() {
                 ]
               }));
             }}
-            onUploadInfoAttachment={(projId, infoId, file) => {
-              const sizeKB = `${Math.max(1, Math.round(file.size / 1024))} KB`;
+            onUploadInfoAttachment={async (projId, infoId, file) => {
               const isImage = file.type.startsWith('image/');
               const isPdf =
                 file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
               const isText =
                 file.type.startsWith('text/') || /\.(txt|md|json|csv)$/i.test(file.name);
+
+              if (isImage) {
+                const { dataUrl, sizeKB } = await compressImageFile(file);
+                const newAtt: Attachment = {
+                  id: `att-${Date.now()}`,
+                  name: file.name,
+                  type: 'image',
+                  mimeType: 'image/jpeg',
+                  size: sizeKB,
+                  dataUrl,
+                  textContent: null
+                };
+                updateProject(projId, (p) => ({
+                  ...p,
+                  infos: p.infos.map((inf) =>
+                    inf.id === infoId
+                      ? {
+                          ...inf,
+                          attachments: [...inf.attachments, newAtt],
+                          lastModified: formatNow(),
+                          changeReason: `Foto ${file.name} komprimiert gespeichert`
+                        }
+                      : inf
+                  )
+                }));
+                notify(`Foto "${file.name}" (${sizeKB}) gespeichert.`);
+                return;
+              }
+
+              const sizeKB = `${Math.max(1, Math.round(file.size / 1024))} KB`;
               const reader = new FileReader();
               reader.onload = (ev) => {
                 const res = ev.target?.result;
                 const newAtt: Attachment = {
                   id: `att-${Date.now()}`,
                   name: file.name,
-                  type: isImage ? 'image' : isPdf ? 'pdf' : 'text',
+                  type: isPdf ? 'pdf' : 'text',
                   mimeType: file.type || 'application/octet-stream',
                   size: sizeKB,
-                  dataUrl: isImage || isPdf ? String(res) : null,
+                  dataUrl: isPdf ? String(res) : null,
                   textContent: isText ? String(res) : null
                 };
                 updateProject(projId, (p) => ({
@@ -708,7 +773,7 @@ export default function App() {
                 }));
                 notify(`Datei "${file.name}" gespeichert.`);
               };
-              if (isText && !isImage && !isPdf) reader.readAsText(file);
+              if (isText && !isPdf) reader.readAsText(file);
               else reader.readAsDataURL(file);
             }}
             onPreviewAttachment={(att) => setPreviewAttachment(att)}
@@ -842,7 +907,7 @@ export default function App() {
                     content,
                     attachments: [],
                     lastModified: formatNow(),
-                    changeReason: 'Notiz gespeichert',
+                    changeReason: 'Aus Vorlage/Notiz gespeichert',
                     source: 'Manuell',
                     aiTouched: false,
                     customMeta: {}
@@ -879,7 +944,7 @@ export default function App() {
         )}
       </main>
 
-      {/* VARIANTE 1: UNTERE KI-SCHUBLADEN-LEISTE (1-Tipp für Verlauf / 1-Tipp für Sofort-Sprechen) */}
+      {/* UNTERE BANDIT.OS KI-KONTEXT-LEISTE */}
       <div className="fixed bottom-3 inset-x-0 z-40 pointer-events-none">
         <div className="max-w-md mx-auto px-3">
           <div
@@ -898,7 +963,7 @@ export default function App() {
                 className="w-4 h-4 shrink-0"
                 style={{ color: activeVisualTheme.highlight }}
               />
-              <span className="truncate">KI-Kontext &amp; Gesprächsverlauf öffnen...</span>
+              <span className="truncate">BANDIT.OS KI-Kontext &amp; Verlauf...</span>
             </button>
 
             <button
@@ -1050,7 +1115,7 @@ export default function App() {
       {previewAttachment && (
         <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4">
           <div
-            className="max-w-2xl w-full rounded-2xl border border-white/15 overflow-hidden shadow-2xl"
+            className="max-w-2xl w-full rounded-2xl border border-white/15 overflow-hidden shadow-2xl flex flex-col max-h-[90vh]"
             style={{ backgroundColor: THEME.bgCard }}
           >
             <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between">
@@ -1065,13 +1130,63 @@ export default function App() {
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div className="p-4 max-h-[75vh] overflow-y-auto">
-              {previewAttachment.type === 'image' && previewAttachment.dataUrl && (
-                <img
-                  src={previewAttachment.dataUrl}
-                  alt={previewAttachment.name}
-                  className="max-h-[65vh] mx-auto rounded-lg"
+
+            {previewAttachment.type === 'image' && (
+              <div className="px-4 py-2 border-b border-white/10 bg-[#181A1B] flex items-center gap-2">
+                <input
+                  type="text"
+                  value={newPinLabel}
+                  onChange={(e) => setNewPinLabel(e.target.value)}
+                  placeholder="Maß-Label (z.B. 'Breite: 85cm')... dann Foto anklicken"
+                  className="flex-1 px-3 py-1.5 rounded-lg text-xs bg-[#24292E] text-white border border-white/10 placeholder-[#9CA3AF]"
                 />
+                <span className="text-[10px] text-[#9CA3AF] shrink-0">Klick = Pin setzen</span>
+              </div>
+            )}
+
+            <div className="p-4 overflow-y-auto flex-1">
+              {previewAttachment.type === 'image' && previewAttachment.dataUrl && (
+                <div
+                  className="relative inline-block mx-auto cursor-crosshair select-none"
+                  onClick={handleImageClickForMeasurePin}
+                >
+                  <img
+                    src={previewAttachment.dataUrl}
+                    alt={previewAttachment.name}
+                    className="max-h-[60vh] mx-auto rounded-lg block"
+                  />
+                  {(photoPins[previewAttachment.id] || []).map((pin) => (
+                    <div
+                      key={pin.id}
+                      className="absolute -translate-x-1/2 -translate-y-1/2 px-2 py-0.5 rounded-md text-[10px] font-bold text-white shadow-lg flex items-center gap-1 border border-white/30"
+                      style={{
+                        left: `${pin.xPercent}%`,
+                        top: `${pin.yPercent}%`,
+                        backgroundColor: activeVisualTheme.primary
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <span>{pin.label}</span>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const current = photoPins[previewAttachment.id] || [];
+                          const next = {
+                            ...photoPins,
+                            [previewAttachment.id]: current.filter((p) => p.id !== pin.id)
+                          };
+                          setPhotoPins(next);
+                          localStorage.setItem(PHOTO_PINS_STORAGE_KEY, JSON.stringify(next));
+                          notify('Pin entfernt.');
+                        }}
+                        className="text-white/70 hover:text-white ml-0.5"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
               )}
               {previewAttachment.type === 'pdf' && previewAttachment.dataUrl && (
                 <iframe

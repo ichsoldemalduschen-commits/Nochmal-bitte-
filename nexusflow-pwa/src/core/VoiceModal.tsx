@@ -10,10 +10,18 @@ import {
   Trash2,
   Undo2,
   Volume2,
-  VolumeX
+  VolumeX,
+  Zap
 } from 'lucide-react';
 import { AiExecutedAction, AiLogEntry, Attachment, Project, THEME } from '../types';
-import { getTtsEnabled, setTtsEnabled, speakText } from '../services/aiRouter';
+import {
+  compressImageFile,
+  getTtsEnabled,
+  loadUserPrefs,
+  setTtsEnabled,
+  speakText,
+  triggerHapticFeedback
+} from '../services/aiRouter';
 
 export interface ConversationMessage {
   id: string;
@@ -52,7 +60,7 @@ interface VoiceModalProps {
 }
 
 const SILENCE_AUTO_SEND_MS = 5000;
-const CHAT_STORAGE_KEY = 'nexusflow_persistent_ai_chat_v2';
+const CHAT_STORAGE_KEY = 'banditos_persistent_ai_chat_v3';
 
 function buildCleanTranscriptFromResults(results: any): string {
   const segments: string[] = [];
@@ -124,6 +132,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
   const [remainingMs, setRemainingMs] = useState<number>(SILENCE_AUTO_SEND_MS);
   const [ttsActive, setTtsActive] = useState<boolean>(getTtsEnabled);
 
+  const prefs = loadUserPrefs();
   const recognitionRef = useRef<any>(null);
   const transcriptRef = useRef('');
   const lastSpeechTimestampRef = useRef<number>(0);
@@ -187,6 +196,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
         isListeningRef.current = true;
         setIsListening(true);
         lastSpeechTimestampRef.current = Date.now();
+        triggerHapticFeedback(10);
       };
 
       rec.onresult = (event: any) => {
@@ -267,6 +277,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
 
     stopMicrophone();
     setIsProcessing(true);
+    triggerHapticFeedback([12, 30, 12]);
     const currentAtt = attachment;
     setTranscript('');
     transcriptRef.current = '';
@@ -299,7 +310,6 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
         setMessages((prev) => [...prev, assistantMsg]);
         setIsProcessing(false);
 
-        // Sprachausgabe + bei Rückfrage Mikrofon sofort wieder öffnen!
         speakText(result.spokenText, () => {
           if (result.needsClarification && open) {
             startMicrophoneImmediately();
@@ -313,27 +323,23 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
     }
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     lastSpeechTimestampRef.current = Date.now();
-    const sizeKB = `${Math.max(1, Math.round(file.size / 1024))} KB`;
     const isImage = file.type.startsWith('image/');
     const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      setAttachment({
-        id: `att-${Date.now()}`,
-        name: file.name,
-        type: isImage ? 'image' : isPdf ? 'pdf' : 'text',
-        mimeType: file.type || 'application/octet-stream',
-        size: sizeKB,
-        dataUrl: String(ev.target?.result || ''),
-        textContent: null
-      });
-      lastSpeechTimestampRef.current = Date.now();
-    };
-    reader.readAsDataURL(file);
+    const { dataUrl, sizeKB } = await compressImageFile(file);
+    setAttachment({
+      id: `att-${Date.now()}`,
+      name: file.name,
+      type: isImage ? 'image' : isPdf ? 'pdf' : 'text',
+      mimeType: isImage ? 'image/jpeg' : file.type || 'application/octet-stream',
+      size: sizeKB,
+      dataUrl,
+      textContent: null
+    });
+    lastSpeechTimestampRef.current = Date.now();
     e.target.value = '';
   };
 
@@ -345,31 +351,30 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
   const activeProjects = projects.filter((p) => !p.archived);
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex flex-col justify-end">
-      {/* Klick auf den abgedunkelten oberen Rand schließt die Schublade zurück zur Liste */}
+    <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex flex-col justify-end transition-opacity duration-300">
       <div className="flex-1" onClick={onClose} />
 
       <div
-        className="w-full max-w-lg mx-auto h-[84vh] rounded-t-3xl border-t border-white/15 shadow-2xl flex flex-col overflow-hidden"
+        className="w-full max-w-lg mx-auto h-[85vh] rounded-t-3xl border-t border-white/15 shadow-2xl flex flex-col overflow-hidden transition-transform duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]"
         style={{ backgroundColor: THEME.bgMain }}
       >
-        {/* Schubladen-Kopfzeile (Sachlich, ohne Emojis) */}
+        {/* Schubladen-Kopfzeile */}
         <div
           className="px-4 py-3 border-b border-white/10 flex items-center justify-between shrink-0"
           style={{ backgroundColor: THEME.bgCard }}
         >
           <div className="flex items-center gap-2.5 min-w-0">
             <span
-              className={`w-2 h-2 rounded-full shrink-0 ${
+              className={`w-2.5 h-2.5 rounded-full shrink-0 ${
                 isListening ? 'bg-red-500 animate-ping' : 'bg-[#14B8A6]'
               }`}
             />
             <div className="min-w-0">
               <div className="text-xs font-bold uppercase tracking-wider text-white truncate">
-                KI-Kontext &amp; Verlauf
+                BANDIT.OS KI-Kontext &amp; Verlauf
               </div>
               <div className="text-[10px] text-[#9CA3AF] truncate">
-                Kontext: {activeProjectName}
+                Aktiver Fokus: {activeProjectName}
               </div>
             </div>
           </div>
@@ -390,7 +395,6 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                   ? 'bg-[#0A9396]/25 border-[#14B8A6] text-white'
                   : 'bg-[#181A1B] border-white/10 text-[#9CA3AF]'
               }`}
-              title="Sprachausgabe umschalten"
             >
               {ttsActive ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
               <span>{ttsActive ? 'Stimme An' : 'Stumm'}</span>
@@ -404,7 +408,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                   localStorage.removeItem(CHAT_STORAGE_KEY);
                 }}
                 className="p-1.5 rounded-lg bg-[#181A1B] text-[#9CA3AF] hover:text-white border border-white/10"
-                title="Gesprächsverlauf leeren"
+                title="Verlauf leeren"
               >
                 <Trash2 className="w-3.5 h-3.5" />
               </button>
@@ -424,16 +428,37 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
           </div>
         </div>
 
-        {/* Scrollbarer Gesprächs- und Zuordnungs-Verlauf */}
+        {/* Personalisierte Schnell-Befehle (Quick-Chips) */}
+        {prefs.quickCommands && prefs.quickCommands.length > 0 && (
+          <div className="px-3.5 py-2 border-b border-white/5 bg-[#1C2024] flex items-center gap-1.5 overflow-x-auto no-scrollbar shrink-0">
+            {prefs.quickCommands.map((cmd, idx) => (
+              <button
+                type="button"
+                key={idx}
+                disabled={isProcessing}
+                onClick={() => {
+                  autoSendTriggeredRef.current = true;
+                  void triggerProcess(cmd);
+                }}
+                className="px-2.5 py-1 rounded-full bg-[#24292E] hover:bg-[#0A9396]/30 border border-white/10 text-[10px] font-semibold text-[#F8F9FA] shrink-0 flex items-center gap-1 transition"
+              >
+                <Zap className="w-3 h-3 text-[#14B8A6]" />
+                <span>{cmd}</span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Gesprächs- und Zuordnungs-Verlauf */}
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
           {messages.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-center px-6 space-y-2 text-[#9CA3AF]">
               <p className="text-xs font-semibold text-white">
-                Autonomer Sprach- und System-Agent bereit
+                BANDIT.OS Sprach- &amp; Projekt-Agent bereit
               </p>
               <p className="text-[11px] leading-relaxed">
-                Sprich Aufgaben, Einkäufe, Maße oder Fragen einfach frei ein. Alle Antworten und
-                Zuordnungen bleiben hier im Verlauf dauerhaft abrufbar.
+                Sprich Aufgaben, Einkäufe, Baugruppen oder Fragen frei ein. Jede Aktion wird hier im
+                Verlauf als überprüfbare Karte dokumentiert.
               </p>
             </div>
           ) : (
@@ -445,23 +470,22 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                 }`}
               >
                 <div
-                  className={`max-w-[90%] rounded-2xl p-3 text-xs leading-relaxed ${
+                  className={`max-w-[90%] rounded-2xl p-3 text-xs leading-relaxed transition-all duration-300 ${
                     msg.role === 'user'
                       ? 'bg-[#0A9396] text-white rounded-br-sm'
                       : 'bg-[#24292E] text-[#F8F9FA] border border-white/10 rounded-bl-sm'
                   }`}
                 >
                   <div className="flex items-center justify-between gap-3 mb-1 text-[10px] opacity-70">
-                    <span>{msg.role === 'user' ? 'Eingabe' : msg.engine || 'System-Agent'}</span>
+                    <span>{msg.role === 'user' ? 'Eingabe' : msg.engine || 'BANDIT.OS'}</span>
                     <span>{msg.timestamp}</span>
                   </div>
                   <p className="whitespace-pre-wrap">{msg.text}</p>
 
-                  {/* Integrierte Zuordnungs-Karten (Ersetzt das unübersichtliche Protokoll) */}
                   {msg.actions && msg.actions.length > 0 && (
                     <div className="mt-2.5 pt-2.5 border-t border-white/10 space-y-1.5">
                       <div className="text-[10px] font-bold uppercase tracking-wider text-[#14B8A6]">
-                        Zugeordnete Einträge ({msg.actions.length}):
+                        Ausgeführte Zuordnungen ({msg.actions.length}):
                       </div>
                       {msg.actions.map((act) => (
                         <div
@@ -546,7 +570,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                         onClick={() => onSaveAnswerToInfos('KI-Notiz', msg.text, null)}
                         className="text-[10px] font-semibold text-[#14B8A6] hover:underline"
                       >
-                        Als Projekt-Info speichern
+                        Als Projekt-Info sichern
                       </button>
                     </div>
                   )}
@@ -557,7 +581,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
           <div ref={scrollEndRef} />
         </div>
 
-        {/* Untere direkte Sprach- & Text-Steuerung ohne Zwischenschritte */}
+        {/* Untere Eingabeleiste mit organischem Liquid-Orb Mikrofon */}
         <div
           className="p-3.5 border-t border-white/10 space-y-2.5 shrink-0"
           style={{ backgroundColor: THEME.bgCard }}
@@ -565,7 +589,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
           {isListening && hasSpokenText && !isProcessing && (
             <div className="space-y-1">
               <div className="flex justify-between text-[10px] text-[#9CA3AF]">
-                <span>Automatischer Versand nach Sprechpause</span>
+                <span>Automatischer Versand nach Denkpause</span>
                 <span className="font-mono text-[#14B8A6]">{countdownSeconds}s</span>
               </div>
               <div className="w-full h-1 bg-[#181A1B] rounded-full overflow-hidden">
@@ -587,7 +611,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
           <div className="flex items-center gap-2">
             <label
               className="p-2.5 rounded-xl bg-[#181A1B] border border-white/10 text-[#9CA3AF] hover:text-white cursor-pointer shrink-0"
-              title="Foto oder Dokument anhängen"
+              title="Foto (wird automatisch komprimiert) oder Datei anhängen"
             >
               <Paperclip className="w-4 h-4" />
               <input type="file" className="hidden" onChange={handleFileUpload} />
@@ -609,7 +633,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
               }}
               placeholder={
                 isListening
-                  ? 'Mikrofon aktiv – einfach sprechen...'
+                  ? 'Höre zu – einfach sprechen...'
                   : 'Sprechen oder direkt tippen...'
               }
               className="flex-1 px-3.5 py-2.5 rounded-xl text-xs bg-[#181A1B] text-white border border-white/15 focus:outline-none focus:border-[#14B8A6]"
@@ -625,45 +649,50 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                 }}
                 className="p-2.5 rounded-xl text-white shrink-0"
                 style={{ backgroundColor: THEME.accentPrimary }}
-                title="Sofort absenden"
               >
                 <Send className="w-4 h-4" />
               </button>
             )}
 
-            <button
-              type="button"
-              disabled={isProcessing}
-              onClick={() => {
-                if (isListening && hasSpokenText) {
-                  autoSendTriggeredRef.current = true;
-                  void triggerProcess(transcript);
-                } else if (isListening) {
-                  stopMicrophone();
-                } else {
-                  startMicrophoneImmediately();
-                }
-              }}
-              className={`w-11 h-11 rounded-xl flex items-center justify-center text-white shrink-0 transition ${
-                isListening ? 'ring-4 ring-red-500/30' : ''
-              }`}
-              style={{
-                backgroundColor: isProcessing
-                  ? '#2F363D'
-                  : isListening
-                  ? '#EF4444'
-                  : THEME.accentPrimary
-              }}
-              title={isListening ? 'Aufnahme läuft (Tippen zum Senden/Stoppen)' : 'Mikrofon starten'}
-            >
-              {isProcessing ? (
-                <Loader2 className="w-5 h-5 animate-spin text-[#14B8A6]" />
-              ) : isListening ? (
-                <Mic className="w-5 h-5 animate-pulse" />
-              ) : (
-                <MicOff className="w-5 h-5" />
+            {/* Organisch pulsierender Liquid-Orb Sprachbutton */}
+            <div className="relative shrink-0">
+              {isListening && prefs.organicMotion && (
+                <>
+                  <span className="absolute inset-0 rounded-2xl bg-[#14B8A6]/30 animate-ping pointer-events-none" />
+                  <span className="absolute -inset-1.5 rounded-2xl bg-[#0A9396]/20 animate-pulse pointer-events-none" />
+                </>
               )}
-            </button>
+              <button
+                type="button"
+                disabled={isProcessing}
+                onClick={() => {
+                  if (isListening && hasSpokenText) {
+                    autoSendTriggeredRef.current = true;
+                    void triggerProcess(transcript);
+                  } else if (isListening) {
+                    stopMicrophone();
+                  } else {
+                    startMicrophoneImmediately();
+                  }
+                }}
+                className="relative w-11 h-11 rounded-2xl flex items-center justify-center text-white transition-transform duration-300 active:scale-90"
+                style={{
+                  backgroundColor: isProcessing
+                    ? '#2F363D'
+                    : isListening
+                    ? '#EF4444'
+                    : THEME.accentPrimary
+                }}
+              >
+                {isProcessing ? (
+                  <Loader2 className="w-5 h-5 animate-spin text-[#14B8A6]" />
+                ) : isListening ? (
+                  <Mic className="w-5 h-5 animate-pulse" />
+                ) : (
+                  <MicOff className="w-5 h-5" />
+                )}
+              </button>
+            </div>
           </div>
         </div>
       </div>

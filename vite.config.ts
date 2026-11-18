@@ -10,9 +10,9 @@ export default defineConfig({
       includeAssets: ['pwa-192x192.png', 'pwa-512x512.png', 'raccoon-logo.png'],
       manifest: {
         id: '/',
-        name: 'NexusFlow Workspace',
-        short_name: 'NexusFlow',
-        description: 'Modulares Arbeits- und Projektsystem mit autonomer Sprach-KI',
+        name: 'BANDIT.OS Workspace',
+        short_name: 'BANDIT.OS',
+        description: 'Modulares Arbeits-, Projekt- und Fokus-System mit autonomer Sprach-KI',
         theme_color: '#181A1B',
         background_color: '#181A1B',
         display: 'standalone',
@@ -35,7 +35,7 @@ export default defineConfig({
         ],
         shortcuts: [
           {
-            name: 'Frontdisplay Kompaktansicht',
+            name: 'BANDIT.OS Frontdisplay',
             short_name: 'Frontdisplay',
             description: 'Kompaktansicht fuer das Galaxy Z Flip 7 Frontdisplay',
             url: '/?mode=cover'

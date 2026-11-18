@@ -1,7 +1,130 @@
 import { AiActionType, Attachment, PriorityType, Project } from '../types';
 
-const MODEL_STORAGE_KEY = 'nexusflow_preferred_gemini_model';
-const TTS_STORAGE_KEY = 'nexusflow_tts_enabled';
+const MODEL_STORAGE_KEY = 'banditos_preferred_gemini_model';
+const TTS_STORAGE_KEY = 'banditos_tts_enabled';
+const PREFS_STORAGE_KEY = 'banditos_user_prefs_v3';
+
+export interface BanditUserPreferences {
+  // Schaltbare ADHS-Unterstützung
+  adhdMasterEnabled: boolean;
+  adhdFocusAnchor: boolean;       // 1. "Wo war ich gerade?"-Anker oben anpinnen
+  adhdSingleTaskMode: boolean;    // 2. 1-Fokus-Blende gegen Paralyse verfügbar
+  adhdTwoMinuteStarter: boolean;  // 3. Automatischer 2-Minuten-Einstieg durch KI
+  adhdTimeBufferAndHaptics: boolean; // 4. +25% Zeitpuffer & Haptik-Vibration
+  // Update 5: Personalisierung
+  uiDensity: 'compact' | 'standard' | 'large';
+  aiTone: 'short' | 'partner' | 'coach';
+  organicMotion: boolean;
+  quickCommands: string[];
+  activeFocusTaskId: string | null;
+  activeFocusTaskTitle: string | null;
+  activeFocusProjectId: string | null;
+}
+
+export const DEFAULT_USER_PREFS: BanditUserPreferences = {
+  adhdMasterEnabled: true,
+  adhdFocusAnchor: true,
+  adhdSingleTaskMode: true,
+  adhdTwoMinuteStarter: true,
+  adhdTimeBufferAndHaptics: true,
+  uiDensity: 'standard',
+  aiTone: 'partner',
+  organicMotion: true,
+  quickCommands: [
+    'Gib mir ein kurzes 3-Punkte-Briefing für dieses Projekt',
+    'Welche Materialien fehlen noch im Einkaufswagen?',
+    'Brich mir die nächste große Aufgabe in 2-Minuten-Schritte herunter'
+  ],
+  activeFocusTaskId: null,
+  activeFocusTaskTitle: null,
+  activeFocusProjectId: null
+};
+
+export function loadUserPrefs(): BanditUserPreferences {
+  try {
+    const raw = localStorage.getItem(PREFS_STORAGE_KEY);
+    if (!raw) return DEFAULT_USER_PREFS;
+    return { ...DEFAULT_USER_PREFS, ...JSON.parse(raw) };
+  } catch {
+    return DEFAULT_USER_PREFS;
+  }
+}
+
+export function saveUserPrefs(prefs: BanditUserPreferences): void {
+  try {
+    localStorage.setItem(PREFS_STORAGE_KEY, JSON.stringify(prefs));
+  } catch {
+    // ignore
+  }
+}
+
+export function triggerHapticFeedback(pattern: number | number[] = 14): void {
+  const prefs = loadUserPrefs();
+  if (!prefs.adhdMasterEnabled || !prefs.adhdTimeBufferAndHaptics) return;
+  try {
+    if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+      navigator.vibrate(pattern);
+    }
+  } catch {
+    // ignore
+  }
+}
+
+/**
+ * Update 1 (Performance): Komprimiert große Handy-Fotos automatisch vor dem Speichern in IndexedDB
+ */
+export async function compressImageFile(file: File): Promise<{ dataUrl: string; sizeKB: string }> {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const rawUrl = String(ev.target?.result || '');
+      if (!file.type.startsWith('image/') || file.type === 'image/svg+xml') {
+        resolve({
+          dataUrl: rawUrl,
+          sizeKB: `${Math.max(1, Math.round(file.size / 1024))} KB`
+        });
+        return;
+      }
+      const img = new Image();
+      img.onload = () => {
+        const maxDim = 1400;
+        let { width, height } = img;
+        if (width > maxDim || height > maxDim) {
+          if (width > height) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          } else {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve({
+            dataUrl: rawUrl,
+            sizeKB: `${Math.max(1, Math.round(file.size / 1024))} KB`
+          });
+          return;
+        }
+        ctx.drawImage(img, 0, 0, width, height);
+        const compressed = canvas.toDataURL('image/jpeg', 0.82);
+        const approxKB = Math.max(1, Math.round((compressed.length * 0.75) / 1024));
+        resolve({ dataUrl: compressed, sizeKB: `${approxKB} KB` });
+      };
+      img.onerror = () => {
+        resolve({
+          dataUrl: rawUrl,
+          sizeKB: `${Math.max(1, Math.round(file.size / 1024))} KB`
+        });
+      };
+      img.src = rawUrl;
+    };
+    reader.readAsDataURL(file);
+  });
+}
 
 export function getPreferredModelMode(): string {
   try {
@@ -68,6 +191,7 @@ export interface StructuredAiActionPlan {
   targetProjectId: string;
   shortCheckableTitle: string;
   detailedExplanation: string;
+  assemblyGroup?: string;
   quantityOrMeasure?: string;
   estimatedPrice?: string;
   changeFooterNote: string;
@@ -213,23 +337,23 @@ const AI_ROUTER_RESPONSE_SCHEMA = {
   properties: {
     isQuestion: {
       type: 'BOOLEAN',
-      description: 'TRUE bei Fragen, Beratungen, Bestandsabfragen oder Rückfragen. FALSE bei reinen Befehlen/Eintragungen.'
+      description: 'TRUE bei Fragen, Beratungen, Briefings oder Rückfragen. FALSE bei reinen Befehlen.'
     },
     needsClarification: {
       type: 'BOOLEAN',
-      description: 'TRUE, wenn die Eingabe unklar ist und der Nutzer direkt antworten soll (Mikrofon öffnet sich danach automatisch).'
+      description: 'TRUE, wenn eine Angabe unklar ist und das Mikrofon nach der Antwort direkt wieder zuhören soll.'
     },
     spokenFeedback: {
       type: 'STRING',
-      description: 'Kurze gesprochene Rückmeldung für die Sprachausgabe. Bei einfachen Befehlen nur 2-5 Wörter (z. B. "Ist erledigt." oder "Unter Pizza Bandit eingetragen."). Bei Fragen oder Rückfragen die prägnante gesprochene Antwort.'
+      description: 'Gesprochene Rückmeldung. Bei kurzen Befehlen nur 2-4 Wörter ("Ist erledigt."). Bei Fragen/Briefings eine prägnante gesprochene Antwort.'
     },
     directAnswer: {
       type: 'STRING',
-      description: 'Ausführliche, sachliche Textantwort für das Chatfenster (ohne Emojis). Wird bei Fragen, Analysen, Zusammenfassungen oder Rückfragen angezeigt.'
+      description: 'Ausführliche, sachliche Textantwort für das KI-Kontextfenster (ohne Emojis).'
     },
     summary: {
       type: 'STRING',
-      description: 'Sachliche Kurzfassung der ausgeführten Aktionen.'
+      description: 'Kurzfassung der durchgeführten Aktionen.'
     },
     actions: {
       type: 'ARRAY',
@@ -255,7 +379,11 @@ const AI_ROUTER_RESPONSE_SCHEMA = {
           },
           detailedExplanation: {
             type: 'STRING',
-            description: 'Alle technischen Details, Maße oder Ablaufschritte.'
+            description: 'Technische Details, Maße oder der erste 2-Minuten-Handgriff.'
+          },
+          assemblyGroup: {
+            type: 'STRING',
+            description: 'Optionale Baugruppe oder Phase, z. B. "1. Auszugtisch", "3. Ofen/Gas", "Deckenbau".'
           },
           quantityOrMeasure: {
             type: 'STRING'
@@ -295,12 +423,12 @@ function buildWorkspaceContextSummary(projects: Project[]): string {
     .map((p) => {
       const openTasks = p.tasks
         .filter((t) => !t.completed)
-        .slice(0, 12)
-        .map((t) => `- [Task] ${t.title}`)
+        .slice(0, 14)
+        .map((t) => `- [Task] ${t.title}${t.assemblyGroup ? ` (Gruppe: ${t.assemblyGroup})` : ''}`)
         .join('\n');
       const openCart = p.cart
         .filter((c) => !c.completed)
-        .slice(0, 10)
+        .slice(0, 12)
         .map((c) => `- [Einkauf] ${c.title} (${c.quantity})`)
         .join('\n');
       const infoTitles = p.infos
@@ -314,31 +442,17 @@ function buildWorkspaceContextSummary(projects: Project[]): string {
     .join('\n\n');
 }
 
-const SYSTEM_PROMPT = `Du bist der autonome KI-Projekt- und System-Agent von NexusFlow.
-Du arbeitest NICHT nach starren Schlüsselwörtern, sondern verstehst natürliche Sprache wie ein erfahrener technischer Partner.
-Verwende KEINE Emojis in Titeln oder Antworten. Halte den Ton klar, sachlich und präzise.
-
-DEINE KOMPETENZEN:
-1. Vollständiger Überblick: Du siehst im Kontext alle Projekte, offenen Tasks, Einkäufe und Infos des Nutzers.
-2. Autonomes Handeln: Wenn der Nutzer Aufgaben, Einkäufe, Maße, Abläufe oder erledigte Schritte erwähnt, führst du die passenden Aktionen im Array "actions" aus – auch mehrere gleichzeitig über verschiedene Projekte hinweg.
-3. Projekt-Abgrenzung:
-   - "proj-foodtruck" (Pizza Bandit): Alles rund um den DDR-TSA-Anhänger (Auszugtisch, Saladette-Lift, Ofen, Gas, Waschbecken, 12V/230V-Elektrik, Euroboxen) SOWIE das gesamte Back-, Teig-, Rezept- und Event-Geschäft.
-   - "proj-baeckerei" (Baustelle Bäckerei): AUSSCHLIESSLICH baulicher Umbau und Renovierung der 150m² Backstube (Decke, Wände, Lüftung, Trockenbau, Baustrom). Keine Backrezepte.
-   - "proj-smarthome", "proj-gewohnheiten", "proj-alltag": Private Projekte.
-4. Fragen & Beratung: Wenn der Nutzer eine Frage zu seinen Beständen, Maßen oder Projekten stellt, beantworte sie präzise in "directAnswer". Du kannst gleichzeitig eine Frage beantworten UND Aktionen in "actions" ausführen.
-5. Rückfragen bei Unklarheit: Wenn eine Eingabe mehrdeutig ist (z. B. unklar welches Projekt oder welches Maß), setze "needsClarification": true und stelle in "spokenFeedback" sowie "directAnswer" eine kurze, gezielte Rückfrage.
-6. Sprachausgabe-Steuerung ("spokenFeedback"):
-   - Wenn der Nutzer nur kurz etwas diktiert ("Merke dir...", "Pack X auf die Liste"), halte "spokenFeedback" extrem kurz (z. B. "Ist erledigt." oder "Im Einkaufswagen Pizza Bandit notiert.").
-   - Bei Fragen oder Rückfragen formuliere "spokenFeedback" so, dass man es gut anhören kann.`;
-
 export function buildLocalFallbackPlan(
   rawText: string,
   defaultProjectId: string
 ): StructuredAiResponse {
+  const prefs = loadUserPrefs();
   const trimmed = rawText.trim();
   const isQuestion =
     trimmed.endsWith('?') ||
-    /^(wie|was|wo|wann|warum|welche|welcher|welches|kannst du|weißt du|zeig mir)/i.test(trimmed);
+    /^(wie|was|wo|wann|warum|welche|welcher|welches|kannst du|weißt du|zeig mir|gib mir)/i.test(
+      trimmed
+    );
 
   if (isQuestion) {
     return {
@@ -346,7 +460,7 @@ export function buildLocalFallbackPlan(
       needsClarification: false,
       spokenFeedback: 'Bitte prüfe den API-Schlüssel in den Einstellungen.',
       directAnswer:
-        'Offline-Modus aktiv: Für autonome Antworten und Datenbank-Abfragen bitte in den Einstellungen unter KI-Schnittstelle den Gemini API-Key prüfen.',
+        'Offline-Modus aktiv: Für autonome Antworten und Analysen bitte in den Einstellungen unter KI-Schnittstelle den Gemini API-Key prüfen.',
       summary: 'Frage im Offline-Modus',
       actions: []
     };
@@ -384,7 +498,11 @@ export function buildLocalFallbackPlan(
     }
 
     let actionType: AiActionType = 'ADD_TASK';
-    if (/(einkauf|kaufe|besorgen|bestellen|brauche|säcke|paar|rollen|set|pakete|kartusche|schrauben|winkel)/i.test(lower)) {
+    if (
+      /(einkauf|kaufe|besorgen|bestellen|brauche|säcke|paar|rollen|set|pakete|kartusche|schrauben|winkel)/i.test(
+        lower
+      )
+    ) {
       actionType = 'ADD_CART_ITEM';
     } else if (/(erklärung|anleitung|rezept|ablauf|schritt)/i.test(lower)) {
       actionType = 'UPDATE_EXPLANATION';
@@ -399,11 +517,16 @@ export function buildLocalFallbackPlan(
       .split(/[:–-]/)[0]
       .trim();
 
+    const starterHint =
+      prefs.adhdMasterEnabled && prefs.adhdTwoMinuteStarter && actionType === 'ADD_TASK'
+        ? `${seg}\nErster 2-Minuten-Handgriff: Werkzeug und Maßband am Einsatzort bereitlegen.`
+        : seg;
+
     return {
       actionType,
       targetProjectId,
       shortCheckableTitle: enforceMaxSixWords(cleanTitle, 'Neuer Eintrag'),
-      detailedExplanation: seg,
+      detailedExplanation: starterHint,
       quantityOrMeasure: '1x',
       estimatedPrice: '',
       changeFooterNote: 'Lokal zugeordnet',
@@ -431,6 +554,33 @@ export async function routeVoiceCommand(
   attachment?: Attachment | null
 ): Promise<{ plan: StructuredAiResponse; engine: string }> {
   const cleanKey = apiKey ? apiKey.trim() : '';
+  const prefs = loadUserPrefs();
+
+  const toneInstruction =
+    prefs.aiTone === 'short'
+      ? 'Antworte extrem knapp im Kommando-Stil (1-2 Sätze).'
+      : prefs.aiTone === 'coach'
+      ? 'Antworte strukturiert, motivierend und halte den Fokus des Nutzers auf den nächsten greifbaren Schritt.'
+      : 'Antworte als sachlicher, erfahrener technischer Projekt-Partner.';
+
+  const adhdInstruction =
+    prefs.adhdMasterEnabled && prefs.adhdTwoMinuteStarter
+      ? 'ADHS-STARTHILFE AKTIV: Wenn du einen neuen Task (ADD_TASK) anlegst oder Aufgaben besprichst, füge in "detailedExplanation" immer eine Zeile "Erster 2-Minuten-Handgriff: [konkreter sofort machbarer erster Handgriff]" hinzu.'
+      : '';
+
+  const dynamicSystemPrompt = `Du bist der autonome System-Agent von BANDIT.OS.
+Verwende KEINE Emojis. ${toneInstruction}
+${adhdInstruction}
+
+PROJEKT-ZUORDNUNG:
+1. "proj-foodtruck" (Pizza Bandit): Alles rund um den DDR-TSA-Anhänger (Auszugtisch, Saladette-Lift, Ofen, Gas, Waschbecken, 12V/230V-Elektrik, Euroboxen) SOWIE das gesamte Back-, Teig-, Rezept- und Event-Geschäft.
+2. "proj-baeckerei" (Baustelle Bäckerei): AUSSCHLIESSLICH baulicher Umbau und Renovierung der 150m² Backstube (Decke, Wände, Lüftung, Trockenbau, Baustrom).
+3. "proj-smarthome", "proj-gewohnheiten", "proj-alltag": Private Projekte.
+
+REGELN:
+- Du hast vollen Lesezugriff auf alle Projekte, Tasks, Einkäufe und Infos im Kontext.
+- Bei einfachen Befehlen ("Merke dir...", "Leg X in den Einkaufswagen") halte "spokenFeedback" ultrakurz (z. B. "Ist erledigt.").
+- Bei Unklarheit setze "needsClarification": true und stelle eine präzise Rückfrage.`;
 
   if (cleanKey) {
     try {
@@ -439,17 +589,17 @@ export async function routeVoiceCommand(
         chatHistory && chatHistory.length > 0
           ? chatHistory
               .slice(-6)
-              .map((h) => `${h.role === 'user' ? 'Nutzer' : 'Agent'}: ${h.text}`)
+              .map((h) => `${h.role === 'user' ? 'Nutzer' : 'BANDIT.OS'}: ${h.text}`)
               .join('\n')
           : 'Kein vorheriger Gesprächsverlauf.';
 
       const userParts: any[] = [
         {
           text: [
-            `AKTUELL GEÖFFNETES PROJEKT: "${defaultProjectId}"`,
-            `LETZTER GESPRÄCHSVERLAUF:\n${historyText}`,
-            `AKTUELLER DATENBESTAND DER APP:\n${workspaceContext}`,
-            `NEUE EINGABE DES NUTZERS:\n"${rawText}"`
+            `AKTUELLES PROJEKT: "${defaultProjectId}"`,
+            `GESPRÄCHSVERLAUF:\n${historyText}`,
+            `DATENBESTAND:\n${workspaceContext}`,
+            `EINGABE:\n"${rawText}"`
           ].join('\n\n')
         }
       ];
@@ -471,7 +621,7 @@ export async function routeVoiceCommand(
 
       const result = await callGeminiWithAutoFallback(cleanKey, taskType, {
         systemInstruction: {
-          parts: [{ text: SYSTEM_PROMPT }]
+          parts: [{ text: dynamicSystemPrompt }]
         },
         contents: [{ role: 'user', parts: userParts }],
         generationConfig: {
@@ -486,8 +636,7 @@ export async function routeVoiceCommand(
         return {
           plan: {
             ...fallback,
-            directAnswer: `Hinweis: API meldete "${result.errorMessage}". Lokale Zuordnung wurde genutzt.`,
-            summary: `${fallback.summary} (API-Fehler)`
+            directAnswer: `Hinweis: API meldete "${result.errorMessage}". Lokale Zuordnung genutzt.`
           },
           engine: `Fallback (${result.errorMessage})`
         };
@@ -496,6 +645,9 @@ export async function routeVoiceCommand(
       const rawJsonText = result.data?.candidates?.[0]?.content?.parts?.[0]?.text;
       if (rawJsonText) {
         const parsed = JSON.parse(rawJsonText) as StructuredAiResponse;
+        const bufferMultiplier =
+          prefs.adhdMasterEnabled && prefs.adhdTimeBufferAndHaptics ? 1.25 : 1;
+
         const sanitizedActions = Array.isArray(parsed.actions)
           ? parsed.actions.map((act) => ({
               ...act,
@@ -508,7 +660,7 @@ export async function routeVoiceCommand(
                 act.changeFooterNote || `Durch ${result.usedModel}`,
                 'Durch KI zugeordnet'
               ),
-              estimatedMinutes: Number(act.estimatedMinutes) || 25,
+              estimatedMinutes: Math.round((Number(act.estimatedMinutes) || 25) * bufferMultiplier),
               priority: act.priority || 'Mittel'
             }))
           : [];
@@ -533,7 +685,7 @@ export async function routeVoiceCommand(
         };
       }
     } catch (err: any) {
-      console.warn('[NexusFlow AI-Router] Fehler:', err);
+      console.warn('[BANDIT.OS AI-Router] Fehler:', err);
     }
   }
 

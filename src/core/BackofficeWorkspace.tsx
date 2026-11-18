@@ -1,22 +1,23 @@
 import React, { useState } from 'react';
 import {
   ArrowLeft,
-  BarChart3,
+  Brain,
   CalendarClock,
   CheckCircle2,
   ChevronDown,
   ChevronUp,
   Compass,
+  Copy,
   Download,
-  FolderArchive,
   HeartHandshake,
   Key,
   Loader2,
+  Plus,
   Puzzle,
   RefreshCw,
+  Sliders,
   Smartphone,
-  Sparkles,
-  Undo2,
+  Trash2,
   Upload,
   Webhook
 } from 'lucide-react';
@@ -33,11 +34,23 @@ import {
 } from '../types';
 import { PLUGIN_REGISTRY } from '../plugins/registry';
 import {
+  BanditUserPreferences,
   getPreferredModelMode,
+  loadUserPrefs,
+  saveUserPrefs,
   setPreferredModelMode,
   testGeminiApiKey
 } from '../services/aiRouter';
 import { exportDayPlanIcs, exportSalesLogsCsv } from '../services/exportBridge';
+
+interface BlueprintTemplate {
+  id: string;
+  name: string;
+  tasks: string[];
+  cart: string[];
+}
+
+const BLUEPRINT_STORAGE_KEY = 'banditos_blueprints_v3';
 
 interface BackofficeWorkspaceProps {
   activeTab: BackofficeTabId;
@@ -72,35 +85,26 @@ interface BackofficeWorkspaceProps {
 }
 
 type AccordionSectionId =
+  | 'adhd'
+  | 'personalization'
+  | 'blueprints'
   | 'apikey'
   | 'planner'
-  | 'ailog'
-  | 'addons'
-  | 'analytics'
   | 'mobile_cover'
-  | 'smarthome_backup'
-  | 'archive';
+  | 'addons'
+  | 'smarthome_backup';
 
 export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
   projects,
-  aiLogs,
-  selfChecks,
   eventSalesLogs,
   userApiKey,
-  realityCheckEnabled,
-  haWebhookUrl,
-  haEmbedUrl,
   onCloseBackoffice,
-  onJumpToAction,
-  onUndoAiAction,
-  onMoveAiAction,
   onToggleArchiveProject,
   onAssignDayBlock,
   onAutoStructureDay,
   onTogglePluginForProject,
+  onSaveScratchpadToProject,
   onChangeApiKey,
-  onToggleRealityCheck,
-  onChangeHaWebhook,
   onOpenFlip7Cover,
   onOpenRealityModal,
   onOpenSelfCheckModal,
@@ -109,7 +113,38 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
   onImportFullBackup,
   onNotify
 }) => {
-  const [openSection, setOpenSection] = useState<AccordionSectionId | null>('apikey');
+  const [openSection, setOpenSection] = useState<AccordionSectionId | null>('adhd');
+  const [prefs, setPrefs] = useState<BanditUserPreferences>(loadUserPrefs);
+  const [newQuickCmd, setNewQuickCmd] = useState('');
+
+  // Update 6 (Erweiterung): Vorlagen-Tresor (Blueprints)
+  const [blueprints, setBlueprints] = useState<BlueprintTemplate[]>(() => {
+    try {
+      const saved = localStorage.getItem(BLUEPRINT_STORAGE_KEY);
+      return saved
+        ? JSON.parse(saved)
+        : [
+            {
+              id: 'bp-event',
+              name: 'Standard-Event Vor-Ort-Checkliste (Pizza Bandit)',
+              tasks: [
+                '[Vorbereitung] Gasflaschen (2x 11kg) + 50 mbar Regler prüfen',
+                '[Vorbereitung] Frischwasser- & Abwasserkanister einsetzen',
+                '[Vorbereitung] Euroboxen mit Teigballen verladen',
+                '[Vor Ort] Saladette-Lift auf 92 cm Arbeitshöhe arretieren'
+              ],
+              cart: ['Einweghandschuhe Nitril', 'Pizzakartons / Servietten']
+            }
+          ];
+    } catch {
+      return [];
+    }
+  });
+  const [selectedBlueprintProjectId, setSelectedBlueprintProjectId] = useState(
+    projects[0]?.id || 'proj-foodtruck'
+  );
+  const [newBlueprintName, setNewBlueprintName] = useState('');
+
   const [modelMode, setModelMode] = useState<string>(getPreferredModelMode);
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [apiTestStatus, setApiTestStatus] = useState<{
@@ -117,6 +152,12 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
     ok?: boolean;
     text?: string;
   }>({ loading: false });
+
+  const updatePrefs = (patch: Partial<BanditUserPreferences>) => {
+    const next = { ...prefs, ...patch };
+    setPrefs(next);
+    saveUserPrefs(next);
+  };
 
   const toggleSection = (id: AccordionSectionId) => {
     setOpenSection((prev) => (prev === id ? null : id));
@@ -127,6 +168,22 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
     const res = await testGeminiApiKey(userApiKey);
     if (res.availableModels) setAvailableModels(res.availableModels);
     setApiTestStatus({ loading: false, ok: res.ok, text: res.message });
+  };
+
+  const handleSaveCurrentProjectAsBlueprint = () => {
+    const proj = projects.find((p) => p.id === selectedBlueprintProjectId);
+    if (!proj) return;
+    const bp: BlueprintTemplate = {
+      id: `bp-${Date.now()}`,
+      name: newBlueprintName.trim() || `Vorlage: ${proj.name}`,
+      tasks: proj.tasks.map((t) => t.title),
+      cart: proj.cart.map((c) => c.title)
+    };
+    const next = [bp, ...blueprints];
+    setBlueprints(next);
+    localStorage.setItem(BLUEPRINT_STORAGE_KEY, JSON.stringify(next));
+    setNewBlueprintName('');
+    onNotify(`Vorlage "${bp.name}" im Tresor gespeichert.`);
   };
 
   const handleBackupUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -146,7 +203,6 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
   };
 
   const activeProjects = projects.filter((p) => !p.archived);
-  const archivedProjects = projects.filter((p) => p.archived);
   const allOpenTasks = activeProjects.flatMap((p) =>
     p.tasks.filter((t) => !t.completed).map((t) => ({ project: p, task: t }))
   );
@@ -158,11 +214,11 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
         style={{ backgroundColor: THEME.bgCard }}
       >
         <div>
-          <h2 className="text-xs font-bold uppercase tracking-wider text-white">
-            System, Planer &amp; Einstellungen
+          <h2 className="text-xs font-extrabold uppercase tracking-wider text-white">
+            BANDIT.OS System &amp; Einstellungen
           </h2>
           <p className="text-[11px] text-[#9CA3AF]">
-            Zugeklappte Systembereiche
+            ADHS-Fokus, Personalisierung, Vorlagen &amp; KI
           </p>
         </div>
         <button
@@ -175,7 +231,378 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
         </button>
       </div>
 
-      {/* 1. KI-SCHNITTSTELLE & MODELL-WAHL */}
+      {/* AKKORDEON 1: ADHS- & FOKUS-UNTERSTÜTZUNG (EIN-/AUSSCHALTBAR) */}
+      <div
+        className="rounded-2xl border border-white/10 overflow-hidden"
+        style={{ backgroundColor: THEME.bgCard }}
+      >
+        <button
+          type="button"
+          onClick={() => toggleSection('adhd')}
+          className="w-full p-3.5 flex items-center justify-between text-left"
+        >
+          <div className="flex items-center gap-3">
+            <Brain className="w-4 h-4 text-[#14B8A6]" />
+            <div>
+              <div className="text-xs font-bold text-white flex items-center gap-2">
+                <span>ADHS- &amp; Fokus-Unterstützung</span>
+                <span
+                  className={`text-[10px] px-2 py-0.5 rounded-full ${
+                    prefs.adhdMasterEnabled
+                      ? 'bg-emerald-500/20 text-emerald-300'
+                      : 'bg-white/10 text-[#9CA3AF]'
+                  }`}
+                >
+                  {prefs.adhdMasterEnabled ? 'Aktiv' : 'Aus'}
+                </span>
+              </div>
+              <div className="text-[11px] text-[#9CA3AF]">
+                Roter-Faden-Anker, 1-Fokus-Blende, 2-Minuten-Starthilfe &amp; Zeitpuffer
+              </div>
+            </div>
+          </div>
+          {openSection === 'adhd' ? (
+            <ChevronUp className="w-4 h-4 text-[#9CA3AF]" />
+          ) : (
+            <ChevronDown className="w-4 h-4 text-[#9CA3AF]" />
+          )}
+        </button>
+
+        {openSection === 'adhd' && (
+          <div className="px-4 pb-4 pt-2 border-t border-white/10 space-y-2.5 bg-[#181A1B]/50">
+            {/* Hauptschalter */}
+            <div className="p-2.5 rounded-xl bg-[#24292E] border border-white/10 flex items-center justify-between">
+              <div>
+                <div className="text-xs font-bold text-white">
+                  ADHS-Unterstützung insgesamt
+                </div>
+                <div className="text-[10px] text-[#9CA3AF]">
+                  Hauptschalter für alle 4 Hintergrund-Helfer
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => updatePrefs({ adhdMasterEnabled: !prefs.adhdMasterEnabled })}
+                className="px-3 py-1.5 rounded-lg text-xs font-bold text-white"
+                style={{
+                  backgroundColor: prefs.adhdMasterEnabled ? THEME.accentPrimary : '#374151'
+                }}
+              >
+                {prefs.adhdMasterEnabled ? 'Eingeschaltet' : 'Ausgeschaltet'}
+              </button>
+            </div>
+
+            {prefs.adhdMasterEnabled && (
+              <div className="space-y-2 pt-1">
+                {[
+                  {
+                    key: 'adhdFocusAnchor' as const,
+                    title: '1. „Wo war ich gerade?“-Anker (Roter Faden)',
+                    desc: 'Pinnt die aktuell bearbeitete Aufgabe dauerhaft oben an'
+                  },
+                  {
+                    key: 'adhdSingleTaskMode' as const,
+                    title: '2. „1-Fokus-Blende“ gegen Aufgaben-Paralyse',
+                    desc: 'Schalter in den Tasks, der nur den nächsten einzelnen Punkt zeigt'
+                  },
+                  {
+                    key: 'adhdTwoMinuteStarter' as const,
+                    title: '3. Automatischer „2-Minuten-Einstieg“ durch KI',
+                    desc: 'KI ergänzt bei neuen Aufgaben sofort den ersten kleinen Handgriff'
+                  },
+                  {
+                    key: 'adhdTimeBufferAndHaptics' as const,
+                    title: '4. Zeitblindheits-Puffer (+25 %) & Haptik-Impuls',
+                    desc: 'Rechnet 25 % Pufferzeit für Rüstwege ein und vibriert beim Abhaken'
+                  }
+                ].map((item) => (
+                  <div
+                    key={item.key}
+                    className="p-2.5 rounded-xl bg-[#24292E]/70 border border-white/5 flex items-center justify-between gap-2"
+                  >
+                    <div>
+                      <div className="text-xs font-semibold text-white">{item.title}</div>
+                      <div className="text-[10px] text-[#9CA3AF]">{item.desc}</div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => updatePrefs({ [item.key]: !prefs[item.key] })}
+                      className="px-2.5 py-1 rounded-lg text-[10px] font-bold text-white shrink-0"
+                      style={{
+                        backgroundColor: prefs[item.key] ? THEME.accentPrimary : '#374151'
+                      }}
+                    >
+                      {prefs[item.key] ? 'An' : 'Aus'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* AKKORDEON 2 (UPDATE 5): PERSONALISIERUNG & DARSTELLUNG */}
+      <div
+        className="rounded-2xl border border-white/10 overflow-hidden"
+        style={{ backgroundColor: THEME.bgCard }}
+      >
+        <button
+          type="button"
+          onClick={() => toggleSection('personalization')}
+          className="w-full p-3.5 flex items-center justify-between text-left"
+        >
+          <div className="flex items-center gap-3">
+            <Sliders className="w-4 h-4 text-[#14B8A6]" />
+            <div>
+              <div className="text-xs font-bold text-white">
+                Personalisierung, Handschuh-Modus &amp; KI-Stil
+              </div>
+              <div className="text-[11px] text-[#9CA3AF]">
+                UI-Dichte, organische Animationen, KI-Tonfall &amp; Schnell-Befehle
+              </div>
+            </div>
+          </div>
+          {openSection === 'personalization' ? (
+            <ChevronUp className="w-4 h-4 text-[#9CA3AF]" />
+          ) : (
+            <ChevronDown className="w-4 h-4 text-[#9CA3AF]" />
+          )}
+        </button>
+
+        {openSection === 'personalization' && (
+          <div className="px-4 pb-4 pt-2 border-t border-white/10 space-y-3 bg-[#181A1B]/50">
+            <div className="space-y-1">
+              <label className="text-[11px] text-[#9CA3AF] block">
+                Darstellungs-Dichte (Touch- &amp; Textgröße):
+              </label>
+              <div className="grid grid-cols-3 gap-1.5">
+                {[
+                  { id: 'compact', label: 'Kompakt' },
+                  { id: 'standard', label: 'Standard' },
+                  { id: 'large', label: 'Groß (Baustelle)' }
+                ].map((d) => (
+                  <button
+                    type="button"
+                    key={d.id}
+                    onClick={() => updatePrefs({ uiDensity: d.id as any })}
+                    className={`py-2 rounded-xl text-xs font-bold border ${
+                      prefs.uiDensity === d.id
+                        ? 'text-white border-white/30'
+                        : 'bg-[#24292E] text-[#9CA3AF] border-white/10'
+                    }`}
+                    style={
+                      prefs.uiDensity === d.id
+                        ? { backgroundColor: THEME.accentPrimary }
+                        : {}
+                    }
+                  >
+                    {d.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[11px] text-[#9CA3AF] block">
+                Persönlicher KI-Antwortstil:
+              </label>
+              <div className="grid grid-cols-3 gap-1.5">
+                {[
+                  { id: 'short', label: 'Kommando-Kurz' },
+                  { id: 'partner', label: 'Fach-Partner' },
+                  { id: 'coach', label: 'Fokus-Coach' }
+                ].map((t) => (
+                  <button
+                    type="button"
+                    key={t.id}
+                    onClick={() => updatePrefs({ aiTone: t.id as any })}
+                    className={`py-2 rounded-xl text-xs font-bold border ${
+                      prefs.aiTone === t.id
+                        ? 'text-white border-white/30'
+                        : 'bg-[#24292E] text-[#9CA3AF] border-white/10'
+                    }`}
+                    style={
+                      prefs.aiTone === t.id
+                        ? { backgroundColor: THEME.accentPrimary }
+                        : {}
+                    }
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="p-2.5 rounded-xl bg-[#24292E] border border-white/10 flex items-center justify-between">
+              <span className="text-xs text-white">
+                Organische Hintergrund-Aura &amp; Wellen-Animation
+              </span>
+              <button
+                type="button"
+                onClick={() => updatePrefs({ organicMotion: !prefs.organicMotion })}
+                className="px-3 py-1 rounded-lg text-xs font-bold text-white"
+                style={{
+                  backgroundColor: prefs.organicMotion ? THEME.accentPrimary : '#374151'
+                }}
+              >
+                {prefs.organicMotion ? 'An' : 'Aus'}
+              </button>
+            </div>
+
+            {/* Eigene Quick-Command-Chips verwalten */}
+            <div className="space-y-1.5 pt-1">
+              <label className="text-[11px] text-[#9CA3AF] block">
+                Eigene 1-Tipp-Schnellbefehle im KI-Fenster:
+              </label>
+              <div className="flex gap-1.5">
+                <input
+                  type="text"
+                  value={newQuickCmd}
+                  onChange={(e) => setNewQuickCmd(e.target.value)}
+                  placeholder="Neuer Schnellbefehl..."
+                  className="flex-1 px-2.5 py-1.5 rounded-lg text-xs bg-[#181A1B] text-white border border-white/15"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!newQuickCmd.trim()) return;
+                    updatePrefs({
+                      quickCommands: [...prefs.quickCommands, newQuickCmd.trim()]
+                    });
+                    setNewQuickCmd('');
+                  }}
+                  className="px-3 py-1.5 rounded-lg text-xs font-bold text-white"
+                  style={{ backgroundColor: THEME.accentPrimary }}
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              <div className="space-y-1">
+                {prefs.quickCommands.map((cmd, idx) => (
+                  <div
+                    key={idx}
+                    className="px-2.5 py-1.5 rounded-lg bg-[#24292E] flex items-center justify-between text-xs text-white"
+                  >
+                    <span className="truncate">{cmd}</span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        updatePrefs({
+                          quickCommands: prefs.quickCommands.filter((_, i) => i !== idx)
+                        })
+                      }
+                      className="text-[#9CA3AF] hover:text-red-400 ml-2"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* AKKORDEON 3 (UPDATE 6): ERWEITERUNGS- & VORLAGEN-TRESOR (BLUEPRINTS) */}
+      <div
+        className="rounded-2xl border border-white/10 overflow-hidden"
+        style={{ backgroundColor: THEME.bgCard }}
+      >
+        <button
+          type="button"
+          onClick={() => toggleSection('blueprints')}
+          className="w-full p-3.5 flex items-center justify-between text-left"
+        >
+          <div className="flex items-center gap-3">
+            <Copy className="w-4 h-4 text-[#14B8A6]" />
+            <div>
+              <div className="text-xs font-bold text-white">
+                Erweiterungs- &amp; Vorlagen-Baukasten (Blueprints)
+              </div>
+              <div className="text-[11px] text-[#9CA3AF]">
+                Checklisten-Vorlagen speichern und für neue Events/Projekte einspielen
+              </div>
+            </div>
+          </div>
+          {openSection === 'blueprints' ? (
+            <ChevronUp className="w-4 h-4 text-[#9CA3AF]" />
+          ) : (
+            <ChevronDown className="w-4 h-4 text-[#9CA3AF]" />
+          )}
+        </button>
+
+        {openSection === 'blueprints' && (
+          <div className="px-4 pb-4 pt-2 border-t border-white/10 space-y-3 bg-[#181A1B]/50">
+            <div className="p-2.5 rounded-xl bg-[#24292E] border border-white/10 space-y-2">
+              <div className="text-xs font-bold text-white">
+                Aktuelles Projekt als wiederverwendbare Vorlage sichern
+              </div>
+              <select
+                value={selectedBlueprintProjectId}
+                onChange={(e) => setSelectedBlueprintProjectId(e.target.value)}
+                className="w-full px-2.5 py-1.5 rounded-lg text-xs bg-[#181A1B] text-white border border-white/10"
+              >
+                {activeProjects.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+              <div className="flex gap-1.5">
+                <input
+                  type="text"
+                  value={newBlueprintName}
+                  onChange={(e) => setNewBlueprintName(e.target.value)}
+                  placeholder="Name der Vorlage (z. B. Sommer-Event Packliste)..."
+                  className="flex-1 px-2.5 py-1.5 rounded-lg text-xs bg-[#181A1B] text-white border border-white/10"
+                />
+                <button
+                  type="button"
+                  onClick={handleSaveCurrentProjectAsBlueprint}
+                  className="px-3 py-1.5 rounded-lg text-xs font-bold text-white"
+                  style={{ backgroundColor: THEME.accentPrimary }}
+                >
+                  Sichern
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              {blueprints.map((bp) => (
+                <div
+                  key={bp.id}
+                  className="p-2.5 rounded-xl bg-[#24292E] border border-white/10 flex items-center justify-between gap-2"
+                >
+                  <div className="min-w-0">
+                    <div className="text-xs font-bold text-white truncate">{bp.name}</div>
+                    <div className="text-[10px] text-[#9CA3AF]">
+                      {bp.tasks.length} Tasks • {bp.cart.length} Einkaufs-Artikel
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onSaveScratchpadToProject(
+                        selectedBlueprintProjectId,
+                        bp.name,
+                        `Checklisten-Vorlage:\n${bp.tasks.map((t) => `- ${t}`).join('\n')}`
+                      );
+                      onNotify(`Vorlage "${bp.name}" in Projekt-Infos hinterlegt.`);
+                    }}
+                    className="px-2.5 py-1 rounded-lg text-[10px] font-bold text-white shrink-0"
+                    style={{ backgroundColor: THEME.accentPrimary }}
+                  >
+                    Einspielen
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* AKKORDEON 4: KI-SCHNITTSTELLE & MODELL-WAHL */}
       <div
         className="rounded-2xl border border-white/10 overflow-hidden"
         style={{ backgroundColor: THEME.bgCard }}
@@ -213,34 +640,29 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
               className="w-full px-3 py-2 rounded-xl text-xs font-mono bg-[#181A1B] text-white border border-white/15"
             />
 
-            <div className="space-y-1">
-              <label className="text-[11px] text-[#9CA3AF] block">
-                Bevorzugtes KI-Modell:
-              </label>
-              <select
-                value={modelMode}
-                onChange={(e) => {
-                  setModelMode(e.target.value);
-                  setPreferredModelMode(e.target.value);
-                }}
-                className="w-full px-3 py-2 rounded-xl text-xs bg-[#181A1B] text-white border border-white/15"
-              >
-                <option value="SMART_PRO">
-                  Smart-Mix (Flash für Sortierung + Höchstes Pro-Modell für Fragen/Fotos)
+            <select
+              value={modelMode}
+              onChange={(e) => {
+                setModelMode(e.target.value);
+                setPreferredModelMode(e.target.value);
+              }}
+              className="w-full px-3 py-2 rounded-xl text-xs bg-[#181A1B] text-white border border-white/15"
+            >
+              <option value="SMART_PRO">
+                Smart-Mix (Flash für Sortierung + Höchstes Pro-Modell für Fragen/Fotos)
+              </option>
+              <option value="ALWAYS_PRO">
+                Immer höchstes Pro-Modell nutzen (Maximale Intelligenz)
+              </option>
+              <option value="ALWAYS_FLASH">
+                Immer Flash nutzen (Maximale Geschwindigkeit)
+              </option>
+              {availableModels.map((m) => (
+                <option key={m} value={m}>
+                  Direktwahl: {m}
                 </option>
-                <option value="ALWAYS_PRO">
-                  Immer höchstes Pro-Modell nutzen (Maximale Intelligenz)
-                </option>
-                <option value="ALWAYS_FLASH">
-                  Immer Flash nutzen (Maximale Geschwindigkeit)
-                </option>
-                {availableModels.map((m) => (
-                  <option key={m} value={m}>
-                    Direktwahl: {m}
-                  </option>
-                ))}
-              </select>
-            </div>
+              ))}
+            </select>
 
             <button
               type="button"
@@ -254,7 +676,7 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
               ) : (
                 <CheckCircle2 className="w-3.5 h-3.5" />
               )}
-              <span>Verbindung testen &amp; verfügbare Modelle laden</span>
+              <span>Verbindung testen &amp; Modelle laden</span>
             </button>
 
             {apiTestStatus.text && (
@@ -272,7 +694,7 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
         )}
       </div>
 
-      {/* 2. TAGESPLANER */}
+      {/* AKKORDEON 5: TAGESPLANER */}
       <div
         className="rounded-2xl border border-white/10 overflow-hidden"
         style={{ backgroundColor: THEME.bgCard }}
@@ -353,7 +775,7 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
         )}
       </div>
 
-      {/* 3. FRONTDISPLAY & CHECKS */}
+      {/* AKKORDEON 6: FRONTDISPLAY & CHECKS */}
       <div
         className="rounded-2xl border border-white/10 overflow-hidden"
         style={{ backgroundColor: THEME.bgCard }}
@@ -417,66 +839,7 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
         )}
       </div>
 
-      {/* 4. ADD-ONS & MODULE */}
-      <div
-        className="rounded-2xl border border-white/10 overflow-hidden"
-        style={{ backgroundColor: THEME.bgCard }}
-      >
-        <button
-          type="button"
-          onClick={() => toggleSection('addons')}
-          className="w-full p-3.5 flex items-center justify-between text-left"
-        >
-          <div className="flex items-center gap-3">
-            <Puzzle className="w-4 h-4 text-[#14B8A6]" />
-            <div>
-              <div className="text-xs font-bold text-white">Projekt-Werkzeuge (Add-ons)</div>
-              <div className="text-[11px] text-[#9CA3AF]">
-                POS-Clicker und Kalkulatoren pro Projekt aktivieren
-              </div>
-            </div>
-          </div>
-          {openSection === 'addons' ? (
-            <ChevronUp className="w-4 h-4 text-[#9CA3AF]" />
-          ) : (
-            <ChevronDown className="w-4 h-4 text-[#9CA3AF]" />
-          )}
-        </button>
-
-        {openSection === 'addons' && (
-          <div className="px-4 pb-4 pt-2 border-t border-white/10 space-y-2.5 bg-[#181A1B]/50">
-            {PLUGIN_REGISTRY.map((plugin) => (
-              <div
-                key={plugin.id}
-                className="p-3 rounded-xl bg-[#24292E] border border-white/10 space-y-2"
-              >
-                <div className="text-xs font-bold text-white">{plugin.name}</div>
-                <div className="flex flex-wrap gap-1.5">
-                  {activeProjects.map((proj) => {
-                    const enabled = (proj.enabledPlugins || []).includes(plugin.id);
-                    return (
-                      <button
-                        type="button"
-                        key={proj.id}
-                        onClick={() => onTogglePluginForProject(proj.id, plugin.id)}
-                        className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border ${
-                          enabled
-                            ? 'bg-[#0A9396] text-white border-[#14B8A6]'
-                            : 'bg-[#181A1B] text-[#9CA3AF] border-white/10'
-                        }`}
-                      >
-                        {proj.name}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* 5. AUSWERTUNGEN & BACKUP */}
+      {/* AKKORDEON 7: ADD-ONS & BACKUP */}
       <div
         className="rounded-2xl border border-white/10 overflow-hidden"
         style={{ backgroundColor: THEME.bgCard }}
@@ -490,10 +853,10 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
             <Webhook className="w-4 h-4 text-[#14B8A6]" />
             <div>
               <div className="text-xs font-bold text-white">
-                Datensicherung, Smart Home &amp; Archiv
+                Werkzeuge, Backup &amp; Aktenschrank
               </div>
               <div className="text-[11px] text-[#9CA3AF]">
-                JSON-Backup, Projekt-Stammdaten &amp; Aktenschrank ({archivedProjects.length})
+                POS-Clicker, JSON-Sicherung &amp; Projekt-Archiv
               </div>
             </div>
           </div>
@@ -506,6 +869,37 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
 
         {openSection === 'smarthome_backup' && (
           <div className="px-4 pb-4 pt-2 border-t border-white/10 space-y-3 bg-[#181A1B]/50">
+            {PLUGIN_REGISTRY.map((plugin) => (
+              <div
+                key={plugin.id}
+                className="p-2.5 rounded-xl bg-[#24292E] border border-white/10 space-y-1.5"
+              >
+                <div className="text-xs font-bold text-white flex items-center gap-1.5">
+                  <Puzzle className="w-3.5 h-3.5 text-[#14B8A6]" />
+                  <span>{plugin.name}</span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {activeProjects.map((proj) => {
+                    const enabled = (proj.enabledPlugins || []).includes(plugin.id);
+                    return (
+                      <button
+                        type="button"
+                        key={proj.id}
+                        onClick={() => onTogglePluginForProject(proj.id, plugin.id)}
+                        className={`px-2 py-1 rounded text-[10px] font-bold border ${
+                          enabled
+                            ? 'bg-[#0A9396] text-white border-[#14B8A6]'
+                            : 'bg-[#181A1B] text-[#9CA3AF] border-white/10'
+                        }`}
+                      >
+                        {proj.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+
             {onResetProjectStructure && (
               <button
                 type="button"
@@ -549,9 +943,6 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
             )}
 
             <div className="space-y-1.5 pt-2 border-t border-white/10">
-              <div className="text-[10px] font-bold uppercase text-[#9CA3AF]">
-                Aktenschrank (Archiv-Steuerung)
-              </div>
               {projects.map((p) => (
                 <div
                   key={p.id}

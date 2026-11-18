@@ -126,6 +126,7 @@ export interface AiExecutedAction {
   estimatedPrice?: string;
   changeFooterNote: string;
   undone: boolean;
+  assemblyGroup?: string;
 }
 
 export interface AiLogEntry {
