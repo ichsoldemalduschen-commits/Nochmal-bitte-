@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, MessageSquare, Mic, Plus, X } from 'lucide-react';
+import { CheckCircle2, MessageSquare, Scale, Mic, Plus, X } from 'lucide-react';
 import {
   AiExecutedAction,
   AiLogEntry,
@@ -9,6 +9,7 @@ import {
   DomainType,
   Project,
   ProjectTabId,
+  PriorityType,
   THEME
 } from './types';
 import { INITIAL_APP_SNAPSHOT } from './data/pizzaBanditTsaSeed';
@@ -29,6 +30,20 @@ import { RealityCheckModal, SelfCheckModal } from './plugins/mindfulChecks';
 import { Flip7CoverView } from './core/Flip7CoverView';
 import { VoiceModal } from './core/VoiceModal';
 import { FrontWorkspace } from './core/FrontWorkspace';
+import { DeepResearchAndAuditModal } from './components/DeepResearchAndAuditModal';
+import {
+  checkAndFireDueReminders,
+  loadCloudConfig,
+  pushStateToCloud
+} from './services/cloudSyncAndPush';
+import {
+  inspectAndQueueCriticalTopic,
+  loadAuditSettings,
+  loadAuditWatchlist,
+  runDeepResearchWithCitations,
+  saveAuditSettings,
+  saveAuditWatchlist
+} from './services/deepResearchAndScanner';
 import { BackofficeWorkspace } from './core/BackofficeWorkspace';
 
 interface PhotoMeasurePin {
@@ -62,6 +77,7 @@ export default function App() {
   const [highlightedItemId, setHighlightedItemId] = useState<string | null>(null);
 
   const [voiceModalOpen, setVoiceModalOpen] = useState(false);
+  const [deepResearchModalOpen, setDeepResearchModalOpen] = useState(false);
   const [autoStartMicOnOpen, setAutoStartMicOnOpen] = useState(true);
   const [realityModalOpen, setRealityModalOpen] = useState(false);
   const [selfCheckModalOpen, setSelfCheckModalOpen] = useState(false);
@@ -222,6 +238,12 @@ export default function App() {
     const executedActions: AiExecutedAction[] = [];
     const logId = `log-${Date.now()}`;
     let firstTargetProjectId = activeProject?.id || 'proj-foodtruck';
+    inspectAndQueueCriticalTopic(
+      rawText,
+      firstTargetProjectId,
+      activeProject?.name || 'Pizza Bandit',
+      state.projects
+    );
     let firstTab: ProjectTabId = activeProjectTab;
 
     if (plan.actions && plan.actions.length > 0) {
@@ -591,6 +613,7 @@ export default function App() {
             onSelectProject={(id) => setSelectedProjectId(id)}
             onChangeTab={(tab) => setActiveProjectTab(tab)}
             onOpenNewProjectModal={() => setNewProjectModalOpen(true)}
+            onOpenDeepResearchModal={() => setDeepResearchModalOpen(true)}
             onUploadProjectLogo={async (projId, file) => {
               const { dataUrl } = await compressImageFile(file);
               updateProject(projId, (p) => ({
@@ -968,6 +991,16 @@ export default function App() {
 
             <button
               type="button"
+              onClick={() => setDeepResearchModalOpen(true)}
+              aria-label="Deep Research &amp; Cloud"
+              title="Deep Research, Scanner &amp; Cloud"
+              className="p-2.5 rounded-xl bg-[#181A1B] text-[#14B8A6] hover:text-white border border-white/10 flex items-center justify-center shrink-0 active:scale-95 transition"
+            >
+              <Scale className="w-4 h-4" />
+            </button>
+
+            <button
+              type="button"
               onClick={() => {
                 setAutoStartMicOnOpen(true);
                 setVoiceModalOpen(true);
@@ -1027,6 +1060,117 @@ export default function App() {
         onJumpToAction={handleJumpToAction}
         onUndoAiAction={handleUndoAiAction}
         onMoveAiAction={handleMoveAiAction}
+      />
+
+      <DeepResearchAndAuditModal
+        open={deepResearchModalOpen}
+        projects={state.projects}
+        activeProject={activeProject}
+        userApiKey={state.userApiKey}
+        fullState={state}
+        onClose={() => setDeepResearchModalOpen(false)}
+        onSaveDossierToProject={(projectId, title, markdownContent, followUpTasks) => {
+          updateProject(projectId, (p) => {
+            const newInfo = {
+              id: `info-dossier-${Date.now()}`,
+              title: enforceMaxSixWords(title, 'Rechts-Dossier'),
+              content: markdownContent,
+              attachments: [],
+              lastModified: formatNow(),
+              changeReason: 'Deep Research Beleg',
+              source: 'KI-Recherche',
+              aiTouched: true,
+              customMeta: {}
+            };
+            const newTasks = (followUpTasks || []).map((tText, idx) => ({
+              id: `task-dossier-${Date.now()}-${idx}`,
+              title: enforceMaxSixWords(tText, 'Recherche To-do'),
+              completed: false,
+              priority: 'high' as PriorityType,
+              estimatedMinutes: 30,
+              dayBlock: null,
+              reminderAt: '',
+              aiTouched: true,
+              lastModified: formatNow(),
+              changeReason: 'Aus Deep Research abgeleitet',
+              source: 'Deep Research',
+              assemblyGroup: '',
+              customMeta: {}
+            }));
+            return {
+              ...p,
+              infos: [newInfo, ...p.infos],
+              tasks: [...newTasks, ...p.tasks]
+            };
+          });
+          notify('Rechts-Dossier & To-dos im Projekt gespeichert.');
+        }}
+        onReconcileReceiptWithCart={(projectId, storeName, purchaseDate, totalAmount, items) => {
+          updateProject(projectId, (p) => {
+            let updatedCart = [...p.cart];
+            const unmatchedItems: Array<{ title: string; quantity: string; price: string }> = [];
+
+            for (const item of items) {
+              const itemTitleLower = item.title.toLowerCase();
+              const foundIdx = updatedCart.findIndex(
+                (c) =>
+                  !c.completed &&
+                  (c.title.toLowerCase().includes(itemTitleLower) ||
+                    itemTitleLower.includes(c.title.toLowerCase()))
+              );
+              if (foundIdx !== -1) {
+                updatedCart[foundIdx] = {
+                  ...updatedCart[foundIdx],
+                  completed: true,
+                  price: item.price ? `${item.price} €` : updatedCart[foundIdx].price,
+                  lastModified: formatNow(),
+                  changeReason: `Kassenbon ${storeName} (${purchaseDate})`
+                };
+              } else {
+                unmatchedItems.push(item);
+              }
+            }
+
+            const newCartItems = unmatchedItems.map((item, idx) => ({
+              id: `cart-receipt-${Date.now()}-${idx}`,
+              title: enforceMaxSixWords(item.title, 'Beleg-Artikel'),
+              quantity: item.quantity || '1x',
+              price: item.price ? `${item.price} €` : '',
+              completed: true,
+              lastModified: formatNow(),
+              changeReason: `Aus Kassenbon ${storeName}`,
+              source: 'Beleg-Scanner',
+              aiTouched: true,
+              customMeta: {}
+            }));
+
+            const receiptInfo = {
+              id: `info-receipt-${Date.now()}`,
+              title: enforceMaxSixWords(`Beleg ${storeName} ${totalAmount} €`, 'Kassenbon'),
+              content: `Kassenbon / Rechnung von ${storeName}\nDatum: ${purchaseDate}\nGesamtbetrag: ${totalAmount} €\n\nErfasste Positionen:\n${items
+                .map((it) => `- ${it.quantity} ${it.title}: ${it.price} €`)
+                .join('\n')}`,
+              attachments: [],
+              lastModified: formatNow(),
+              changeReason: 'Kassenbon gescannt & abgeglichen',
+              source: 'Beleg-Scanner',
+              aiTouched: true,
+              customMeta: { totalAmount, storeName, purchaseDate }
+            };
+
+            return {
+              ...p,
+              cart: [...newCartItems, ...updatedCart],
+              infos: [receiptInfo, ...p.infos]
+            };
+          });
+          notify(`Kassenbon (${totalAmount} €) verbucht & Einkaufswagen abgeglichen!`);
+        }}
+        onReplaceFullStateFromCloud={(newState) => {
+          setState(newState);
+          notify('Datenstand aus der Cloud übernommen.');
+        }}
+        onNotify={notify}
       />
 
       <RealityCheckModal open={realityModalOpen} onClose={() => setRealityModalOpen(false)} />

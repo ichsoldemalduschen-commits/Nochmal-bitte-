@@ -1,6 +1,9 @@
 import React, { useMemo, useRef, useState } from 'react';
 import {
   BookOpen,
+  Volume2,
+  Scale,
+  Calendar,
   Check,
   CheckSquare,
   ChevronDown,
@@ -36,6 +39,8 @@ import {
   THEME
 } from '../types';
 import { ProjectAvatar } from '../components/RaccoonAvatar';
+import { StepByStepAudioGuide } from '../components/StepByStepAudioGuide';
+import { buildGoogleCalendarTemplateUrl } from '../services/cloudSyncAndPush';
 import { ProcurementCheckPanel } from '../plugins/procurementCheck';
 import { PLUGIN_REGISTRY } from '../plugins/registry';
 import {
@@ -58,6 +63,7 @@ interface FrontWorkspaceProps {
   onOpenNewProjectModal: () => void;
   onUploadProjectLogo: (projectId: string, file: File) => void;
   onResetProjectLogo: (projectId: string) => void;
+  onOpenDeepResearchModal?: () => void;
   onConfirmRedDot: (
     projectId: string,
     section: 'tasks' | 'explanations' | 'infos' | 'cart',
@@ -104,6 +110,7 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
   onOpenNewProjectModal,
   onUploadProjectLogo,
   onResetProjectLogo,
+  onOpenDeepResearchModal,
   onConfirmRedDot,
   onResetChecklist,
   onResetChecklistForDeployment,
@@ -126,6 +133,7 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
 }) => {
   const [prefs, setPrefs] = useState<BanditUserPreferences>(loadUserPrefs);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [activeAudioGuideExp, setActiveAudioGuideExp] = useState<any | null>(null);
   const [viewAllSections, setViewAllSections] = useState(true);
   const [singleFocusActive, setSingleFocusActive] = useState(false);
   const [globalCartMode, setGlobalCartMode] = useState(false);
@@ -675,6 +683,18 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
               type="button"
               onClick={() => {
                 setDrawerOpen(false);
+                onOpenDeepResearchModal?.();
+              }}
+              className="w-full py-2 px-3 rounded-xl text-xs font-semibold bg-[#24292E] text-white border border-white/10 flex items-center gap-2 hover:bg-[#2A3036]"
+            >
+              <Scale className="w-4 h-4 text-[#14B8A6]" />
+              <span>Deep Research, Scanner &amp; Cloud</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setDrawerOpen(false);
                 onOpenAddonsBackoffice();
               }}
               className="w-full py-2.5 px-3 rounded-xl text-xs font-bold text-white flex items-center gap-2"
@@ -1020,6 +1040,19 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
                         <button
                           type="button"
                           onClick={() => {
+                            window.open(
+                              buildGoogleCalendarTemplateUrl(task, activeProject.name),
+                              '_blank'
+                            );
+                          }}
+                          className="p-1.5 rounded-lg bg-[#181A1B] text-[#9CA3AF] hover:text-[#14B8A6] border border-white/10"
+                          title="In Google Kalender eintragen"
+                        >
+                          <Calendar className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
                             if (onSendTaskToCart)
                               onSendTaskToCart(activeProject.id, task.title);
                             else
@@ -1299,6 +1332,18 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
+                              setActiveAudioGuideExp(exp);
+                            }}
+                            className="px-2 py-1 rounded-lg bg-[#181A1B] text-[#14B8A6] hover:text-white text-[10px] font-bold flex items-center gap-1 border border-[#14B8A6]/30"
+                            title="Freihändig vorlesen"
+                          >
+                            <Volume2 className="w-3 h-3" />
+                            <span>Vorlesen</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
                               setEditingExpId(exp.id);
                               setEditExpTitle(exp.title);
                               setEditExpSteps(exp.stepsText);
@@ -1517,6 +1562,13 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
             </section>
           )}
         </div>
+      )}
+          {activeAudioGuideExp && (
+        <StepByStepAudioGuide
+          explanation={activeAudioGuideExp}
+          accentColor={themeColors.primary}
+          onClose={() => setActiveAudioGuideExp(null)}
+        />
       )}
     </div>
   );
