@@ -971,8 +971,8 @@ export default function App() {
       <div className="fixed bottom-3 inset-x-0 z-40 pointer-events-none">
         <div className="max-w-md mx-auto px-3">
           <div
-            className="pointer-events-auto rounded-2xl border border-white/15 p-2 shadow-2xl flex items-center gap-2"
-            style={{ backgroundColor: '#1E2226' }}
+            className="pointer-events-auto rounded-3xl border border-white/10 p-2 shadow-2xl flex items-center gap-2"
+            style={{ backgroundColor: '#1C2026' }}
           >
             <button
               type="button"
@@ -980,7 +980,7 @@ export default function App() {
                 setAutoStartMicOnOpen(false);
                 setVoiceModalOpen(true);
               }}
-              className="flex-1 px-3 py-2.5 rounded-xl bg-[#181A1B] text-left text-xs text-[#9CA3AF] hover:text-white border border-white/10 flex items-center gap-2 truncate"
+              className="flex-1 min-h-[48px] px-4 py-2.5 rounded-2xl bg-[#242930] hover:bg-[#2A3038] text-left text-xs font-medium text-[#9CA3AF] hover:text-white border border-white/5 flex items-center gap-2.5 truncate active:scale-[0.99] transition"
             >
               <MessageSquare
                 className="w-4 h-4 shrink-0"
@@ -994,7 +994,7 @@ export default function App() {
               onClick={() => setDeepResearchModalOpen(true)}
               aria-label="Deep Research &amp; Cloud"
               title="Deep Research, Scanner &amp; Cloud"
-              className="p-2.5 rounded-xl bg-[#181A1B] text-[#14B8A6] hover:text-white border border-white/10 flex items-center justify-center shrink-0 active:scale-95 transition"
+              className="w-12 h-12 rounded-2xl bg-[#242930] hover:bg-[#2A3038] text-[#14B8A6] hover:text-white border border-white/5 flex items-center justify-center shrink-0 active:scale-95 transition"
             >
               <Scale className="w-4 h-4" />
             </button>
@@ -1006,7 +1006,7 @@ export default function App() {
                 setVoiceModalOpen(true);
               }}
               aria-label="Sofort sprechen"
-              className="px-4 py-2.5 rounded-xl text-white font-bold text-xs flex items-center gap-2 shrink-0 active:scale-95 transition"
+              className="min-h-[48px] px-5 py-2.5 rounded-2xl text-white font-bold text-xs flex items-center gap-2 shrink-0 active:scale-95 transition shadow-lg"
               style={{
                 backgroundColor: activeVisualTheme.primary,
                 boxShadow: `0 6px 20px ${activeVisualTheme.glow}`

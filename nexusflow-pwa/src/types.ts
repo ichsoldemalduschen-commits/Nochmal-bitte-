@@ -5,9 +5,9 @@ export type ProjectTabId = 'tasks' | 'explanations' | 'infos' | 'cart' | 'extras
 export type BackofficeTabId = 'analytics' | 'planner' | 'addons' | 'system';
 
 export const THEME = {
-  bgMain: '#181A1B',
-  bgCard: '#24292E',
-  bgSub: '#2F363D',
+  bgMain: '#121417',
+  bgCard: '#1C2026',
+  bgSub: '#242930',
   accentPrimary: '#0A9396',
   accentHighlight: '#14B8A6',
   textMain: '#F8F9FA',

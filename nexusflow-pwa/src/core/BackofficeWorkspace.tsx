@@ -208,43 +208,43 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
   );
 
   return (
-    <div className="max-w-lg mx-auto space-y-2.5 pb-12">
+    <div className="max-w-lg mx-auto space-y-3.5 pb-24">
       <div
-        className="p-3.5 rounded-2xl border border-white/15 flex items-center justify-between"
-        style={{ backgroundColor: THEME.bgCard }}
+        className="p-4 rounded-3xl border border-white/5 flex items-center justify-between shadow-lg"
+        style={{ backgroundColor: '#1C2026' }}
       >
         <div>
-          <h2 className="text-xs font-extrabold uppercase tracking-wider text-white">
+          <h2 className="text-sm font-extrabold uppercase tracking-wider text-white">
             BANDIT.OS System &amp; Einstellungen
           </h2>
-          <p className="text-[11px] text-[#9CA3AF]">
+          <p className="text-xs text-[#9CA3AF]">
             ADHS-Fokus, Personalisierung, Vorlagen &amp; KI
           </p>
         </div>
         <button
           onClick={onCloseBackoffice}
-          className="px-3 py-2 rounded-xl text-xs font-bold text-white flex items-center gap-1.5"
+          className="min-h-[44px] px-4 py-2 rounded-2xl text-xs font-bold text-white flex items-center gap-2 active:scale-95 transition shadow-sm"
           style={{ backgroundColor: THEME.accentPrimary }}
         >
-          <ArrowLeft className="w-3.5 h-3.5" />
+          <ArrowLeft className="w-4 h-4" />
           <span>Zurück</span>
         </button>
       </div>
 
       {/* AKKORDEON 1: ADHS- & FOKUS-UNTERSTÜTZUNG (EIN-/AUSSCHALTBAR) */}
       <div
-        className="rounded-2xl border border-white/10 overflow-hidden"
-        style={{ backgroundColor: THEME.bgCard }}
+        className="rounded-3xl border border-white/5 overflow-hidden shadow-md"
+        style={{ backgroundColor: '#1C2026' }}
       >
         <button
           type="button"
           onClick={() => toggleSection('adhd')}
-          className="w-full p-3.5 flex items-center justify-between text-left"
+          className="w-full min-h-[56px] p-4 flex items-center justify-between text-left active:bg-white/5 transition"
         >
           <div className="flex items-center gap-3">
-            <Brain className="w-4 h-4 text-[#14B8A6]" />
+            <Brain className="w-5 h-5 text-[#14B8A6]" />
             <div>
-              <div className="text-xs font-bold text-white flex items-center gap-2">
+              <div className="text-sm font-bold text-white flex items-center gap-2">
                 <span>ADHS- &amp; Fokus-Unterstützung</span>
                 <span
                   className={`text-[10px] px-2 py-0.5 rounded-full ${
@@ -256,7 +256,7 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
                   {prefs.adhdMasterEnabled ? 'Aktiv' : 'Aus'}
                 </span>
               </div>
-              <div className="text-[11px] text-[#9CA3AF]">
+              <div className="text-xs text-[#9CA3AF]">
                 Roter-Faden-Anker, 1-Fokus-Blende, 2-Minuten-Starthilfe &amp; Zeitpuffer
               </div>
             </div>
@@ -269,21 +269,21 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
         </button>
 
         {openSection === 'adhd' && (
-          <div className="px-4 pb-4 pt-2 border-t border-white/10 space-y-2.5 bg-[#181A1B]/50">
+          <div className="px-4 pb-4 pt-2 border-t border-white/5 space-y-3 bg-[#1C2026]/70">
             {/* Hauptschalter */}
-            <div className="p-2.5 rounded-xl bg-[#24292E] border border-white/10 flex items-center justify-between">
+            <div className="p-3.5 rounded-2xl bg-[#242930] border border-white/5 flex items-center justify-between">
               <div>
-                <div className="text-xs font-bold text-white">
+                <div className="text-sm font-bold text-white">
                   ADHS-Unterstützung insgesamt
                 </div>
-                <div className="text-[10px] text-[#9CA3AF]">
+                <div className="text-xs text-[#9CA3AF]">
                   Hauptschalter für alle 4 Hintergrund-Helfer
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => updatePrefs({ adhdMasterEnabled: !prefs.adhdMasterEnabled })}
-                className="px-3 py-1.5 rounded-lg text-xs font-bold text-white"
+                className="min-h-[44px] px-4 py-2 rounded-xl text-xs font-bold text-white active:scale-95 transition"
                 style={{
                   backgroundColor: prefs.adhdMasterEnabled ? THEME.accentPrimary : '#374151'
                 }}
@@ -318,16 +318,16 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
                 ].map((item) => (
                   <div
                     key={item.key}
-                    className="p-2.5 rounded-xl bg-[#24292E]/70 border border-white/5 flex items-center justify-between gap-2"
+                    className="p-3 rounded-2xl bg-[#242930] border border-white/5 flex items-center justify-between gap-3"
                   >
                     <div>
                       <div className="text-xs font-semibold text-white">{item.title}</div>
-                      <div className="text-[10px] text-[#9CA3AF]">{item.desc}</div>
+                      <div className="text-[11px] text-[#9CA3AF]">{item.desc}</div>
                     </div>
                     <button
                       type="button"
                       onClick={() => updatePrefs({ [item.key]: !prefs[item.key] })}
-                      className="px-2.5 py-1 rounded-lg text-[10px] font-bold text-white shrink-0"
+                      className="min-h-[44px] px-3.5 py-1.5 rounded-xl text-xs font-bold text-white shrink-0 active:scale-95 transition"
                       style={{
                         backgroundColor: prefs[item.key] ? THEME.accentPrimary : '#374151'
                       }}
