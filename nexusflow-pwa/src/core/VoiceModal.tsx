@@ -3,14 +3,17 @@ import {
   ArrowUpRight,
   ChevronDown,
   Loader2,
+  Maximize2,
   Mic,
   MicOff,
+  Minimize2,
   Paperclip,
   Send,
   Trash2,
   Undo2,
   Volume2,
   VolumeX,
+  X,
   Zap
 } from 'lucide-react';
 import { AiExecutedAction, AiLogEntry, Attachment, Project, THEME } from '../types';
@@ -128,6 +131,9 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
   const [remainingMs, setRemainingMs] = useState<number>(SILENCE_AUTO_SEND_MS);
   const [ttsActive, setTtsActive] = useState<boolean>(getTtsEnabled);
 
+  const [isMinimized, setIsMinimized] = useState(false);
+  const headerTouchYRef = useRef<number | null>(null);
+
   const prefs = loadUserPrefs();
   const recognitionRef = useRef<any>(null);
   const transcriptRef = useRef('');
@@ -222,6 +228,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
 
   useEffect(() => {
     if (open) {
+      setIsMinimized(false);
       setRemainingMs(SILENCE_AUTO_SEND_MS);
       autoSendTriggeredRef.current = false;
       if (autoStartMic) {
@@ -342,81 +349,269 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
   const progressPercent = Math.min(100, Math.max(0, (remainingMs / SILENCE_AUTO_SEND_MS) * 100));
   const activeProjects = projects.filter((p) => !p.archived);
 
-  return (
-    <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex flex-col justify-end transition-opacity duration-300">
-      <div className="flex-1" onClick={onClose} />
-
-      <div
-        className="w-full max-w-lg mx-auto h-[85vh] rounded-t-3xl border-t border-white/15 shadow-2xl flex flex-col overflow-hidden transition-transform duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]"
-        style={{ backgroundColor: THEME.bgMain }}
-      >
-        {/* Schubladen-Kopfzeile */}
-        <div
-          className="px-4 py-3 border-b border-white/10 flex items-center justify-between shrink-0"
-          style={{ backgroundColor: THEME.bgCard }}
-        >
-          <div className="flex items-center gap-2.5 min-w-0">
-            <span
-              className={`w-2.5 h-2.5 rounded-full shrink-0 ${
-                isListening ? 'bg-red-500 animate-ping' : 'bg-[#14B8A6]'
-              }`}
-            />
-            <div className="min-w-0">
-              <div className="text-xs font-bold uppercase tracking-wider text-white truncate">
-                BANDIT.OS KI-Kontext &amp; Verlauf
+  if (isMinimized) {
+    return (
+      <div className="fixed bottom-3 inset-x-0 z-50 pointer-events-none">
+        <div className="w-full max-w-[440px] mx-auto px-3">
+          <div className="pointer-events-auto rounded-3xl border border-white/15 p-2.5 shadow-2xl space-y-2 bg-[#1C2026] transition-all duration-300">
+            {/* Grab handle & Header: Tap to pull back up */}
+            <div
+              onClick={() => setIsMinimized(false)}
+              className="flex items-center justify-between cursor-pointer px-1.5 select-none"
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                <span
+                  className={`w-2.5 h-2.5 rounded-full shrink-0 ${
+                    isListening ? 'bg-red-500 animate-ping' : isProcessing ? 'bg-amber-400 animate-pulse' : 'bg-[#14B8A6]'
+                  }`}
+                />
+                <span className="text-xs font-bold text-white truncate">
+                  {isListening
+                    ? `Höre zu... (${countdownSeconds}s)`
+                    : isProcessing
+                    ? 'KI verarbeitet...'
+                    : activeProjectName}
+                </span>
               </div>
-              <div className="text-[10px] text-[#9CA3AF] truncate">
-                Aktiver Fokus: {activeProjectName}
+
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsMinimized(false);
+                  }}
+                  className="w-11 h-11 min-w-[44px] min-h-[44px] rounded-xl bg-[#242930] hover:bg-[#2A3038] text-white border border-white/5 flex items-center justify-center active:scale-95 transition"
+                  title="Vergrößern / Hochziehen"
+                  aria-label="Vergrößern"
+                >
+                  <Maximize2 className="w-4 h-4 text-[#14B8A6]" />
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    stopMicrophone();
+                    onClose();
+                  }}
+                  className="w-11 h-11 min-w-[44px] min-h-[44px] rounded-xl bg-[#242930] hover:bg-[#2A3038] text-[#9CA3AF] hover:text-white border border-white/5 flex items-center justify-center active:scale-95 transition"
+                  title="Schließen"
+                  aria-label="Schließen"
+                >
+                  <X className="w-4 h-4" />
+                </button>
               </div>
             </div>
-          </div>
 
-          <div className="flex items-center gap-1.5 shrink-0">
-            <button
-              type="button"
-              onClick={() => {
-                const next = !ttsActive;
-                setTtsActive(next);
-                setTtsEnabled(next);
-                if (!next && typeof window !== 'undefined' && 'speechSynthesis' in window) {
-                  window.speechSynthesis.cancel();
+            {/* Letzte Antwort / Nachricht Preview */}
+            {messages.length > 0 && !isListening && (
+              <div
+                onClick={() => setIsMinimized(false)}
+                className="px-3 py-1.5 rounded-xl bg-[#242930] text-xs text-[#F8F9FA]/90 truncate cursor-pointer hover:bg-[#2A3038] transition"
+              >
+                <span className="font-semibold text-[#14B8A6] mr-1.5">
+                  {messages[messages.length - 1].role === 'user' ? 'Du:' : 'KI:'}
+                </span>
+                {messages[messages.length - 1].text}
+              </div>
+            )}
+
+            {/* Kompakte Einhand-Eingabezeile */}
+            <div className="flex items-center gap-2">
+              <label
+                className="w-11 h-11 min-w-[44px] min-h-[44px] rounded-xl bg-[#242930] border border-white/10 text-[#9CA3AF] hover:text-white cursor-pointer shrink-0 flex items-center justify-center active:scale-95 transition"
+                title="Foto oder Datei anhängen"
+              >
+                <Paperclip className="w-4 h-4" />
+                <input type="file" className="hidden" onChange={handleFileUpload} />
+              </label>
+
+              <input
+                type="text"
+                value={transcript}
+                onChange={(e) => {
+                  setTranscript(e.target.value);
+                  transcriptRef.current = e.target.value;
+                  lastSpeechTimestampRef.current = Date.now();
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && transcript.trim()) {
+                    autoSendTriggeredRef.current = true;
+                    void triggerProcess(transcript);
+                  }
+                }}
+                placeholder={
+                  isListening
+                    ? 'Höre zu...'
+                    : 'Tippen oder sprechen...'
                 }
-              }}
-              className={`px-2.5 py-1.5 rounded-lg text-[10px] font-bold border flex items-center gap-1 ${
-                ttsActive
-                  ? 'bg-[#0A9396]/25 border-[#14B8A6] text-white'
-                  : 'bg-[#181A1B] border-white/10 text-[#9CA3AF]'
-              }`}
-            >
-              {ttsActive ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
-              <span>{ttsActive ? 'Stimme An' : 'Stumm'}</span>
-            </button>
+                className="flex-1 min-h-[44px] px-3.5 py-2.5 rounded-2xl text-xs bg-[#181A1B] text-white border border-white/15 focus:outline-none focus:border-[#14B8A6]"
+              />
 
-            {messages.length > 0 && (
+              {hasSpokenText && (
+                <button
+                  type="button"
+                  disabled={isProcessing}
+                  onClick={() => {
+                    autoSendTriggeredRef.current = true;
+                    void triggerProcess(transcript);
+                  }}
+                  className="w-11 h-11 min-w-[44px] min-h-[44px] rounded-xl text-white shrink-0 flex items-center justify-center active:scale-95 transition"
+                  style={{ backgroundColor: THEME.accentPrimary }}
+                  aria-label="Senden"
+                >
+                  <Send className="w-4 h-4" />
+                </button>
+              )}
+
+              <button
+                type="button"
+                disabled={isProcessing}
+                onClick={() => {
+                  if (isListening && hasSpokenText) {
+                    autoSendTriggeredRef.current = true;
+                    void triggerProcess(transcript);
+                  } else if (isListening) {
+                    stopMicrophone();
+                  } else {
+                    startMicrophoneImmediately();
+                  }
+                }}
+                className="w-11 h-11 min-w-[44px] min-h-[44px] rounded-2xl flex items-center justify-center text-white shrink-0 active:scale-90 transition"
+                style={{
+                  backgroundColor: isProcessing
+                    ? '#2F363D'
+                    : isListening
+                    ? '#EF4444'
+                    : THEME.accentPrimary
+                }}
+                aria-label="Mikrofon umschalten"
+              >
+                {isProcessing ? (
+                  <Loader2 className="w-5 h-5 animate-spin text-[#14B8A6]" />
+                ) : isListening ? (
+                  <Mic className="w-5 h-5 animate-pulse" />
+                ) : (
+                  <MicOff className="w-5 h-5" />
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex flex-col justify-end transition-opacity duration-300">
+      <div className="flex-1" onClick={() => setIsMinimized(true)} />
+
+      <div
+        className="w-full max-w-[440px] mx-auto h-[85vh] rounded-t-3xl border-t border-white/15 shadow-2xl flex flex-col overflow-hidden transition-transform duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]"
+        style={{ backgroundColor: THEME.bgMain }}
+      >
+        {/* Schubladen-Kopfzeile mit Swipe-Down Handler & Drag Pill */}
+        <div
+          onTouchStart={(e) => {
+            headerTouchYRef.current = e.touches[0].clientY;
+          }}
+          onTouchEnd={(e) => {
+            if (headerTouchYRef.current !== null) {
+              const deltaY = e.changedTouches[0].clientY - headerTouchYRef.current;
+              if (deltaY > 50) {
+                setIsMinimized(true);
+              }
+            }
+            headerTouchYRef.current = null;
+          }}
+          className="px-4 pt-2 pb-3 border-b border-white/10 shrink-0 select-none"
+          style={{ backgroundColor: THEME.bgCard }}
+        >
+          {/* Drag Pill */}
+          <div
+            onClick={() => setIsMinimized(true)}
+            className="w-12 h-1 rounded-full bg-white/25 mx-auto mb-2 cursor-pointer hover:bg-white/40 transition"
+            title="Nach unten wischen oder klicken zum Minimieren"
+          />
+
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <span
+                className={`w-2.5 h-2.5 rounded-full shrink-0 ${
+                  isListening ? 'bg-red-500 animate-ping' : 'bg-[#14B8A6]'
+                }`}
+              />
+              <div className="min-w-0">
+                <div className="text-xs font-bold uppercase tracking-wider text-white truncate">
+                  KI-Kontext &amp; Dialog
+                </div>
+                <div className="text-xs text-[#9CA3AF] truncate">
+                  Fokus: {activeProjectName}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5 shrink-0">
               <button
                 type="button"
                 onClick={() => {
-                  setMessages([]);
-                  saveIdbItem(STORAGE_KEYS.AI_CHAT, []);
+                  const next = !ttsActive;
+                  setTtsActive(next);
+                  setTtsEnabled(next);
+                  if (!next && typeof window !== 'undefined' && 'speechSynthesis' in window) {
+                    window.speechSynthesis.cancel();
+                  }
                 }}
-                className="p-1.5 rounded-lg bg-[#181A1B] text-[#9CA3AF] hover:text-white border border-white/10"
-                title="Verlauf leeren"
+                className={`min-h-[44px] px-2.5 py-1.5 rounded-xl text-xs font-bold border flex items-center gap-1 active:scale-95 transition ${
+                  ttsActive
+                    ? 'bg-[#0A9396]/25 border-[#14B8A6] text-white'
+                    : 'bg-[#181A1B] border-white/10 text-[#9CA3AF]'
+                }`}
               >
-                <Trash2 className="w-3.5 h-3.5" />
+                {ttsActive ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
+                <span className="hidden sm:inline">{ttsActive ? 'Stimme An' : 'Stumm'}</span>
               </button>
-            )}
 
-            <button
-              type="button"
-              onClick={() => {
-                stopMicrophone();
-                onClose();
-              }}
-              className="px-2.5 py-1.5 rounded-lg bg-[#181A1B] text-xs font-bold text-[#9CA3AF] hover:text-white border border-white/10 flex items-center gap-1"
-            >
-              <ChevronDown className="w-4 h-4" />
-              <span>Schließen</span>
-            </button>
+              {messages.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMessages([]);
+                    saveIdbItem(STORAGE_KEYS.AI_CHAT, []);
+                  }}
+                  className="min-w-[44px] min-h-[44px] rounded-xl bg-[#181A1B] text-[#9CA3AF] hover:text-white border border-white/10 flex items-center justify-center active:scale-95 transition"
+                  title="Verlauf leeren"
+                  aria-label="Verlauf leeren"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              )}
+
+              {/* Minimieren-Button */}
+              <button
+                type="button"
+                onClick={() => setIsMinimized(true)}
+                className="min-w-[44px] min-h-[44px] rounded-xl bg-[#181A1B] text-xs font-bold text-[#9CA3AF] hover:text-white border border-white/10 flex items-center justify-center active:scale-95 transition"
+                title="Minimieren"
+                aria-label="Minimieren"
+              >
+                <Minimize2 className="w-4 h-4" />
+              </button>
+
+              {/* Schließen-Button */}
+              <button
+                type="button"
+                onClick={() => {
+                  stopMicrophone();
+                  onClose();
+                }}
+                className="min-w-[44px] min-h-[44px] rounded-xl bg-[#181A1B] text-xs font-bold text-[#9CA3AF] hover:text-white border border-white/10 flex items-center justify-center active:scale-95 transition"
+                title="Schließen"
+                aria-label="Schließen"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
           </div>
         </div>
 
@@ -432,9 +627,9 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                   autoSendTriggeredRef.current = true;
                   void triggerProcess(cmd);
                 }}
-                className="px-2.5 py-1 rounded-full bg-[#24292E] hover:bg-[#0A9396]/30 border border-white/10 text-[10px] font-semibold text-[#F8F9FA] shrink-0 flex items-center gap-1 transition"
+                className="min-h-[44px] px-3.5 py-1.5 rounded-full bg-[#24292E] hover:bg-[#0A9396]/30 border border-white/10 text-xs font-semibold text-[#F8F9FA] shrink-0 flex items-center gap-1.5 transition active:scale-95"
               >
-                <Zap className="w-3 h-3 text-[#14B8A6]" />
+                <Zap className="w-3.5 h-3.5 text-[#14B8A6]" />
                 <span>{cmd}</span>
               </button>
             ))}
@@ -445,10 +640,10 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
           {messages.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-center px-6 space-y-2 text-[#9CA3AF]">
-              <p className="text-xs font-semibold text-white">
-                BANDIT.OS Sprach- &amp; Projekt-Agent bereit
+              <p className="text-sm font-semibold text-white">
+                KI Sprach- &amp; Projekt-Agent bereit
               </p>
-              <p className="text-[11px] leading-relaxed">
+              <p className="text-xs leading-relaxed">
                 Sprich Aufgaben, Einkäufe, Baugruppen oder Fragen frei ein. Jede Aktion wird hier im
                 Verlauf als überprüfbare Karte dokumentiert.
               </p>
@@ -462,27 +657,27 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                 }`}
               >
                 <div
-                  className={`max-w-[90%] rounded-2xl p-3 text-xs leading-relaxed transition-all duration-300 ${
+                  className={`max-w-[90%] rounded-2xl p-3.5 text-xs leading-relaxed transition-all duration-300 ${
                     msg.role === 'user'
                       ? 'bg-[#0A9396] text-white rounded-br-sm'
                       : 'bg-[#24292E] text-[#F8F9FA] border border-white/10 rounded-bl-sm'
                   }`}
                 >
-                  <div className="flex items-center justify-between gap-3 mb-1 text-[10px] opacity-70">
-                    <span>{msg.role === 'user' ? 'Eingabe' : msg.engine || 'BANDIT.OS'}</span>
+                  <div className="flex items-center justify-between gap-3 mb-1 text-xs opacity-70">
+                    <span>{msg.role === 'user' ? 'Eingabe' : msg.engine || 'KI-Agent'}</span>
                     <span>{msg.timestamp}</span>
                   </div>
                   <p className="whitespace-pre-wrap">{msg.text}</p>
 
                   {msg.actions && msg.actions.length > 0 && (
                     <div className="mt-2.5 pt-2.5 border-t border-white/10 space-y-1.5">
-                      <div className="text-[10px] font-bold uppercase tracking-wider text-[#14B8A6]">
+                      <div className="text-xs font-bold uppercase tracking-wider text-[#14B8A6]">
                         Ausgeführte Zuordnungen ({msg.actions.length}):
                       </div>
                       {msg.actions.map((act) => (
                         <div
                           key={act.actionId}
-                          className={`p-2 rounded-xl bg-[#181A1B] border border-white/10 space-y-1.5 ${
+                          className={`p-2.5 rounded-xl bg-[#181A1B] border border-white/10 space-y-1.5 ${
                             act.undone ? 'opacity-40' : ''
                           }`}
                         >
@@ -500,7 +695,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                               <span className="truncate">{act.shortCheckableTitle}</span>
                               <ArrowUpRight className="w-3.5 h-3.5 shrink-0" />
                             </button>
-                            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-white/5 text-[#9CA3AF] shrink-0">
+                            <span className="text-xs font-mono px-2 py-0.5 rounded bg-white/5 text-[#9CA3AF] shrink-0">
                               {act.targetProjectName} / {act.targetSubTab}
                             </span>
                           </div>
@@ -513,7 +708,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                                   onChange={(e) =>
                                     onMoveAiAction(msg.logId!, act.actionId, e.target.value)
                                   }
-                                  className="px-2 py-1 rounded text-[10px] bg-[#24292E] text-white border border-white/10 flex-1"
+                                  className="min-h-[44px] px-2.5 py-1.5 rounded-xl text-xs bg-[#24292E] text-white border border-white/10 flex-1"
                                 >
                                   {activeProjects.map((p) => (
                                     <option key={p.id} value={p.id}>
@@ -542,9 +737,9 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                                       )
                                     );
                                   }}
-                                  className="px-2 py-1 rounded text-[10px] bg-red-500/15 text-red-300 border border-red-500/30 flex items-center gap-1"
+                                  className="min-h-[44px] px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-red-500/15 text-red-300 border border-red-500/30 flex items-center gap-1.5 active:scale-95 transition"
                                 >
-                                  <Undo2 className="w-3 h-3" />
+                                  <Undo2 className="w-3.5 h-3.5" />
                                   <span>Rückgängig</span>
                                 </button>
                               )}
@@ -560,7 +755,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                       <button
                         type="button"
                         onClick={() => onSaveAnswerToInfos('KI-Notiz', msg.text, null)}
-                        className="text-[10px] font-semibold text-[#14B8A6] hover:underline"
+                        className="min-h-[44px] px-3 py-1.5 text-xs font-semibold text-[#14B8A6] hover:underline flex items-center"
                       >
                         Als Projekt-Info sichern
                       </button>
@@ -573,18 +768,18 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
           <div ref={scrollEndRef} />
         </div>
 
-        {/* Untere Eingabeleiste mit organischem Liquid-Orb Mikrofon */}
+        {/* Untere Eingabeleiste - für flüssige Einhand-Eingaben optimiert */}
         <div
           className="p-3.5 border-t border-white/10 space-y-2.5 shrink-0"
           style={{ backgroundColor: THEME.bgCard }}
         >
           {isListening && hasSpokenText && !isProcessing && (
             <div className="space-y-1">
-              <div className="flex justify-between text-[10px] text-[#9CA3AF]">
+              <div className="flex justify-between text-xs text-[#9CA3AF]">
                 <span>Automatischer Versand nach Denkpause</span>
-                <span className="font-mono text-[#14B8A6]">{countdownSeconds}s</span>
+                <span className="font-mono text-[#14B8A6] font-bold">{countdownSeconds}s</span>
               </div>
-              <div className="w-full h-1 bg-[#181A1B] rounded-full overflow-hidden">
+              <div className="w-full h-1.5 bg-[#181A1B] rounded-full overflow-hidden">
                 <div
                   className="h-full transition-all duration-150 rounded-full"
                   style={{
@@ -597,12 +792,12 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
           )}
 
           {speechNotice && (
-            <div className="text-[11px] text-amber-300 px-2">{speechNotice}</div>
+            <div className="text-xs text-amber-300 px-2">{speechNotice}</div>
           )}
 
           <div className="flex items-center gap-2">
             <label
-              className="p-2.5 rounded-xl bg-[#181A1B] border border-white/10 text-[#9CA3AF] hover:text-white cursor-pointer shrink-0"
+              className="w-11 h-11 min-w-[44px] min-h-[44px] rounded-2xl bg-[#181A1B] border border-white/10 text-[#9CA3AF] hover:text-white cursor-pointer shrink-0 flex items-center justify-center active:scale-95 transition"
               title="Foto (wird automatisch komprimiert) oder Datei anhängen"
             >
               <Paperclip className="w-4 h-4" />
@@ -628,7 +823,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                   ? 'Höre zu – einfach sprechen...'
                   : 'Sprechen oder direkt tippen...'
               }
-              className="flex-1 px-3.5 py-2.5 rounded-xl text-xs bg-[#181A1B] text-white border border-white/15 focus:outline-none focus:border-[#14B8A6]"
+              className="flex-1 min-h-[44px] px-4 py-2.5 rounded-2xl text-xs bg-[#181A1B] text-white border border-white/15 focus:outline-none focus:border-[#14B8A6] transition"
             />
 
             {hasSpokenText && (
@@ -639,8 +834,9 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                   autoSendTriggeredRef.current = true;
                   void triggerProcess(transcript);
                 }}
-                className="p-2.5 rounded-xl text-white shrink-0"
+                className="w-11 h-11 min-w-[44px] min-h-[44px] rounded-2xl text-white shrink-0 flex items-center justify-center active:scale-95 transition shadow-md"
                 style={{ backgroundColor: THEME.accentPrimary }}
+                aria-label="Senden"
               >
                 <Send className="w-4 h-4" />
               </button>
@@ -667,7 +863,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                     startMicrophoneImmediately();
                   }
                 }}
-                className="relative w-11 h-11 rounded-2xl flex items-center justify-center text-white transition-transform duration-300 active:scale-90"
+                className="relative w-11 h-11 min-w-[44px] min-h-[44px] rounded-2xl flex items-center justify-center text-white transition-transform duration-300 active:scale-90 shadow-md"
                 style={{
                   backgroundColor: isProcessing
                     ? '#2F363D'
@@ -675,6 +871,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                     ? '#EF4444'
                     : THEME.accentPrimary
                 }}
+                aria-label="Mikrofon umschalten"
               >
                 {isProcessing ? (
                   <Loader2 className="w-5 h-5 animate-spin text-[#14B8A6]" />

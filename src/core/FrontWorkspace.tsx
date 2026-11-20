@@ -464,7 +464,7 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
 
   return (
     <div
-      className="relative min-h-[75vh] space-y-3.5 pb-24"
+      className="relative min-h-[75vh] space-y-3.5 pb-32"
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
@@ -516,7 +516,7 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
                 />
               </div>
               <div className="min-w-0">
-                <div className="text-[10px] font-extrabold uppercase tracking-wider text-[#9CA3AF]">
+                <div className="text-xs font-extrabold uppercase tracking-wider text-[#9CA3AF]">
                   Aktiver Fokus-Anker (Gerade dran)
                 </div>
                 <div className="text-sm font-semibold text-white truncate">
@@ -959,12 +959,9 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
             </div>
 
             <div className="min-w-0 cursor-pointer" onClick={() => setDrawerOpen(true)}>
-              <div className="text-[10px] font-extrabold uppercase tracking-wider text-[#9CA3AF]">
-                BANDIT.OS • {currentSectionLabel}
-              </div>
-              <h2 className="text-base font-bold text-white truncate leading-tight">
+              <h1 className="text-lg font-extrabold text-white truncate leading-tight">
                 {activeProject.name}
-              </h2>
+              </h1>
             </div>
           </div>
 
@@ -1045,6 +1042,23 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
                 </div>
 
                 <div className="flex items-center gap-2">
+                  {/* Schlanker "+" Button für progressive disclosure */}
+                  <button
+                    type="button"
+                    onClick={() => setIsAddingTask((v) => !v)}
+                    className={`min-h-[44px] min-w-[44px] px-3.5 rounded-xl text-xs font-bold border flex items-center justify-center gap-1.5 transition active:scale-95 ${
+                      isAddingTask
+                        ? 'text-white border-white/30'
+                        : 'bg-[#242930] hover:bg-[#2A3038] text-white border-white/5'
+                    }`}
+                    style={isAddingTask ? { backgroundColor: themeColors.primary } : {}}
+                    aria-label="Aufgabe hinzufügen"
+                    title="Aufgabe hinzufügen"
+                  >
+                    <Plus className="w-4 h-4 text-[#14B8A6]" />
+                    <span className="hidden sm:inline">Aufgabe</span>
+                  </button>
+
                   {/* ADHS-FUNKTION: 1-FOKUS-BLENDE */}
                   {prefs.adhdMasterEnabled && prefs.adhdSingleTaskMode && (
                     <button
@@ -1084,58 +1098,8 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
                 </div>
               </div>
 
-              {/* Dynamische Baugruppen-/Phasen-Filter */}
-              {assemblyGroups.length > 0 && (
-                <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
-                  <button
-                    type="button"
-                    onClick={() => setSelectedAssemblyGroup('ALL')}
-                    className={`min-h-[38px] px-3.5 rounded-xl text-xs font-bold shrink-0 border transition active:scale-95 ${
-                      selectedAssemblyGroup === 'ALL'
-                        ? 'text-white border-white/20'
-                        : 'bg-[#242930] text-[#9CA3AF] border-white/5'
-                    }`}
-                    style={
-                      selectedAssemblyGroup === 'ALL'
-                        ? { backgroundColor: themeColors.primary }
-                        : {}
-                    }
-                  >
-                    Alle Baugruppen
-                  </button>
-                  {assemblyGroups.map((grp) => (
-                    <button
-                      type="button"
-                      key={grp}
-                      onClick={() => setSelectedAssemblyGroup(grp)}
-                      className={`min-h-[38px] px-3.5 rounded-xl text-xs font-bold shrink-0 border transition active:scale-95 ${
-                        selectedAssemblyGroup === grp
-                          ? 'text-white border-white/20'
-                          : 'bg-[#242930] text-[#9CA3AF] border-white/5'
-                      }`}
-                      style={
-                        selectedAssemblyGroup === grp
-                          ? { backgroundColor: themeColors.primary }
-                          : {}
-                      }
-                    >
-                      {grp}
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              {/* PROGRESSIVE DISCLOSURE: Eingabeformular für Tasks */}
-              {!isAddingTask ? (
-                <button
-                  type="button"
-                  onClick={() => setIsAddingTask(true)}
-                  className="w-full min-h-[48px] py-3 px-4 rounded-2xl bg-[#242930] hover:bg-[#2A3038] text-sm font-semibold text-white/90 border border-white/5 flex items-center justify-center gap-2 active:scale-[0.99] transition shadow-sm"
-                >
-                  <Plus className="w-4 h-4" style={{ color: themeColors.highlight }} />
-                  <span>Aufgabe hinzufügen</span>
-                </button>
-              ) : (
+              {/* PROGRESSIVE DISCLOSURE: Eingabeformular für Tasks (nur geöffnet bei Klick auf "+") */}
+              {isAddingTask && (
                 <form
                   onSubmit={(e) => {
                     e.preventDefault();
@@ -1259,14 +1223,14 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
 
                             <div className="flex items-center gap-2 mt-1 flex-wrap">
                               {task.aiTouched && (
-                                <span className="inline-flex items-center gap-1 text-[11px] font-bold text-red-300 bg-red-500/20 px-2 py-0.5 rounded-md border border-red-500/30">
+                                <span className="inline-flex items-center gap-1 text-xs font-bold text-red-300 bg-red-500/20 px-2 py-0.5 rounded-md border border-red-500/30">
                                   <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
                                   KI-Vorschlag
                                 </span>
                               )}
 
                               {displayGroup && (
-                                <span className="text-[11px] font-medium text-[#9CA3AF] px-2 py-0.5 rounded-md bg-[#1C2026]">
+                                <span className="text-xs font-medium text-[#9CA3AF] px-2 py-0.5 rounded-md bg-[#1C2026]">
                                   {displayGroup}
                                 </span>
                               )}
@@ -1274,7 +1238,7 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
                               {prefs.adhdMasterEnabled &&
                                 prefs.adhdTimeBufferAndHaptics &&
                                 task.estimatedMinutes && (
-                                  <span className="text-[11px] font-mono text-[#9CA3AF]">
+                                  <span className="text-xs font-mono text-[#9CA3AF]">
                                     {Math.round(task.estimatedMinutes * 1.25)} Min. (inkl. Puffer)
                                   </span>
                                 )}
@@ -1426,20 +1390,38 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
                   </span>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => setGlobalCartMode((g) => !g)}
-                  className={`min-h-[44px] px-3.5 rounded-xl text-xs font-bold border flex items-center gap-1.5 transition active:scale-95 ${
-                    globalCartMode
-                      ? 'text-white border-white/30 shadow-sm'
-                      : 'bg-[#242930] text-[#9CA3AF] border-white/5'
-                  }`}
-                  style={globalCartMode ? { backgroundColor: themeColors.primary } : {}}
-                  title="Projektübergreifenden Modus umschalten"
-                >
-                  <Layers className="w-3.5 h-3.5" />
-                  <span>{globalCartMode ? 'Alle Projekte' : 'Nur Projekt'}</span>
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsAddingCart((v) => !v)}
+                    className={`min-h-[44px] min-w-[44px] px-3.5 rounded-xl text-xs font-bold border flex items-center justify-center gap-1.5 transition active:scale-95 ${
+                      isAddingCart
+                        ? 'text-white border-white/30'
+                        : 'bg-[#242930] hover:bg-[#2A3038] text-white border-white/5'
+                    }`}
+                    style={isAddingCart ? { backgroundColor: themeColors.primary } : {}}
+                    aria-label="Artikel hinzufügen"
+                    title="Artikel hinzufügen"
+                  >
+                    <Plus className="w-4 h-4 text-[#14B8A6]" />
+                    <span className="hidden sm:inline">Artikel</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setGlobalCartMode((g) => !g)}
+                    className={`min-h-[44px] px-3.5 rounded-xl text-xs font-bold border flex items-center gap-1.5 transition active:scale-95 ${
+                      globalCartMode
+                        ? 'text-white border-white/30 shadow-sm'
+                        : 'bg-[#242930] text-[#9CA3AF] border-white/5'
+                    }`}
+                    style={globalCartMode ? { backgroundColor: themeColors.primary } : {}}
+                    title="Projektübergreifenden Modus umschalten"
+                  >
+                    <Layers className="w-3.5 h-3.5" />
+                    <span>{globalCartMode ? 'Alle Projekte' : 'Nur Projekt'}</span>
+                  </button>
+                </div>
               </div>
 
               {/* ANGEPINNTE FILTER-LEISTE MIT PROJEKT-CHIPS & KATEGORIE-FILTER */}
@@ -1526,16 +1508,7 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
               </div>
 
               {/* PROGRESSIVE DISCLOSURE: Eingabeformular für Einkaufswagen */}
-              {!isAddingCart ? (
-                <button
-                  type="button"
-                  onClick={() => setIsAddingCart(true)}
-                  className="w-full min-h-[48px] py-3 px-4 rounded-2xl bg-[#242930] hover:bg-[#2A3038] text-sm font-semibold text-white/90 border border-white/5 flex items-center justify-center gap-2 active:scale-[0.99] transition shadow-sm"
-                >
-                  <Plus className="w-4 h-4" style={{ color: themeColors.highlight }} />
-                  <span>Artikel hinzufügen</span>
-                </button>
-              ) : (
+              {isAddingCart && (
                 <form
                   onSubmit={(e) => {
                     e.preventDefault();
@@ -1684,13 +1657,13 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
                               )}
 
                               {globalCartMode && (
-                                <span className="text-[11px] px-2 py-0.5 rounded-md bg-[#1C2026] text-[#9CA3AF]">
+                                <span className="text-xs px-2 py-0.5 rounded-md bg-[#1C2026] text-[#9CA3AF]">
                                   {item.originProjectName}
                                 </span>
                               )}
 
                               {item.aiTouched && (
-                                <span className="inline-flex items-center gap-1 text-[11px] font-bold text-red-300 bg-red-500/20 px-2 py-0.5 rounded-md border border-red-500/30">
+                                <span className="inline-flex items-center gap-1 text-xs font-bold text-red-300 bg-red-500/20 px-2 py-0.5 rounded-md border border-red-500/30">
                                   <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
                                   KI-Artikel
                                 </span>
@@ -1805,6 +1778,22 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
                     {projectKnowledge.length} Einträge
                   </span>
                 </div>
+
+                <button
+                  type="button"
+                  onClick={() => setIsAddingKnowledge((v) => !v)}
+                  className={`min-h-[44px] min-w-[44px] px-3.5 rounded-xl text-xs font-bold border flex items-center justify-center gap-1.5 transition active:scale-95 ${
+                    isAddingKnowledge
+                      ? 'text-white border-white/30'
+                      : 'bg-[#242930] hover:bg-[#2A3038] text-white border-white/5'
+                  }`}
+                  style={isAddingKnowledge ? { backgroundColor: themeColors.primary } : {}}
+                  aria-label="Wissenseintrag hinzufügen"
+                  title="Wissenseintrag hinzufügen"
+                >
+                  <Plus className="w-4 h-4 text-[#14B8A6]" />
+                  <span className="hidden sm:inline">Eintrag</span>
+                </button>
               </div>
 
               {/* SCHNELLE FILTER-CHIPS: Alle / Abläufe / Infos */}
@@ -1849,16 +1838,7 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
               </div>
 
               {/* PROGRESSIVE DISCLOSURE: Eingabeformular für Wissen */}
-              {!isAddingKnowledge ? (
-                <button
-                  type="button"
-                  onClick={() => setIsAddingKnowledge(true)}
-                  className="w-full min-h-[48px] py-3 px-4 rounded-2xl bg-[#242930] hover:bg-[#2A3038] text-sm font-semibold text-white/90 border border-white/5 flex items-center justify-center gap-2 active:scale-[0.99] transition shadow-sm"
-                >
-                  <Plus className="w-4 h-4" style={{ color: themeColors.highlight }} />
-                  <span>Wissenseintrag hinzufügen</span>
-                </button>
-              ) : (
+              {isAddingKnowledge && (
                 <form
                   onSubmit={(e) => {
                     e.preventDefault();
@@ -1996,7 +1976,7 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2">
                               <span
-                                className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${
+                                className={`text-xs font-bold uppercase tracking-wider px-2 py-0.5 rounded ${
                                   item.kind === 'explanation'
                                     ? 'bg-[#14B8A6]/20 text-[#14B8A6]'
                                     : 'bg-indigo-500/20 text-indigo-300'

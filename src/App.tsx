@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, MessageSquare, Scale, Mic, Plus, X } from 'lucide-react';
+import { CheckCircle2, MessageSquare, Scale, Mic, Plus, X, Send } from 'lucide-react';
 import {
   AiExecutedAction,
   AiLogEntry,
@@ -95,6 +95,7 @@ export default function App() {
   const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
   const [photoPins, setPhotoPins] = useState<Record<string, PhotoMeasurePin[]>>({});
   const [newPinLabel, setNewPinLabel] = useState('');
+  const [bottomAiText, setBottomAiText] = useState('');
   const [toast, setToast] = useState<string | null>(null);
 
   const notify = (msg: string) => {
@@ -759,6 +760,18 @@ export default function App() {
     notify('Eintrag verschoben.');
   };
 
+  const handleBottomAiSubmit = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const val = bottomAiText.trim();
+    if (!val) {
+      setAutoStartMicOnOpen(false);
+      setVoiceModalOpen(true);
+      return;
+    }
+    setBottomAiText('');
+    await handleDistributeVoiceCommand(val, null);
+  };
+
   const handleJumpToAction = (act: AiExecutedAction) => {
     const targetProj = state.projects.find((p) => p.id === act.targetProjectId);
     if (!targetProj) return;
@@ -871,16 +884,17 @@ export default function App() {
   }
 
   return (
-    <div
-      className="min-h-screen flex flex-col"
-      style={{ backgroundColor: THEME.bgMain, color: THEME.textMain }}
-    >
+    <div className="min-h-screen bg-[#121417] flex justify-center">
       <div
-        className="h-1 w-full transition-colors duration-500"
-        style={{ backgroundColor: activeVisualTheme.primary }}
-      />
+        className="w-full max-w-[440px] min-h-screen flex flex-col relative sm:border-x sm:border-white/5 sm:shadow-2xl"
+        style={{ backgroundColor: THEME.bgMain, color: THEME.textMain }}
+      >
+        <div
+          className="h-1 w-full transition-colors duration-500"
+          style={{ backgroundColor: activeVisualTheme.primary }}
+        />
 
-      <main className="flex-1 w-full max-w-md mx-auto px-3 pt-3 pb-24">
+        <main className="flex-1 w-full px-3 pt-3 pb-32">
         {!isBackoffice ? (
           <FrontWorkspace
             activeDomain={activeDomain}
@@ -1133,34 +1147,30 @@ export default function App() {
         )}
       </main>
 
-      {/* UNTERE BANDIT.OS KI-KONTEXT-LEISTE */}
+      {/* UNTERE BANDIT.OS KI-FIRST-LEISTE */}
       <div className="fixed bottom-3 inset-x-0 z-40 pointer-events-none">
-        <div className="max-w-md mx-auto px-3">
-          <div
-            className="pointer-events-auto rounded-3xl border border-white/10 p-2 shadow-2xl flex items-center gap-2"
+        <div className="max-w-[440px] mx-auto px-3">
+          <form
+            onSubmit={handleBottomAiSubmit}
+            className="pointer-events-auto rounded-3xl border border-white/10 p-1.5 shadow-2xl flex items-center gap-1.5"
             style={{ backgroundColor: '#1C2026' }}
           >
-            <button
-              type="button"
-              onClick={() => {
-                setAutoStartMicOnOpen(false);
-                setVoiceModalOpen(true);
-              }}
-              className="flex-1 min-h-[48px] px-4 py-2.5 rounded-2xl bg-[#242930] hover:bg-[#2A3038] text-left text-xs font-medium text-[#9CA3AF] hover:text-white border border-white/5 flex items-center gap-2.5 truncate active:scale-[0.99] transition"
-            >
-              <MessageSquare
-                className="w-4 h-4 shrink-0"
-                style={{ color: activeVisualTheme.highlight }}
+            <div className="flex-1 relative flex items-center min-h-[44px]">
+              <input
+                type="text"
+                value={bottomAiText}
+                onChange={(e) => setBottomAiText(e.target.value)}
+                placeholder="Frag mich oder gib mir Aufgaben..."
+                className="w-full min-h-[44px] pl-3.5 pr-2 py-2 rounded-2xl bg-[#242930] text-xs text-white placeholder-[#9CA3AF] border border-white/5 focus:outline-none focus:border-[#14B8A6]/60 transition"
               />
-              <span className="truncate">BANDIT.OS KI-Kontext &amp; Verlauf...</span>
-            </button>
+            </div>
 
             <button
               type="button"
               onClick={() => setDeepResearchModalOpen(true)}
               aria-label="Deep Research &amp; Cloud"
               title="Deep Research, Scanner &amp; Cloud"
-              className="w-12 h-12 rounded-2xl bg-[#242930] hover:bg-[#2A3038] text-[#14B8A6] hover:text-white border border-white/5 flex items-center justify-center shrink-0 active:scale-95 transition"
+              className="min-h-[44px] min-w-[44px] w-11 h-11 rounded-2xl bg-[#242930] hover:bg-[#2A3038] text-[#14B8A6] hover:text-white border border-white/5 flex items-center justify-center shrink-0 active:scale-95 transition"
             >
               <Scale className="w-4 h-4" />
             </button>
@@ -1168,20 +1178,33 @@ export default function App() {
             <button
               type="button"
               onClick={() => {
-                setAutoStartMicOnOpen(true);
-                setVoiceModalOpen(true);
+                if (bottomAiText.trim()) {
+                  handleBottomAiSubmit();
+                } else {
+                  setAutoStartMicOnOpen(true);
+                  setVoiceModalOpen(true);
+                }
               }}
-              aria-label="Sofort sprechen"
-              className="min-h-[48px] px-5 py-2.5 rounded-2xl text-white font-bold text-xs flex items-center gap-2 shrink-0 active:scale-95 transition shadow-lg"
+              aria-label={bottomAiText.trim() ? 'Befehl senden' : 'Sofort sprechen'}
+              className="min-h-[44px] min-w-[44px] px-3.5 py-2.5 rounded-2xl text-white font-bold text-xs flex items-center justify-center gap-1.5 shrink-0 active:scale-95 transition shadow-lg"
               style={{
                 backgroundColor: activeVisualTheme.primary,
-                boxShadow: `0 6px 20px ${activeVisualTheme.glow}`
+                boxShadow: `0 4px 16px ${activeVisualTheme.glow}`
               }}
             >
-              <Mic className="w-4 h-4" />
-              <span>Sprechen</span>
+              {bottomAiText.trim() ? (
+                <>
+                  <Send className="w-4 h-4" />
+                  <span className="hidden sm:inline">Senden</span>
+                </>
+              ) : (
+                <>
+                  <Mic className="w-4 h-4" />
+                  <span>Sprechen</span>
+                </>
+              )}
             </button>
-          </div>
+          </form>
         </div>
       </div>
 
@@ -1495,7 +1518,7 @@ export default function App() {
                   placeholder="Maß-Label (z.B. 'Breite: 85cm')... dann Foto anklicken"
                   className="flex-1 px-3 py-1.5 rounded-lg text-xs bg-[#24292E] text-white border border-white/10 placeholder-[#9CA3AF]"
                 />
-                <span className="text-[10px] text-[#9CA3AF] shrink-0">Klick = Pin setzen</span>
+                <span className="text-xs text-[#9CA3AF] shrink-0">Klick = Pin setzen</span>
               </div>
             )}
 
@@ -1513,7 +1536,7 @@ export default function App() {
                   {(photoPins[previewAttachment.id] || []).map((pin) => (
                     <div
                       key={pin.id}
-                      className="absolute -translate-x-1/2 -translate-y-1/2 px-2 py-0.5 rounded-md text-[10px] font-bold text-white shadow-lg flex items-center gap-1 border border-white/30"
+                      className="absolute -translate-x-1/2 -translate-y-1/2 px-2 py-0.5 rounded-md text-xs font-bold text-white shadow-lg flex items-center gap-1 border border-white/30"
                       style={{
                         left: `${pin.xPercent}%`,
                         top: `${pin.yPercent}%`,
@@ -1569,6 +1592,7 @@ export default function App() {
           <span className="truncate">{toast}</span>
         </div>
       )}
+      </div>
     </div>
   );
 }

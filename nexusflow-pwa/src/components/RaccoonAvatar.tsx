@@ -104,16 +104,23 @@ export const ProjectAvatar: React.FC<{ project?: Project; sizeClass?: string }> 
   project,
   sizeClass = 'w-8 h-8'
 }) => {
-  if (project?.customLogoUrl) {
+  const [imgError, setImgError] = React.useState(false);
+
+  React.useEffect(() => {
+    setImgError(false);
+  }, [project?.customLogoUrl]);
+
+  if (project?.customLogoUrl && !imgError) {
     return (
       <img
         src={project.customLogoUrl}
         alt={project.name}
+        onError={() => setImgError(true)}
         className={`${sizeClass} rounded-lg object-cover border border-[#14B8A6]`}
       />
     );
   }
-  if (project?.icon === 'RaccoonBandit') {
+  if (project?.icon === 'RaccoonBandit' || imgError) {
     return <PizzaBanditRaccoonSvg className={sizeClass} />;
   }
   const IconComp = (project && ICON_MAP[project.icon]) || FolderKanban;

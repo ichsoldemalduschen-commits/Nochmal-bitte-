@@ -243,7 +243,7 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
               <div className="text-sm font-bold text-white flex items-center gap-2">
                 <span>ADHS- &amp; Fokus-Unterstützung</span>
                 <span
-                  className={`text-[10px] px-2 py-0.5 rounded-full ${
+                  className={`text-xs px-2.5 py-0.5 rounded-full font-bold ${
                     prefs.adhdMasterEnabled
                       ? 'bg-emerald-500/20 text-emerald-300'
                       : 'bg-white/10 text-[#9CA3AF]'
@@ -318,7 +318,7 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
                   >
                     <div>
                       <div className="text-xs font-semibold text-white">{item.title}</div>
-                      <div className="text-[11px] text-[#9CA3AF]">{item.desc}</div>
+                      <div className="text-xs text-[#9CA3AF]">{item.desc}</div>
                     </div>
                     <button
                       type="button"
@@ -338,23 +338,23 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
         )}
       </div>
 
-      {/* AKKORDEON 2 (UPDATE 5): PERSONALISIERUNG & DARSTELLUNG */}
+      {/* AKKORDEON 2: PERSONALISIERUNG & DARSTELLUNG */}
       <div
-        className="rounded-2xl border border-white/10 overflow-hidden"
-        style={{ backgroundColor: THEME.bgCard }}
+        className="rounded-3xl border border-white/5 overflow-hidden shadow-md"
+        style={{ backgroundColor: '#1C2026' }}
       >
         <button
           type="button"
           onClick={() => toggleSection('personalization')}
-          className="w-full p-3.5 flex items-center justify-between text-left"
+          className="w-full min-h-[56px] p-4 flex items-center justify-between text-left active:bg-white/5 transition"
         >
           <div className="flex items-center gap-3">
-            <Sliders className="w-4 h-4 text-[#14B8A6]" />
+            <Sliders className="w-5 h-5 text-[#14B8A6]" />
             <div>
-              <div className="text-xs font-bold text-white">
+              <div className="text-sm font-bold text-white">
                 Personalisierung, Handschuh-Modus &amp; KI-Stil
               </div>
-              <div className="text-[11px] text-[#9CA3AF]">
+              <div className="text-xs text-[#9CA3AF]">
                 UI-Dichte, organische Animationen, KI-Tonfall &amp; Schnell-Befehle
               </div>
             </div>
@@ -367,9 +367,9 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
         </button>
 
         {openSection === 'personalization' && (
-          <div className="px-4 pb-4 pt-2 border-t border-white/10 space-y-3 bg-[#181A1B]/50">
+          <div className="px-4 pb-4 pt-2 border-t border-white/5 space-y-3 bg-[#1C2026]/70">
             <div className="space-y-1">
-              <label className="text-[11px] text-[#9CA3AF] block">
+              <label className="text-xs text-[#9CA3AF] block font-medium">
                 Darstellungs-Dichte (Touch- &amp; Textgröße):
               </label>
               <div className="grid grid-cols-3 gap-1.5">
@@ -382,10 +382,10 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
                     type="button"
                     key={d.id}
                     onClick={() => updatePrefs({ uiDensity: d.id as any })}
-                    className={`py-2 rounded-xl text-xs font-bold border ${
+                    className={`min-h-[44px] py-2 rounded-xl text-xs font-bold border transition active:scale-95 ${
                       prefs.uiDensity === d.id
                         ? 'text-white border-white/30'
-                        : 'bg-[#24292E] text-[#9CA3AF] border-white/10'
+                        : 'bg-[#242930] text-[#9CA3AF] border-white/5'
                     }`}
                     style={
                       prefs.uiDensity === d.id
@@ -400,7 +400,7 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
             </div>
 
             <div className="space-y-1">
-              <label className="text-[11px] text-[#9CA3AF] block">
+              <label className="text-xs text-[#9CA3AF] block font-medium">
                 Persönlicher KI-Antwortstil:
               </label>
               <div className="grid grid-cols-3 gap-1.5">
@@ -413,10 +413,10 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
                     type="button"
                     key={t.id}
                     onClick={() => updatePrefs({ aiTone: t.id as any })}
-                    className={`py-2 rounded-xl text-xs font-bold border ${
+                    className={`min-h-[44px] py-2 rounded-xl text-xs font-bold border transition active:scale-95 ${
                       prefs.aiTone === t.id
                         ? 'text-white border-white/30'
-                        : 'bg-[#24292E] text-[#9CA3AF] border-white/10'
+                        : 'bg-[#242930] text-[#9CA3AF] border-white/5'
                     }`}
                     style={
                       prefs.aiTone === t.id
@@ -430,14 +430,14 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
               </div>
             </div>
 
-            <div className="p-2.5 rounded-xl bg-[#24292E] border border-white/10 flex items-center justify-between">
-              <span className="text-xs text-white">
+            <div className="p-3 rounded-2xl bg-[#242930] border border-white/5 flex items-center justify-between">
+              <span className="text-xs text-white font-medium">
                 Organische Hintergrund-Aura &amp; Wellen-Animation
               </span>
               <button
                 type="button"
                 onClick={() => updatePrefs({ organicMotion: !prefs.organicMotion })}
-                className="px-3 py-1 rounded-lg text-xs font-bold text-white"
+                className="min-h-[44px] px-4 py-1.5 rounded-xl text-xs font-bold text-white transition active:scale-95"
                 style={{
                   backgroundColor: prefs.organicMotion ? THEME.accentPrimary : '#374151'
                 }}
@@ -448,7 +448,7 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
 
             {/* Eigene Quick-Command-Chips verwalten */}
             <div className="space-y-1.5 pt-1">
-              <label className="text-[11px] text-[#9CA3AF] block">
+              <label className="text-xs text-[#9CA3AF] block font-medium">
                 Eigene 1-Tipp-Schnellbefehle im KI-Fenster:
               </label>
               <div className="flex gap-1.5">
@@ -457,7 +457,7 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
                   value={newQuickCmd}
                   onChange={(e) => setNewQuickCmd(e.target.value)}
                   placeholder="Neuer Schnellbefehl..."
-                  className="flex-1 px-2.5 py-1.5 rounded-lg text-xs bg-[#181A1B] text-white border border-white/15"
+                  className="flex-1 min-h-[44px] px-3 py-2 rounded-xl text-xs bg-[#181A1B] text-white border border-white/10"
                 />
                 <button
                   type="button"
@@ -468,17 +468,18 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
                     });
                     setNewQuickCmd('');
                   }}
-                  className="px-3 py-1.5 rounded-lg text-xs font-bold text-white"
+                  className="min-h-[44px] min-w-[44px] px-3.5 py-1.5 rounded-xl text-xs font-bold text-white flex items-center justify-center active:scale-95 transition"
                   style={{ backgroundColor: THEME.accentPrimary }}
+                  aria-label="Schnellbefehl hinzufügen"
                 >
-                  <Plus className="w-3.5 h-3.5" />
+                  <Plus className="w-4 h-4" />
                 </button>
               </div>
               <div className="space-y-1">
                 {prefs.quickCommands.map((cmd, idx) => (
                   <div
                     key={idx}
-                    className="px-2.5 py-1.5 rounded-lg bg-[#24292E] flex items-center justify-between text-xs text-white"
+                    className="p-2.5 rounded-xl bg-[#242930] border border-white/5 flex items-center justify-between text-xs text-white"
                   >
                     <span className="truncate">{cmd}</span>
                     <button
@@ -488,9 +489,10 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
                           quickCommands: prefs.quickCommands.filter((_, i) => i !== idx)
                         })
                       }
-                      className="text-[#9CA3AF] hover:text-red-400 ml-2"
+                      className="min-h-[44px] min-w-[44px] flex items-center justify-center text-[#9CA3AF] hover:text-red-400 ml-2"
+                      aria-label="Löschen"
                     >
-                      <Trash2 className="w-3.5 h-3.5" />
+                      <Trash2 className="w-4 h-4" />
                     </button>
                   </div>
                 ))}
@@ -500,23 +502,23 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
         )}
       </div>
 
-      {/* AKKORDEON 3 (UPDATE 6): ERWEITERUNGS- & VORLAGEN-TRESOR (BLUEPRINTS) */}
+      {/* AKKORDEON 3: ERWEITERUNGS- & VORLAGEN-TRESOR (BLUEPRINTS) */}
       <div
-        className="rounded-2xl border border-white/10 overflow-hidden"
-        style={{ backgroundColor: THEME.bgCard }}
+        className="rounded-3xl border border-white/5 overflow-hidden shadow-md"
+        style={{ backgroundColor: '#1C2026' }}
       >
         <button
           type="button"
           onClick={() => toggleSection('blueprints')}
-          className="w-full p-3.5 flex items-center justify-between text-left"
+          className="w-full min-h-[56px] p-4 flex items-center justify-between text-left active:bg-white/5 transition"
         >
           <div className="flex items-center gap-3">
-            <Copy className="w-4 h-4 text-[#14B8A6]" />
+            <Copy className="w-5 h-5 text-[#14B8A6]" />
             <div>
-              <div className="text-xs font-bold text-white">
+              <div className="text-sm font-bold text-white">
                 Erweiterungs- &amp; Vorlagen-Baukasten (Blueprints)
               </div>
-              <div className="text-[11px] text-[#9CA3AF]">
+              <div className="text-xs text-[#9CA3AF]">
                 Checklisten-Vorlagen speichern und für neue Events/Projekte einspielen
               </div>
             </div>
@@ -529,15 +531,15 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
         </button>
 
         {openSection === 'blueprints' && (
-          <div className="px-4 pb-4 pt-2 border-t border-white/10 space-y-3 bg-[#181A1B]/50">
-            <div className="p-2.5 rounded-xl bg-[#24292E] border border-white/10 space-y-2">
+          <div className="px-4 pb-4 pt-2 border-t border-white/5 space-y-3 bg-[#1C2026]/70">
+            <div className="p-3.5 rounded-2xl bg-[#242930] border border-white/5 space-y-2.5">
               <div className="text-xs font-bold text-white">
                 Aktuelles Projekt als wiederverwendbare Vorlage sichern
               </div>
               <select
                 value={selectedBlueprintProjectId}
                 onChange={(e) => setSelectedBlueprintProjectId(e.target.value)}
-                className="w-full px-2.5 py-1.5 rounded-lg text-xs bg-[#181A1B] text-white border border-white/10"
+                className="w-full min-h-[44px] px-3 py-2 rounded-xl text-xs bg-[#181A1B] text-white border border-white/10"
               >
                 {activeProjects.map((p) => (
                   <option key={p.id} value={p.id}>
@@ -545,18 +547,18 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
                   </option>
                 ))}
               </select>
-              <div className="flex gap-1.5">
+              <div className="flex gap-2">
                 <input
                   type="text"
                   value={newBlueprintName}
                   onChange={(e) => setNewBlueprintName(e.target.value)}
                   placeholder="Name der Vorlage (z. B. Sommer-Event Packliste)..."
-                  className="flex-1 px-2.5 py-1.5 rounded-lg text-xs bg-[#181A1B] text-white border border-white/10"
+                  className="flex-1 min-h-[44px] px-3.5 py-2 rounded-xl text-xs bg-[#181A1B] text-white border border-white/10"
                 />
                 <button
                   type="button"
                   onClick={handleSaveCurrentProjectAsBlueprint}
-                  className="px-3 py-1.5 rounded-lg text-xs font-bold text-white"
+                  className="min-h-[44px] px-4 py-2 rounded-xl text-xs font-bold text-white transition active:scale-95"
                   style={{ backgroundColor: THEME.accentPrimary }}
                 >
                   Sichern
@@ -568,11 +570,11 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
               {blueprints.map((bp) => (
                 <div
                   key={bp.id}
-                  className="p-2.5 rounded-xl bg-[#24292E] border border-white/10 flex items-center justify-between gap-2"
+                  className="p-3 rounded-2xl bg-[#242930] border border-white/5 flex items-center justify-between gap-2"
                 >
                   <div className="min-w-0">
                     <div className="text-xs font-bold text-white truncate">{bp.name}</div>
-                    <div className="text-[10px] text-[#9CA3AF]">
+                    <div className="text-xs text-[#9CA3AF]">
                       {bp.tasks.length} Tasks • {bp.cart.length} Einkaufs-Artikel
                     </div>
                   </div>
@@ -586,7 +588,7 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
                       );
                       onNotify(`Vorlage "${bp.name}" in Projekt-Infos hinterlegt.`);
                     }}
-                    className="px-2.5 py-1 rounded-lg text-[10px] font-bold text-white shrink-0"
+                    className="min-h-[44px] px-3.5 py-1.5 rounded-xl text-xs font-bold text-white shrink-0 active:scale-95 transition"
                     style={{ backgroundColor: THEME.accentPrimary }}
                   >
                     Einspielen
@@ -600,21 +602,21 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
 
       {/* AKKORDEON 4: KI-SCHNITTSTELLE & MODELL-WAHL */}
       <div
-        className="rounded-2xl border border-white/10 overflow-hidden"
-        style={{ backgroundColor: THEME.bgCard }}
+        className="rounded-3xl border border-white/5 overflow-hidden shadow-md"
+        style={{ backgroundColor: '#1C2026' }}
       >
         <button
           type="button"
           onClick={() => toggleSection('apikey')}
-          className="w-full p-3.5 flex items-center justify-between text-left"
+          className="w-full min-h-[56px] p-4 flex items-center justify-between text-left active:bg-white/5 transition"
         >
           <div className="flex items-center gap-3">
-            <Key className="w-4 h-4 text-[#14B8A6]" />
+            <Key className="w-5 h-5 text-[#14B8A6]" />
             <div>
-              <div className="text-xs font-bold text-white">
+              <div className="text-sm font-bold text-white">
                 KI-Schnittstelle &amp; Modell-Auswahl
               </div>
-              <div className="text-[11px] text-[#9CA3AF]">
+              <div className="text-xs text-[#9CA3AF]">
                 Google AI Studio API-Key &amp; Pro/Flash Modellsteuerung
               </div>
             </div>
@@ -627,13 +629,13 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
         </button>
 
         {openSection === 'apikey' && (
-          <div className="px-4 pb-4 pt-2 border-t border-white/10 space-y-3 bg-[#181A1B]/50">
+          <div className="px-4 pb-4 pt-2 border-t border-white/5 space-y-3 bg-[#1C2026]/70">
             <input
               type="password"
               value={userApiKey}
               onChange={(e) => onChangeApiKey(e.target.value)}
               placeholder="Gemini API-Key eintragen (AIzaSy...)"
-              className="w-full px-3 py-2 rounded-xl text-xs font-mono bg-[#181A1B] text-white border border-white/15"
+              className="w-full min-h-[44px] px-3.5 py-2 rounded-xl text-xs font-mono bg-[#181A1B] text-white border border-white/10"
             />
 
             <select
@@ -642,7 +644,7 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
                 setModelMode(e.target.value);
                 setPreferredModelMode(e.target.value);
               }}
-              className="w-full px-3 py-2 rounded-xl text-xs bg-[#181A1B] text-white border border-white/15"
+              className="w-full min-h-[44px] px-3.5 py-2 rounded-xl text-xs bg-[#181A1B] text-white border border-white/10"
             >
               <option value="SMART_PRO">
                 Smart-Mix (Flash für Sortierung + Höchstes Pro-Modell für Fragen/Fotos)
@@ -664,20 +666,20 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
               type="button"
               disabled={apiTestStatus.loading}
               onClick={handleTestKey}
-              className="px-3.5 py-2 rounded-xl text-xs font-bold text-white flex items-center gap-1.5"
+              className="min-h-[44px] px-4 py-2 rounded-xl text-xs font-bold text-white flex items-center justify-center gap-2 active:scale-95 transition"
               style={{ backgroundColor: THEME.accentPrimary }}
             >
               {apiTestStatus.loading ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <Loader2 className="w-4 h-4 animate-spin" />
               ) : (
-                <CheckCircle2 className="w-3.5 h-3.5" />
+                <CheckCircle2 className="w-4 h-4" />
               )}
               <span>Verbindung testen &amp; Modelle laden</span>
             </button>
 
             {apiTestStatus.text && (
               <div
-                className={`p-2.5 rounded-xl text-xs border ${
+                className={`p-3 rounded-2xl text-xs border ${
                   apiTestStatus.ok
                     ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
                     : 'bg-red-500/10 border-red-500/30 text-red-300'
@@ -692,21 +694,21 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
 
       {/* AKKORDEON 5: TAGESPLANER */}
       <div
-        className="rounded-2xl border border-white/10 overflow-hidden"
-        style={{ backgroundColor: THEME.bgCard }}
+        className="rounded-3xl border border-white/5 overflow-hidden shadow-md"
+        style={{ backgroundColor: '#1C2026' }}
       >
         <button
           type="button"
           onClick={() => toggleSection('planner')}
-          className="w-full p-3.5 flex items-center justify-between text-left"
+          className="w-full min-h-[56px] p-4 flex items-center justify-between text-left active:bg-white/5 transition"
         >
           <div className="flex items-center gap-3">
-            <CalendarClock className="w-4 h-4 text-[#14B8A6]" />
+            <CalendarClock className="w-5 h-5 text-[#14B8A6]" />
             <div>
-              <div className="text-xs font-bold text-white">
+              <div className="text-sm font-bold text-white">
                 Tagesplaner &amp; Kalender-Export ({allOpenTasks.length} offen)
               </div>
-              <div className="text-[11px] text-[#9CA3AF]">
+              <div className="text-xs text-[#9CA3AF]">
                 Zeitblöcke zuweisen und .ics Datei exportieren
               </div>
             </div>
@@ -719,12 +721,12 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
         </button>
 
         {openSection === 'planner' && (
-          <div className="px-4 pb-4 pt-2 border-t border-white/10 space-y-3 bg-[#181A1B]/50">
+          <div className="px-4 pb-4 pt-2 border-t border-white/5 space-y-3 bg-[#1C2026]/70">
             <div className="flex gap-2">
               <button
                 type="button"
                 onClick={onAutoStructureDay}
-                className="flex-1 py-2 px-3 rounded-xl text-xs font-bold text-white"
+                className="flex-1 min-h-[44px] py-2 px-3.5 rounded-xl text-xs font-bold text-white active:scale-95 transition"
                 style={{ backgroundColor: THEME.accentPrimary }}
               >
                 Tag automatisch strukturieren
@@ -732,20 +734,20 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
               <button
                 type="button"
                 onClick={() => exportDayPlanIcs(projects)}
-                className="py-2 px-3 rounded-xl text-xs font-semibold bg-[#24292E] text-white border border-white/10"
+                className="min-h-[44px] py-2 px-4 rounded-xl text-xs font-semibold bg-[#242930] text-white border border-white/10 active:scale-95 transition"
               >
                 .ics Export
               </button>
             </div>
-            <div className="space-y-1.5 max-h-60 overflow-y-auto">
+            <div className="space-y-2 max-h-60 overflow-y-auto">
               {allOpenTasks.map(({ project, task }) => (
                 <div
                   key={task.id}
-                  className="p-2 rounded-xl bg-[#24292E] border border-white/10 flex items-center justify-between gap-2"
+                  className="p-3 rounded-2xl bg-[#242930] border border-white/5 flex items-center justify-between gap-2"
                 >
                   <div className="min-w-0">
-                    <div className="text-[10px] text-[#14B8A6] font-bold">{project.name}</div>
-                    <div className="text-xs text-white truncate">{task.title}</div>
+                    <div className="text-xs text-[#14B8A6] font-bold">{project.name}</div>
+                    <div className="text-xs text-white truncate font-medium">{task.title}</div>
                   </div>
                   <select
                     value={task.dayBlock || ''}
@@ -756,7 +758,7 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
                         (e.target.value || null) as DayBlockId | null
                       )
                     }
-                    className="px-2 py-1 rounded text-[10px] bg-[#181A1B] text-white border border-white/10"
+                    className="min-h-[44px] px-3 py-1.5 rounded-xl text-xs bg-[#181A1B] text-white border border-white/10"
                   >
                     <option value="">Kein Block</option>
                     <option value="morning">Morgen</option>
@@ -773,21 +775,21 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
 
       {/* AKKORDEON 6: FRONTDISPLAY & CHECKS */}
       <div
-        className="rounded-2xl border border-white/10 overflow-hidden"
-        style={{ backgroundColor: THEME.bgCard }}
+        className="rounded-3xl border border-white/5 overflow-hidden shadow-md"
+        style={{ backgroundColor: '#1C2026' }}
       >
         <button
           type="button"
           onClick={() => toggleSection('mobile_cover')}
-          className="w-full p-3.5 flex items-center justify-between text-left"
+          className="w-full min-h-[56px] p-4 flex items-center justify-between text-left active:bg-white/5 transition"
         >
           <div className="flex items-center gap-3">
-            <Smartphone className="w-4 h-4 text-[#14B8A6]" />
+            <Smartphone className="w-5 h-5 text-[#14B8A6]" />
             <div>
-              <div className="text-xs font-bold text-white">
+              <div className="text-sm font-bold text-white">
                 Frontdisplay-Ansicht &amp; Selbst-Checks
               </div>
-              <div className="text-[11px] text-[#9CA3AF]">
+              <div className="text-xs text-[#9CA3AF]">
                 Kompakt-Kachel für Galaxy Z Flip 7, Reality- &amp; Selbst-Check
               </div>
             </div>
@@ -800,11 +802,11 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
         </button>
 
         {openSection === 'mobile_cover' && (
-          <div className="px-4 pb-4 pt-2 border-t border-white/10 space-y-2.5 bg-[#181A1B]/50">
+          <div className="px-4 pb-4 pt-2 border-t border-white/5 space-y-3 bg-[#1C2026]/70">
             <button
               type="button"
               onClick={onOpenFlip7Cover}
-              className="w-full py-2.5 rounded-xl text-xs font-bold text-white"
+              className="w-full min-h-[44px] py-2.5 rounded-xl text-xs font-bold text-white active:scale-95 transition"
               style={{ backgroundColor: THEME.accentPrimary }}
             >
               Frontdisplay-Kompaktansicht öffnen
@@ -814,9 +816,9 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
                 <button
                   type="button"
                   onClick={onOpenRealityModal}
-                  className="p-2.5 rounded-xl bg-[#24292E] border border-white/10 text-xs font-bold text-white flex items-center justify-center gap-1.5"
+                  className="min-h-[44px] p-2.5 rounded-xl bg-[#242930] border border-white/5 text-xs font-bold text-white flex items-center justify-center gap-2 active:scale-95 transition"
                 >
-                  <Compass className="w-3.5 h-3.5 text-[#14B8A6]" />
+                  <Compass className="w-4 h-4 text-[#14B8A6]" />
                   <span>Reality-Check</span>
                 </button>
               )}
@@ -824,9 +826,9 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
                 <button
                   type="button"
                   onClick={onOpenSelfCheckModal}
-                  className="p-2.5 rounded-xl bg-[#24292E] border border-white/10 text-xs font-bold text-white flex items-center justify-center gap-1.5"
+                  className="min-h-[44px] p-2.5 rounded-xl bg-[#242930] border border-white/5 text-xs font-bold text-white flex items-center justify-center gap-2 active:scale-95 transition"
                 >
-                  <HeartHandshake className="w-3.5 h-3.5 text-[#14B8A6]" />
+                  <HeartHandshake className="w-4 h-4 text-[#14B8A6]" />
                   <span>Selbst-Check</span>
                 </button>
               )}
@@ -837,21 +839,21 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
 
       {/* AKKORDEON 7: ADD-ONS & BACKUP */}
       <div
-        className="rounded-2xl border border-white/10 overflow-hidden"
-        style={{ backgroundColor: THEME.bgCard }}
+        className="rounded-3xl border border-white/5 overflow-hidden shadow-md"
+        style={{ backgroundColor: '#1C2026' }}
       >
         <button
           type="button"
           onClick={() => toggleSection('smarthome_backup')}
-          className="w-full p-3.5 flex items-center justify-between text-left"
+          className="w-full min-h-[56px] p-4 flex items-center justify-between text-left active:bg-white/5 transition"
         >
           <div className="flex items-center gap-3">
-            <Webhook className="w-4 h-4 text-[#14B8A6]" />
+            <Webhook className="w-5 h-5 text-[#14B8A6]" />
             <div>
-              <div className="text-xs font-bold text-white">
+              <div className="text-sm font-bold text-white">
                 Werkzeuge, Backup &amp; Aktenschrank
               </div>
-              <div className="text-[11px] text-[#9CA3AF]">
+              <div className="text-xs text-[#9CA3AF]">
                 POS-Clicker, JSON-Sicherung &amp; Projekt-Archiv
               </div>
             </div>
@@ -864,15 +866,15 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
         </button>
 
         {openSection === 'smarthome_backup' && (
-          <div className="px-4 pb-4 pt-2 border-t border-white/10 space-y-3 bg-[#181A1B]/50">
+          <div className="px-4 pb-4 pt-2 border-t border-white/5 space-y-3 bg-[#1C2026]/70">
             {/* MODULARE PROJEKT-MODULE (enabledTabs) */}
-            <div className="p-3 rounded-2xl bg-[#24292E] border border-white/10 space-y-2.5">
+            <div className="p-3.5 rounded-2xl bg-[#242930] border border-white/5 space-y-2.5">
               <div className="flex items-center justify-between">
                 <div className="text-xs font-bold text-white flex items-center gap-2">
                   <Sliders className="w-4 h-4 text-[#14B8A6]" />
                   <span>Modulare Projekt-Bereiche (Module)</span>
                 </div>
-                <span className="text-[11px] text-[#9CA3AF]">Pro Projekt anpassbar</span>
+                <span className="text-xs text-[#9CA3AF]">Pro Projekt anpassbar</span>
               </div>
               <div className="space-y-2 pt-1">
                 {activeProjects.map((proj) => {
@@ -887,13 +889,13 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
                   return (
                     <div
                       key={proj.id}
-                      className="p-2.5 rounded-xl bg-[#1C2026] border border-white/5 space-y-2"
+                      className="p-3 rounded-xl bg-[#1C2026] border border-white/5 space-y-2"
                     >
                       <div className="flex items-center justify-between">
                         <span className="text-xs font-bold text-white truncate max-w-[200px]">
                           {proj.name}
                         </span>
-                        <span className="text-[11px] text-[#9CA3AF]">
+                        <span className="text-xs text-[#9CA3AF]">
                           {currentTabs.length} / 4 aktiv
                         </span>
                       </div>
@@ -925,13 +927,13 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
             {PLUGIN_REGISTRY.map((plugin) => (
               <div
                 key={plugin.id}
-                className="p-2.5 rounded-xl bg-[#24292E] border border-white/10 space-y-1.5"
+                className="p-3 rounded-2xl bg-[#242930] border border-white/5 space-y-2"
               >
                 <div className="text-xs font-bold text-white flex items-center gap-1.5">
-                  <Puzzle className="w-3.5 h-3.5 text-[#14B8A6]" />
+                  <Puzzle className="w-4 h-4 text-[#14B8A6]" />
                   <span>{plugin.name}</span>
                 </div>
-                <div className="flex flex-wrap gap-1.5">
+                <div className="flex flex-wrap gap-2">
                   {activeProjects.map((proj) => {
                     const enabled = (proj.enabledPlugins || []).includes(plugin.id);
                     return (
@@ -939,10 +941,10 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
                         type="button"
                         key={proj.id}
                         onClick={() => onTogglePluginForProject(proj.id, plugin.id)}
-                        className={`px-2 py-1 rounded text-[10px] font-bold border ${
+                        className={`min-h-[44px] px-3 py-1.5 rounded-xl text-xs font-bold border transition active:scale-95 ${
                           enabled
                             ? 'bg-[#0A9396] text-white border-[#14B8A6]'
-                            : 'bg-[#181A1B] text-[#9CA3AF] border-white/10'
+                            : 'bg-[#181A1B] text-[#9CA3AF] border-white/10 hover:text-white'
                         }`}
                       >
                         {proj.name}
@@ -957,9 +959,9 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
               <button
                 type="button"
                 onClick={onResetProjectStructure}
-                className="w-full py-2 px-3 rounded-xl text-xs font-bold bg-amber-500 text-black flex items-center justify-center gap-1.5"
+                className="w-full min-h-[44px] py-2 px-3 rounded-xl text-xs font-bold bg-amber-500 text-black flex items-center justify-center gap-2 active:scale-95 transition"
               >
-                <RefreshCw className="w-3.5 h-3.5" />
+                <RefreshCw className="w-4 h-4" />
                 <span>Projekt-Stammdaten aktualisieren</span>
               </button>
             )}
@@ -968,13 +970,13 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
               <button
                 type="button"
                 onClick={onExportFullBackup}
-                className="flex-1 py-2 px-3 rounded-xl text-xs font-semibold bg-[#24292E] text-white border border-white/10 flex items-center justify-center gap-1.5"
+                className="flex-1 min-h-[44px] py-2 px-3 rounded-xl text-xs font-semibold bg-[#242930] text-white border border-white/10 flex items-center justify-center gap-2 active:scale-95 transition"
               >
-                <Download className="w-3.5 h-3.5 text-[#14B8A6]" />
+                <Download className="w-4 h-4 text-[#14B8A6]" />
                 <span>Backup speichern</span>
               </button>
-              <label className="flex-1 cursor-pointer py-2 px-3 rounded-xl text-xs font-semibold bg-[#24292E] text-[#14B8A6] border border-[#14B8A6]/40 flex items-center justify-center gap-1.5">
-                <Upload className="w-3.5 h-3.5" />
+              <label className="flex-1 min-h-[44px] cursor-pointer py-2 px-3 rounded-xl text-xs font-semibold bg-[#242930] text-[#14B8A6] border border-[#14B8A6]/40 flex items-center justify-center gap-2 active:scale-95 transition">
+                <Upload className="w-4 h-4" />
                 <span>Backup laden</span>
                 <input
                   type="file"
@@ -989,23 +991,23 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
               <button
                 type="button"
                 onClick={() => exportSalesLogsCsv(eventSalesLogs)}
-                className="w-full py-2 rounded-xl text-xs font-semibold bg-[#24292E] text-[#14B8A6] border border-white/10"
+                className="w-full min-h-[44px] py-2 rounded-xl text-xs font-semibold bg-[#242930] text-[#14B8A6] border border-white/10 active:scale-95 transition"
               >
                 POS-Abrechnungen als CSV exportieren ({eventSalesLogs.length})
               </button>
             )}
 
-            <div className="space-y-1.5 pt-2 border-t border-white/10">
+            <div className="space-y-2 pt-2 border-t border-white/10">
               {projects.map((p) => (
                 <div
                   key={p.id}
-                  className="p-2 rounded-xl bg-[#24292E] border border-white/10 flex items-center justify-between"
+                  className="p-3 rounded-2xl bg-[#242930] border border-white/5 flex items-center justify-between"
                 >
-                  <span className="text-xs text-white">{p.name}</span>
+                  <span className="text-xs text-white font-medium">{p.name}</span>
                   <button
                     type="button"
                     onClick={() => onToggleArchiveProject(p.id)}
-                    className="px-2.5 py-1 rounded text-[10px] bg-[#181A1B] text-[#14B8A6] border border-white/10"
+                    className="min-h-[44px] px-3.5 py-1.5 rounded-xl text-xs font-bold bg-[#181A1B] text-[#14B8A6] border border-white/10 active:scale-95 transition"
                   >
                     {p.archived ? 'Wiederherstellen' : 'Archivieren'}
                   </button>
