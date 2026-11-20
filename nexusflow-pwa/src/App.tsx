@@ -103,8 +103,13 @@ export default function App() {
 
   useEffect(() => {
     const onResize = () => {
-      if (window.innerHeight <= 470 && window.innerWidth <= 520) {
-        setFlip7CoverMode(true);
+      // Only auto-update cover mode when ?mode=cover is NOT explicitly set in the URL.
+      // If the URL param is present the user intentionally locked cover mode;
+      // let toggleCoverMode() handle unlocking via the "Aufklappen" button.
+      const urlForcedCover =
+        new URLSearchParams(window.location.search).get('mode') === 'cover';
+      if (!urlForcedCover) {
+        setFlip7CoverMode(isCoverScreenEnvironment());
       }
     };
     window.addEventListener('resize', onResize);

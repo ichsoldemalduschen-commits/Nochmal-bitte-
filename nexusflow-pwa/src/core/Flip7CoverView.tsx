@@ -46,7 +46,7 @@ export const Flip7CoverView: React.FC<Flip7Props> = ({
           </div>
           <button
             onClick={onExitCoverMode}
-            className="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-[#24292E] text-[#9CA3AF] hover:text-white border border-white/10 shrink-0"
+            className="min-h-[44px] px-3.5 rounded-full text-xs font-semibold bg-[#24292E] text-[#9CA3AF] hover:text-white border border-white/10 shrink-0 active:scale-95 transition"
           >
             Aufklappen
           </button>

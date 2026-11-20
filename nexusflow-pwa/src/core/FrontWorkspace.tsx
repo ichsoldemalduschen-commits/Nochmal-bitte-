@@ -171,6 +171,8 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
 
   const touchStartXRef = useRef<number | null>(null);
   const touchStartYRef = useRef<number | null>(null);
+  const drawerDragXRef = useRef<number>(0);
+  const [drawerDragX, setDrawerDragX] = useState<number>(0);
 
   const toggleActionCard = (id: string) => {
     triggerHapticFeedback(10);
@@ -181,6 +183,28 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
     const t = e.touches[0];
     touchStartXRef.current = t.clientX;
     touchStartYRef.current = t.clientY;
+    drawerDragXRef.current = 0;
+    setDrawerDragX(0);
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (touchStartXRef.current === null || touchStartYRef.current === null) return;
+    const t = e.touches[0];
+    const deltaX = t.clientX - touchStartXRef.current;
+    const deltaY = Math.abs(t.clientY - touchStartYRef.current);
+    if (deltaY > 60) return; // vertical scroll – ignore
+
+    if (!drawerOpen && touchStartXRef.current <= 30 && deltaX > 0) {
+      // Edge-pull: clamp to drawer width
+      const drag = Math.min(deltaX, window.innerWidth * 0.85);
+      drawerDragXRef.current = drag;
+      setDrawerDragX(drag);
+    } else if (drawerOpen && deltaX < 0) {
+      // Swipe-away: clamp to negative drawer width
+      const drag = Math.max(deltaX, -(window.innerWidth * 0.85));
+      drawerDragXRef.current = drag;
+      setDrawerDragX(drag);
+    }
   };
 
   const handleTouchEnd = (e: React.TouchEvent) => {
@@ -189,13 +213,15 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
     const deltaX = t.clientX - touchStartXRef.current;
     const deltaY = Math.abs(t.clientY - touchStartYRef.current);
 
-    if (!drawerOpen && touchStartXRef.current < 90 && deltaX > 60 && deltaY < 60) {
+    if (!drawerOpen && touchStartXRef.current <= 30 && deltaX > 50 && deltaY < 60) {
       setDrawerOpen(true);
-    } else if (drawerOpen && deltaX < -60 && deltaY < 60) {
+    } else if (drawerOpen && deltaX < -50 && deltaY < 60) {
       setDrawerOpen(false);
     }
     touchStartXRef.current = null;
     touchStartYRef.current = null;
+    setDrawerDragX(0);
+    drawerDragXRef.current = 0;
   };
 
   const updatePrefs = (patch: Partial<BanditUserPreferences>) => {
@@ -329,8 +355,16 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
     <div
       className="relative min-h-[75vh] space-y-3.5 pb-24"
       onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
     >
+      {/* Edge-Zone: unsichtbares 30px-Band am linken Viewport-Rand für Edge-Pull-Erkennung */}
+      {!drawerOpen && (
+        <div
+          className="fixed top-0 left-0 h-full w-[30px] z-40 pointer-events-none"
+          aria-hidden="true"
+        />
+      )}
       {/* Organische Ambient-Aura im Hintergrund */}
       {prefs.organicMotion && (
         <div
@@ -398,14 +432,24 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
       {/* LINKER SWIPE-DRAWER (Mit sanfter Feder-Physik & visueller Ruhe) */}
       <div
         className={`fixed inset-0 z-50 flex transition-opacity duration-300 ${
-          drawerOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+          drawerOpen ? 'opacity-100 pointer-events-auto' : drawerDragX > 0 ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
         }`}
+        style={drawerDragX > 0 ? { opacity: drawerDragX / (window.innerWidth * 0.85) } : undefined}
       >
         <div
-          className={`w-[85vw] max-w-sm h-full border-r border-white/10 flex flex-col justify-between overflow-y-auto shadow-2xl transition-transform duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] ${
-            drawerOpen ? 'translate-x-0' : '-translate-x-full'
+          className={`w-[85vw] max-w-sm h-full border-r border-white/10 flex flex-col justify-between overflow-y-auto shadow-2xl ${
+            drawerDragX === 0 ? 'transition-transform duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]' : ''
           }`}
-          style={{ backgroundColor: '#1C2026' }}
+          style={{
+            backgroundColor: '#1C2026',
+            transform: drawerOpen
+              ? drawerDragX < 0
+                ? `translateX(${drawerDragX}px)`
+                : 'translateX(0)'
+              : drawerDragX > 0
+              ? `translateX(calc(-100% + ${drawerDragX}px))`
+              : 'translateX(-100%)'
+          }}
         >
           <div className="p-5 space-y-6">
             <div className="flex items-center justify-between border-b border-white/10 pb-4">

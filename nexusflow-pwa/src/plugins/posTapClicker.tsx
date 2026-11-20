@@ -111,18 +111,18 @@ export const PosTapClickerPlugin: React.FC<PluginContextProps> = ({
               <button
                 type="button"
                 onClick={() => updateCount(v.id, -1)}
-                className="w-7 h-7 rounded-lg bg-[#24292E] text-[#9CA3AF] hover:text-white flex items-center justify-center border border-white/10"
+                className="w-11 h-11 rounded-lg bg-[#24292E] text-[#9CA3AF] hover:text-white flex items-center justify-center border border-white/10 active:scale-95 transition"
               >
-                <Minus className="w-3.5 h-3.5" />
+                <Minus className="w-4 h-4" />
               </button>
               <span className="text-base font-mono font-bold text-[#14B8A6]">{v.count}</span>
               <button
                 type="button"
                 onClick={() => updateCount(v.id, 1)}
-                className="px-3 h-8 rounded-lg text-white font-bold text-xs flex items-center gap-1 shadow active:scale-95 transition"
+                className="px-3 h-11 rounded-lg text-white font-bold text-xs flex items-center gap-1 shadow active:scale-95 transition"
                 style={{ backgroundColor: THEME.accentPrimary }}
               >
-                <Plus className="w-3.5 h-3.5" />1
+                <Plus className="w-4 h-4" />1
               </button>
             </div>
           </div>

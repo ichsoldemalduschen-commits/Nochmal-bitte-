@@ -73,7 +73,7 @@ export const RealityCheckModal: React.FC<{
               <p className="text-[11px] text-[#9CA3AF]">Fokus: {current.category}</p>
             </div>
           </div>
-          <button onClick={onClose} className="p-1 text-[#9CA3AF] hover:text-white">
+          <button onClick={onClose} className="w-11 h-11 flex items-center justify-center rounded-xl text-[#9CA3AF] hover:text-white hover:bg-white/5 active:scale-95 transition">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -174,7 +174,7 @@ export const SelfCheckModal: React.FC<{
               <p className="text-[11px] text-[#9CA3AF]">Zustand ohne Bewertung festhalten</p>
             </div>
           </div>
-          <button onClick={onClose} className="p-1 text-[#9CA3AF] hover:text-white">
+          <button onClick={onClose} className="w-11 h-11 flex items-center justify-center rounded-xl text-[#9CA3AF] hover:text-white hover:bg-white/5 active:scale-95 transition">
             <X className="w-5 h-5" />
           </button>
         </div>
