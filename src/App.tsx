@@ -135,7 +135,7 @@ export default function App() {
           name: brandProj?.name || p.name,
           subtitle: p.subtitle || brandProj?.subtitle,
           accentColor: p.accentColor || brandProj?.accentColor,
-          customLogoUrl: p.customLogoUrl || (p.id === BRAND_CONFIG.defaultProjectId ? '/raccoon-logo.png' : null),
+          customLogoUrl: p.customLogoUrl || (p.id === BRAND_CONFIG.defaultProjectId ? './raccoon-logo.png' : null),
           enabledPlugins: Array.isArray(p.enabledPlugins) ? p.enabledPlugins : [],
           enabledTabs: (Array.isArray(p.enabledTabs) && p.enabledTabs.length > 0
             ? (p.enabledTabs as ('tasks' | 'cart' | 'knowledge' | 'extras')[])
@@ -907,7 +907,7 @@ export default function App() {
               notify('Projekt-Logo aktualisiert.');
             }}
             onResetProjectLogo={(projId) => {
-              updateProject(projId, (p) => ({ ...p, customLogoUrl: '/raccoon-logo.png' }));
+              updateProject(projId, (p) => ({ ...p, customLogoUrl: './raccoon-logo.png' }));
               notify('Standard-Logo gesetzt.');
             }}
             onConfirmRedDot={(projId, section, itemId) => {

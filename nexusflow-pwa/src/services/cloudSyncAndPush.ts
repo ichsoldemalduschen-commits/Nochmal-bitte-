@@ -209,7 +209,7 @@ export function checkAndFireDueReminders(
           try {
             new Notification(`BANDIT.OS • ${proj.name}`, {
               body: task.title,
-              icon: '/pwa-192x192.png'
+              icon: './pwa-192x192.png'
             });
           } catch {
             // ignore

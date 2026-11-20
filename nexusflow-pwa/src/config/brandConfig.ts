@@ -66,7 +66,7 @@ export const BRAND_CONFIG: BrandConfig = {
       accentColor: '#0A9396',
       highlightColor: '#14B8A6',
       domainLabel: 'ARBEIT / BETRIEB',
-      customLogoUrl: '/raccoon-logo.png',
+      customLogoUrl: './raccoon-logo.png',
       routingKeywords:
         /(pizza|bandit|anhänger|tsa|auszug|saladette|ofen|gas|sauerteig|mehl|dinkel|teig|backen|event|waschbecken|eurobox)/i,
       systemPromptContext:
