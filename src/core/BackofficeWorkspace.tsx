@@ -33,6 +33,7 @@ import {
   THEME
 } from '../types';
 import { PLUGIN_REGISTRY } from '../plugins/registry';
+import { STORAGE_KEYS, getIdbItemSync, saveIdbItem } from '../services/storage';
 import {
   BanditUserPreferences,
   getPreferredModelMode,
@@ -71,6 +72,7 @@ interface BackofficeWorkspaceProps {
   onAssignDayBlock: (projectId: string, taskId: string, block: DayBlockId | null) => void;
   onAutoStructureDay: () => void;
   onTogglePluginForProject: (projectId: string, pluginId: string) => void;
+  onToggleTabForProject?: (projectId: string, tab: 'tasks' | 'cart' | 'knowledge' | 'extras') => void;
   onSaveScratchpadToProject: (projectId: string, title: string, content: string) => void;
   onChangeApiKey: (key: string) => void;
   onToggleRealityCheck: () => void;
@@ -103,6 +105,7 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
   onAssignDayBlock,
   onAutoStructureDay,
   onTogglePluginForProject,
+  onToggleTabForProject,
   onSaveScratchpadToProject,
   onChangeApiKey,
   onOpenFlip7Cover,
@@ -119,26 +122,19 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
 
   // Update 6 (Erweiterung): Vorlagen-Tresor (Blueprints)
   const [blueprints, setBlueprints] = useState<BlueprintTemplate[]>(() => {
-    try {
-      const saved = localStorage.getItem(BLUEPRINT_STORAGE_KEY);
-      return saved
-        ? JSON.parse(saved)
-        : [
-            {
-              id: 'bp-event',
-              name: 'Standard-Event Vor-Ort-Checkliste (Pizza Bandit)',
-              tasks: [
-                '[Vorbereitung] Gasflaschen (2x 11kg) + 50 mbar Regler prüfen',
-                '[Vorbereitung] Frischwasser- & Abwasserkanister einsetzen',
-                '[Vorbereitung] Euroboxen mit Teigballen verladen',
-                '[Vor Ort] Saladette-Lift auf 92 cm Arbeitshöhe arretieren'
-              ],
-              cart: ['Einweghandschuhe Nitril', 'Pizzakartons / Servietten']
-            }
-          ];
-    } catch {
-      return [];
-    }
+    return getIdbItemSync<BlueprintTemplate[]>(STORAGE_KEYS.BLUEPRINTS, [
+      {
+        id: 'bp-event',
+        name: 'Standard-Event Vor-Ort-Checkliste (Pizza Bandit)',
+        tasks: [
+          '[Vorbereitung] Gasflaschen (2x 11kg) + 50 mbar Regler prüfen',
+          '[Vorbereitung] Frischwasser- & Abwasserkanister einsetzen',
+          '[Vorbereitung] Euroboxen mit Teigballen verladen',
+          '[Vor Ort] Saladette-Lift auf 92 cm Arbeitshöhe arretieren'
+        ],
+        cart: ['Einweghandschuhe Nitril', 'Pizzakartons / Servietten']
+      }
+    ]);
   });
   const [selectedBlueprintProjectId, setSelectedBlueprintProjectId] = useState(
     projects[0]?.id || 'proj-foodtruck'
@@ -181,7 +177,7 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
     };
     const next = [bp, ...blueprints];
     setBlueprints(next);
-    localStorage.setItem(BLUEPRINT_STORAGE_KEY, JSON.stringify(next));
+    saveIdbItem(STORAGE_KEYS.BLUEPRINTS, next);
     setNewBlueprintName('');
     onNotify(`Vorlage "${bp.name}" im Tresor gespeichert.`);
   };
@@ -869,6 +865,63 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
 
         {openSection === 'smarthome_backup' && (
           <div className="px-4 pb-4 pt-2 border-t border-white/10 space-y-3 bg-[#181A1B]/50">
+            {/* MODULARE PROJEKT-MODULE (enabledTabs) */}
+            <div className="p-3 rounded-2xl bg-[#24292E] border border-white/10 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <div className="text-xs font-bold text-white flex items-center gap-2">
+                  <Sliders className="w-4 h-4 text-[#14B8A6]" />
+                  <span>Modulare Projekt-Bereiche (Module)</span>
+                </div>
+                <span className="text-[11px] text-[#9CA3AF]">Pro Projekt anpassbar</span>
+              </div>
+              <div className="space-y-2 pt-1">
+                {activeProjects.map((proj) => {
+                  const currentTabs = proj.enabledTabs || ['tasks', 'cart', 'knowledge', 'extras'];
+                  const modules: Array<{ id: 'tasks' | 'cart' | 'knowledge' | 'extras'; label: string }> = [
+                    { id: 'tasks', label: 'Tasks' },
+                    { id: 'cart', label: 'Einkauf' },
+                    { id: 'knowledge', label: 'Wissen' },
+                    { id: 'extras', label: 'Extras' }
+                  ];
+
+                  return (
+                    <div
+                      key={proj.id}
+                      className="p-2.5 rounded-xl bg-[#1C2026] border border-white/5 space-y-2"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-white truncate max-w-[200px]">
+                          {proj.name}
+                        </span>
+                        <span className="text-[11px] text-[#9CA3AF]">
+                          {currentTabs.length} / 4 aktiv
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-4 gap-1.5">
+                        {modules.map((m) => {
+                          const isEnabled = currentTabs.includes(m.id);
+                          return (
+                            <button
+                              type="button"
+                              key={m.id}
+                              onClick={() => onToggleTabForProject?.(proj.id, m.id)}
+                              className={`min-h-[44px] px-2 py-1.5 rounded-xl text-xs font-bold border flex items-center justify-center transition active:scale-95 ${
+                                isEnabled
+                                  ? 'bg-[#0A9396] text-white border-[#14B8A6]'
+                                  : 'bg-[#181A1B] text-[#9CA3AF] border-white/10 hover:text-white'
+                              }`}
+                            >
+                              {m.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
             {PLUGIN_REGISTRY.map((plugin) => (
               <div
                 key={plugin.id}

@@ -1,8 +1,7 @@
 import { AppStateSnapshot, Project, TaskItem } from '../types';
 import { triggerHapticFeedback } from './aiRouter';
-
-const CLOUD_CONFIG_KEY = 'banditos_cloud_sync_config_v4';
-const FIRED_REMINDERS_KEY = 'banditos_fired_reminders_v4';
+import { BRAND_CONFIG } from '../config/brandConfig';
+import { STORAGE_KEYS, getIdbItemSync, saveIdbItem } from './storage';
 
 export interface CloudSyncConfig {
   enabled: boolean;
@@ -17,26 +16,17 @@ export const DEFAULT_CLOUD_CONFIG: CloudSyncConfig = {
   enabled: false,
   endpointUrl: '',
   apiKeyOrToken: '',
-  workspaceId: 'pizza-bandit-main',
+  workspaceId: BRAND_CONFIG.defaultWorkspaceId,
   autoSyncOnChange: true,
   lastSyncedAt: null
 };
 
 export function loadCloudConfig(): CloudSyncConfig {
-  try {
-    const raw = localStorage.getItem(CLOUD_CONFIG_KEY);
-    return raw ? { ...DEFAULT_CLOUD_CONFIG, ...JSON.parse(raw) } : DEFAULT_CLOUD_CONFIG;
-  } catch {
-    return DEFAULT_CLOUD_CONFIG;
-  }
+  return getIdbItemSync<CloudSyncConfig>(STORAGE_KEYS.CLOUD_SYNC, DEFAULT_CLOUD_CONFIG);
 }
 
 export function saveCloudConfig(cfg: CloudSyncConfig): void {
-  try {
-    localStorage.setItem(CLOUD_CONFIG_KEY, JSON.stringify(cfg));
-  } catch {
-    // ignore
-  }
+  saveIdbItem(STORAGE_KEYS.CLOUD_SYNC, cfg);
 }
 
 /**
@@ -60,7 +50,7 @@ export async function pushStateToCloud(
     }
 
     const payload = {
-      workspaceId: cfg.workspaceId || 'pizza-bandit-main',
+      workspaceId: cfg.workspaceId || BRAND_CONFIG.defaultWorkspaceId,
       updatedAt: new Date().toISOString(),
       snapshot: state
     };
@@ -198,12 +188,7 @@ export function checkAndFireDueReminders(
   ).padStart(2, '0')}`;
   const dateKey = now.toISOString().slice(0, 10);
 
-  let firedMap: Record<string, boolean> = {};
-  try {
-    firedMap = JSON.parse(localStorage.getItem(FIRED_REMINDERS_KEY) || '{}');
-  } catch {
-    firedMap = {};
-  }
+  const firedMap = getIdbItemSync<Record<string, boolean>>(STORAGE_KEYS.FIRED_REMINDERS, {});
 
   for (const proj of projects) {
     if (proj.archived) continue;
@@ -214,7 +199,7 @@ export function checkAndFireDueReminders(
         if (firedMap[uniqueKey]) continue;
 
         firedMap[uniqueKey] = true;
-        localStorage.setItem(FIRED_REMINDERS_KEY, JSON.stringify(firedMap));
+        saveIdbItem(STORAGE_KEYS.FIRED_REMINDERS, firedMap);
 
         const text = `Erinnerung (${currentHHMM} Uhr) – ${proj.name}: ${task.title}`;
         triggerHapticFeedback([30, 60, 40]);

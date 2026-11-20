@@ -1,7 +1,7 @@
 export type DomainType = 'arbeit' | 'privat';
 export type PriorityType = 'Hoch' | 'Mittel' | 'Niedrig';
 export type DayBlockId = 'morning' | 'focus' | 'errands' | 'evening' | null;
-export type ProjectTabId = 'tasks' | 'explanations' | 'infos' | 'cart' | 'extras';
+export type ProjectTabId = 'tasks' | 'cart' | 'knowledge' | 'extras' | 'explanations' | 'infos';
 export type BackofficeTabId = 'analytics' | 'planner' | 'addons' | 'system';
 
 export const THEME = {
@@ -74,6 +74,22 @@ export interface InfoItem {
   customMeta: CustomMeta;
 }
 
+export type KnowledgeKind = 'explanation' | 'info' | 'reference';
+
+export interface KnowledgeItem {
+  id: string;
+  kind: KnowledgeKind;
+  title: string;
+  content: string;
+  stepsText?: string;
+  attachments?: Attachment[];
+  lastModified: string;
+  changeReason: string;
+  source: string;
+  aiTouched: boolean;
+  customMeta: CustomMeta;
+}
+
 export interface CartItem {
   id: string;
   title: string;
@@ -100,7 +116,9 @@ export interface Project {
   archivedAt?: string;
   customMeta: CustomMeta;
   enabledPlugins: string[];
+  enabledTabs?: ('tasks' | 'cart' | 'knowledge' | 'extras')[];
   tasks: TaskItem[];
+  knowledge?: KnowledgeItem[];
   explanations: ExplanationItem[];
   infos: InfoItem[];
   cart: CartItem[];
@@ -109,6 +127,7 @@ export interface Project {
 export type AiActionType =
   | 'ADD_TASK'
   | 'ADD_CART_ITEM'
+  | 'ADD_KNOWLEDGE'
   | 'UPDATE_EXPLANATION'
   | 'ADD_INFO'
   | 'CHECK_OFF_TASK';
@@ -118,7 +137,7 @@ export interface AiExecutedAction {
   actionType: AiActionType;
   targetProjectId: string;
   targetProjectName?: string;
-  targetSubTab: 'tasks' | 'explanations' | 'infos' | 'cart';
+  targetSubTab: 'tasks' | 'cart' | 'knowledge' | 'explanations' | 'infos';
   targetItemId: string;
   shortCheckableTitle: string;
   detailedExplanation: string;

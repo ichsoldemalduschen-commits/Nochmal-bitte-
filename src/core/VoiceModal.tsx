@@ -22,6 +22,7 @@ import {
   speakText,
   triggerHapticFeedback
 } from '../services/aiRouter';
+import { STORAGE_KEYS, getIdbItemSync, saveIdbItem } from '../services/storage';
 
 export interface ConversationMessage {
   id: string;
@@ -117,12 +118,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
   onMoveAiAction
 }) => {
   const [messages, setMessages] = useState<ConversationMessage[]>(() => {
-    try {
-      const saved = localStorage.getItem(CHAT_STORAGE_KEY);
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
+    return getIdbItemSync<ConversationMessage[]>(STORAGE_KEYS.AI_CHAT, []);
   });
   const [transcript, setTranscript] = useState('');
   const [isListening, setIsListening] = useState(false);
@@ -145,11 +141,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
   }, [transcript]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(messages.slice(-40)));
-    } catch {
-      // ignore
-    }
+    saveIdbItem(STORAGE_KEYS.AI_CHAT, messages.slice(-40));
     scrollEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, open]);
 
@@ -405,7 +397,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                 type="button"
                 onClick={() => {
                   setMessages([]);
-                  localStorage.removeItem(CHAT_STORAGE_KEY);
+                  saveIdbItem(STORAGE_KEYS.AI_CHAT, []);
                 }}
                 className="p-1.5 rounded-lg bg-[#181A1B] text-[#9CA3AF] hover:text-white border border-white/10"
                 title="Verlauf leeren"

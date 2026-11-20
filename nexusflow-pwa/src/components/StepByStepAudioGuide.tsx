@@ -8,11 +8,12 @@ import {
   Volume2,
   X
 } from 'lucide-react';
-import { ExplanationItem, THEME } from '../types';
+import { ExplanationItem, KnowledgeItem, THEME } from '../types';
 import { speakText, triggerHapticFeedback } from '../services/aiRouter';
 
 interface StepByStepAudioGuideProps {
-  explanation: ExplanationItem | null;
+  item?: KnowledgeItem | ExplanationItem | null;
+  explanation?: KnowledgeItem | ExplanationItem | null;
   accentColor: string;
   onClose: () => void;
 }
@@ -23,23 +24,26 @@ interface StepByStepAudioGuideProps {
  * wie "Weiter", "Nächster Schritt", "Wiederholen", "Zurück", "Stopp".
  */
 export const StepByStepAudioGuide: React.FC<StepByStepAudioGuideProps> = ({
+  item,
   explanation,
   accentColor,
   onClose
 }) => {
+  const actualItem = item || explanation;
   const [currentIndex, setCurrentIndex] = useState(0);
   const [voiceControlActive, setVoiceControlActive] = useState(true);
   const [lastHeardCommand, setLastHeardCommand] = useState('');
   const recognitionRef = useRef<any>(null);
 
   const steps = React.useMemo(() => {
-    if (!explanation) return [];
-    const lines = explanation.stepsText
+    if (!actualItem) return [];
+    const text = (actualItem as any).content || (actualItem as any).stepsText || '';
+    const lines = text
       .split(/\n+/)
-      .map((l) => l.trim())
+      .map((l: string) => l.trim())
       .filter(Boolean);
-    return lines.length > 0 ? lines : [explanation.stepsText];
-  }, [explanation]);
+    return lines.length > 0 ? lines : [text];
+  }, [actualItem]);
 
   const readStepAloud = (idx: number) => {
     if (!steps[idx]) return;
@@ -48,12 +52,12 @@ export const StepByStepAudioGuide: React.FC<StepByStepAudioGuideProps> = ({
   };
 
   useEffect(() => {
-    if (!explanation || steps.length === 0) return;
+    if (!actualItem || steps.length === 0) return;
     readStepAloud(currentIndex);
-  }, [currentIndex, explanation]);
+  }, [currentIndex, actualItem]);
 
   useEffect(() => {
-    if (!explanation || !voiceControlActive) return;
+    if (!actualItem || !voiceControlActive) return;
 
     const SpeechRec =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -113,9 +117,9 @@ export const StepByStepAudioGuide: React.FC<StepByStepAudioGuideProps> = ({
         // ignore
       }
     };
-  }, [explanation, voiceControlActive, steps.length, currentIndex]);
+  }, [actualItem, voiceControlActive, steps.length, currentIndex]);
 
-  if (!explanation) return null;
+  if (!actualItem) return null;
 
   return (
     <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
@@ -129,7 +133,7 @@ export const StepByStepAudioGuide: React.FC<StepByStepAudioGuideProps> = ({
               Freihändiger Vorlesemodus (Audio-Guide)
             </div>
             <h3 className="text-sm font-bold text-white truncate max-w-[260px]">
-              {explanation.title}
+              {actualItem.title}
             </h3>
           </div>
           <button

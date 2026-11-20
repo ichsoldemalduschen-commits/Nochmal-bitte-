@@ -7,17 +7,25 @@ import {
   Attachment,
   BackofficeTabId,
   DomainType,
+  KnowledgeItem,
+  KnowledgeKind,
   Project,
   ProjectTabId,
   PriorityType,
   THEME
 } from './types';
+import { BRAND_CONFIG } from './config/brandConfig';
 import { INITIAL_APP_SNAPSHOT } from './data/pizzaBanditTsaSeed';
 import {
   downloadStateBackupJson,
   formatNow,
   loadPersistedState,
-  savePersistedState
+  savePersistedState,
+  requestStoragePersistence,
+  migrateLocalStorageToIDB,
+  loadIdbItem,
+  saveIdbItem,
+  STORAGE_KEYS
 } from './services/storage';
 import {
   askQuickAssistantQuestion,
@@ -53,7 +61,7 @@ interface PhotoMeasurePin {
   label: string;
 }
 
-const PHOTO_PINS_STORAGE_KEY = 'banditos_photo_pins_v3';
+const PHOTO_PINS_STORAGE_KEY = STORAGE_KEYS.PHOTO_PINS;
 
 function isCoverScreenEnvironment(): boolean {
   if (typeof window === 'undefined') return false;
@@ -72,7 +80,7 @@ export default function App() {
   const [flip7CoverMode, setFlip7CoverMode] = useState<boolean>(isCoverScreenEnvironment);
 
   const [activeDomain, setActiveDomain] = useState<DomainType>('arbeit');
-  const [selectedProjectId, setSelectedProjectId] = useState<string>('proj-foodtruck');
+  const [selectedProjectId, setSelectedProjectId] = useState<string>(BRAND_CONFIG.defaultProjectId);
   const [activeProjectTab, setActiveProjectTab] = useState<ProjectTabId>('tasks');
   const [highlightedItemId, setHighlightedItemId] = useState<string | null>(null);
 
@@ -85,14 +93,7 @@ export default function App() {
   const [newProjName, setNewProjName] = useState('');
   const [newProjSubtitle, setNewProjSubtitle] = useState('');
   const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
-  const [photoPins, setPhotoPins] = useState<Record<string, PhotoMeasurePin[]>>(() => {
-    try {
-      const raw = localStorage.getItem(PHOTO_PINS_STORAGE_KEY);
-      return raw ? JSON.parse(raw) : {};
-    } catch {
-      return {};
-    }
-  });
+  const [photoPins, setPhotoPins] = useState<Record<string, PhotoMeasurePin[]>>({});
   const [newPinLabel, setNewPinLabel] = useState('');
   const [toast, setToast] = useState<string | null>(null);
 
@@ -103,8 +104,11 @@ export default function App() {
 
   useEffect(() => {
     const onResize = () => {
-      if (window.innerHeight <= 470 && window.innerWidth <= 520) {
-        setFlip7CoverMode(true);
+      // Only auto-update cover mode when ?mode=cover is NOT explicitly set in the URL.
+      const urlForcedCover =
+        new URLSearchParams(window.location.search).get('mode') === 'cover';
+      if (!urlForcedCover) {
+        setFlip7CoverMode(isCoverScreenEnvironment());
       }
     };
     window.addEventListener('resize', onResize);
@@ -112,27 +116,32 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    // 1. Silent IDB migration & request storage persistence
+    requestStoragePersistence();
+    migrateLocalStorageToIDB().then(() => {
+      loadIdbItem<Record<string, PhotoMeasurePin[]>>(STORAGE_KEYS.PHOTO_PINS, {}).then((pins) => {
+        if (pins && Object.keys(pins).length > 0) {
+          setPhotoPins(pins);
+        }
+      });
+    });
+
+    // 2. Load persisted app state
     loadPersistedState(INITIAL_APP_SNAPSHOT).then((loaded) => {
       const normalizedProjects = (loaded.projects || INITIAL_APP_SNAPSHOT.projects).map((p) => {
-        if (p.id === 'proj-foodtruck') {
-          return {
-            ...p,
-            customLogoUrl: p.customLogoUrl || '/raccoon-logo.png',
-            enabledPlugins: Array.isArray(p.enabledPlugins) ? p.enabledPlugins : []
-          };
-        }
-        if (p.id === 'proj-baeckerei') {
-          return {
-            ...p,
-            name: 'Baustelle Bäckerei (Umbau)',
-            subtitle: p.subtitle || 'Reine Baustelle & Renovierung (150 m² Backstube)',
-            accentColor: '#D97706',
-            enabledPlugins: Array.isArray(p.enabledPlugins) ? p.enabledPlugins : []
-          };
-        }
+        const brandProj = (BRAND_CONFIG.projects as Record<string, any>)[p.id];
         return {
           ...p,
-          enabledPlugins: Array.isArray(p.enabledPlugins) ? p.enabledPlugins : []
+          name: brandProj?.name || p.name,
+          subtitle: p.subtitle || brandProj?.subtitle,
+          accentColor: p.accentColor || brandProj?.accentColor,
+          customLogoUrl: p.customLogoUrl || (p.id === BRAND_CONFIG.defaultProjectId ? '/raccoon-logo.png' : null),
+          enabledPlugins: Array.isArray(p.enabledPlugins) ? p.enabledPlugins : [],
+          enabledTabs: (Array.isArray(p.enabledTabs) && p.enabledTabs.length > 0
+            ? (p.enabledTabs as ('tasks' | 'cart' | 'knowledge' | 'extras')[])
+            : ['tasks', 'cart', 'knowledge', 'extras']) as ('tasks' | 'cart' | 'knowledge' | 'extras')[],
+          explanations: p.explanations || [],
+          infos: p.infos || []
         };
       });
 
@@ -181,24 +190,25 @@ export default function App() {
   const activeVisualTheme = useMemo(() => {
     if (activeDomain === 'privat') {
       return {
-        primary: '#4F46E5',
+        primary: BRAND_CONFIG.domainColors.privat,
         highlight: '#818CF8',
         glow: 'rgba(79, 70, 229, 0.35)'
       };
     }
-    if (activeProject?.id === 'proj-baeckerei') {
+    const brandProj = activeProject ? (BRAND_CONFIG.projects as Record<string, any>)[activeProject.id] : null;
+    if (brandProj?.accentColor) {
       return {
-        primary: '#D97706',
-        highlight: '#F59E0B',
-        glow: 'rgba(217, 119, 6, 0.35)'
+        primary: brandProj.accentColor,
+        highlight: brandProj.accentColor === '#D97706' ? '#F59E0B' : '#14B8A6',
+        glow: brandProj.accentColor === '#D97706' ? 'rgba(217, 119, 6, 0.35)' : 'rgba(10, 147, 150, 0.4)'
       };
     }
     return {
-      primary: '#0A9396',
+      primary: BRAND_CONFIG.domainColors.arbeit,
       highlight: '#14B8A6',
       glow: 'rgba(10, 147, 150, 0.4)'
     };
-  }, [activeDomain, activeProject?.id]);
+  }, [activeDomain, activeProject]);
 
   const topThreeOpenTasks = useMemo(() => {
     const list: Array<{ projectId: string; projectName: string; task: any }> = [];
@@ -221,14 +231,209 @@ export default function App() {
     }));
   };
 
+  const handleToggleTabForProject = (projId: string, tab: 'tasks' | 'cart' | 'knowledge' | 'extras') => {
+    updateProject(projId, (p) => {
+      const current = p.enabledTabs || ['tasks', 'cart', 'knowledge', 'extras'];
+      const next = current.includes(tab)
+        ? current.filter((t) => t !== tab)
+        : [...current, tab];
+      return {
+        ...p,
+        enabledTabs: next.length > 0 ? next : [tab]
+      };
+    });
+    notify('Modul-Einstellung aktualisiert.');
+  };
+
+  const handleAddKnowledge = (
+    projId: string,
+    kind: KnowledgeKind,
+    title: string,
+    content: string,
+    attachments: Attachment[] = []
+  ) => {
+    const ts = formatNow();
+    updateProject(projId, (p) => {
+      const newItem: KnowledgeItem = {
+        id: `k-${Date.now()}`,
+        title,
+        kind,
+        content,
+        stepsText: kind === 'explanation' ? content : undefined,
+        attachments: attachments || [],
+        lastModified: ts,
+        changeReason: 'Manuell erstellt',
+        source: 'Manuell',
+        aiTouched: false,
+        customMeta: {}
+      };
+      const nextKnowledge = [newItem, ...(p.knowledge || [])];
+      const nextExplanations = kind === 'explanation'
+        ? [{
+            id: newItem.id,
+            title,
+            stepsText: content,
+            lastModified: ts,
+            changeReason: 'Manuell erstellt',
+            source: 'Manuell' as const,
+            aiTouched: false,
+            customMeta: {}
+          }, ...p.explanations]
+        : p.explanations;
+      const nextInfos = kind !== 'explanation'
+        ? [{
+            id: newItem.id,
+            title,
+            content,
+            attachments: attachments || [],
+            lastModified: ts,
+            changeReason: 'Manuell erstellt',
+            source: 'Manuell' as const,
+            aiTouched: false,
+            customMeta: {}
+          }, ...p.infos]
+        : p.infos;
+
+      return {
+        ...p,
+        knowledge: nextKnowledge,
+        explanations: nextExplanations,
+        infos: nextInfos
+      };
+    });
+    notify(kind === 'explanation' ? 'Ablauf angelegt.' : 'Wissen/Info angelegt.');
+  };
+
+  const handleUpdateKnowledge = (
+    projId: string,
+    itemId: string,
+    title: string,
+    content: string
+  ) => {
+    const ts = formatNow();
+    updateProject(projId, (p) => {
+      const nextKnowledge = (p.knowledge || []).map((k) =>
+        k.id === itemId
+          ? {
+              ...k,
+              title,
+              content,
+              stepsText: k.kind === 'explanation' ? content : k.stepsText,
+              lastModified: ts,
+              changeReason: 'Bearbeitet'
+            }
+          : k
+      );
+      const nextExplanations = p.explanations.map((e) =>
+        e.id === itemId ? { ...e, title, stepsText: content, lastModified: ts, changeReason: 'Bearbeitet' } : e
+      );
+      const nextInfos = p.infos.map((i) =>
+        i.id === itemId ? { ...i, title, content, lastModified: ts, changeReason: 'Bearbeitet' } : i
+      );
+      return {
+        ...p,
+        knowledge: nextKnowledge,
+        explanations: nextExplanations,
+        infos: nextInfos
+      };
+    });
+    notify('Eintrag aktualisiert.');
+  };
+
+  const handleUploadKnowledgeAttachment = async (projId: string, itemId: string, file: File) => {
+    const isImage = file.type.startsWith('image/');
+    const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+    const isText = file.type.startsWith('text/') || /\.(txt|md|json|csv)$/i.test(file.name);
+
+    if (isImage) {
+      const { dataUrl, sizeKB } = await compressImageFile(file);
+      const newAtt: Attachment = {
+        id: `att-${Date.now()}`,
+        name: file.name,
+        type: 'image',
+        mimeType: 'image/jpeg',
+        size: sizeKB,
+        dataUrl,
+        textContent: null
+      };
+      updateProject(projId, (p) => ({
+        ...p,
+        knowledge: (p.knowledge || []).map((k) =>
+          k.id === itemId
+            ? {
+                ...k,
+                attachments: [...(k.attachments || []), newAtt],
+                lastModified: formatNow(),
+                changeReason: `Foto ${file.name} komprimiert gespeichert`
+              }
+            : k
+        ),
+        infos: p.infos.map((inf) =>
+          inf.id === itemId
+            ? {
+                ...inf,
+                attachments: [...inf.attachments, newAtt],
+                lastModified: formatNow(),
+                changeReason: `Foto ${file.name} komprimiert gespeichert`
+              }
+            : inf
+        )
+      }));
+      notify(`Foto "${file.name}" (${sizeKB}) gespeichert.`);
+      return;
+    }
+
+    const sizeKB = `${Math.max(1, Math.round(file.size / 1024))} KB`;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const res = ev.target?.result;
+      const newAtt: Attachment = {
+        id: `att-${Date.now()}`,
+        name: file.name,
+        type: isPdf ? 'pdf' : 'text',
+        mimeType: file.type || 'application/octet-stream',
+        size: sizeKB,
+        dataUrl: isPdf ? String(res) : null,
+        textContent: isText ? String(res) : null
+      };
+      updateProject(projId, (p) => ({
+        ...p,
+        knowledge: (p.knowledge || []).map((k) =>
+          k.id === itemId
+            ? {
+                ...k,
+                attachments: [...(k.attachments || []), newAtt],
+                lastModified: formatNow(),
+                changeReason: `Anhang ${file.name}`
+              }
+            : k
+        ),
+        infos: p.infos.map((inf) =>
+          inf.id === itemId
+            ? {
+                ...inf,
+                attachments: [...inf.attachments, newAtt],
+                lastModified: formatNow(),
+                changeReason: `Anhang ${file.name}`
+              }
+            : inf
+        )
+      }));
+      notify(`Datei "${file.name}" gespeichert.`);
+    };
+    if (isText && !isPdf) reader.readAsText(file);
+    else reader.readAsDataURL(file);
+  };
+
   const handleDistributeVoiceCommand = async (
     rawText: string,
     attachment: Attachment | null
   ) => {
+    const defaultProjId = BRAND_CONFIG.defaultProjectId;
     const { plan, engine } = await routeVoiceCommand(
       rawText,
       state.userApiKey,
-      activeProject?.id || 'proj-foodtruck',
+      activeProject?.id || defaultProjId,
       state.projects,
       undefined,
       attachment
@@ -237,11 +442,11 @@ export default function App() {
     const timestamp = formatNow();
     const executedActions: AiExecutedAction[] = [];
     const logId = `log-${Date.now()}`;
-    let firstTargetProjectId = activeProject?.id || 'proj-foodtruck';
+    let firstTargetProjectId = activeProject?.id || defaultProjId;
     inspectAndQueueCriticalTopic(
       rawText,
       firstTargetProjectId,
-      activeProject?.name || 'Pizza Bandit',
+      activeProject?.name || BRAND_CONFIG.projects['proj-foodtruck']?.name || 'Pizza Bandit',
       state.projects
     );
     let firstTab: ProjectTabId = activeProjectTab;
@@ -253,13 +458,14 @@ export default function App() {
           tasks: [...p.tasks],
           explanations: [...p.explanations],
           infos: [...p.infos],
+          knowledge: [...(p.knowledge || [])],
           cart: [...p.cart]
         }));
 
         plan.actions.forEach((act, idx) => {
           const target =
             nextProjects.find((p) => p.id === act.targetProjectId) ||
-            nextProjects.find((p) => p.id === (activeProject?.id || 'proj-foodtruck')) ||
+            nextProjects.find((p) => p.id === (activeProject?.id || defaultProjId)) ||
             nextProjects[0];
 
           if (!target) return;
@@ -272,7 +478,60 @@ export default function App() {
             'Durch KI zugeordnet'
           );
 
-          if (act.actionType === 'ADD_CART_ITEM') {
+          if (act.actionType === 'ADD_KNOWLEDGE') {
+            if (idx === 0) firstTab = 'knowledge';
+            const kKind: KnowledgeKind = (act.knowledgeKind as KnowledgeKind) || 'info';
+            const kItem: KnowledgeItem = {
+              id: itemId,
+              title: safeTitle,
+              kind: kKind,
+              content: act.detailedExplanation || rawText,
+              stepsText: kKind === 'explanation' ? (act.detailedExplanation || rawText) : undefined,
+              attachments: attachment ? [attachment] : [],
+              lastModified: timestamp,
+              changeReason: safeNote,
+              source: 'KI-Zuordnung',
+              aiTouched: true,
+              customMeta: {}
+            };
+            target.knowledge.unshift(kItem);
+            if (kKind === 'explanation') {
+              target.explanations.unshift({
+                id: itemId,
+                title: safeTitle,
+                stepsText: act.detailedExplanation || rawText,
+                lastModified: timestamp,
+                changeReason: safeNote,
+                source: 'KI-Zuordnung',
+                aiTouched: true,
+                customMeta: {}
+              });
+            } else {
+              target.infos.unshift({
+                id: itemId,
+                title: safeTitle,
+                content: act.detailedExplanation || rawText,
+                attachments: attachment ? [attachment] : [],
+                lastModified: timestamp,
+                changeReason: safeNote,
+                source: 'KI-Zuordnung',
+                aiTouched: true,
+                customMeta: {}
+              });
+            }
+            executedActions.push({
+              actionId: `act-${itemId}`,
+              actionType: act.actionType,
+              targetProjectId: target.id,
+              targetProjectName: target.name,
+              targetSubTab: 'knowledge',
+              targetItemId: itemId,
+              shortCheckableTitle: safeTitle,
+              detailedExplanation: act.detailedExplanation,
+              changeFooterNote: safeNote,
+              undone: false
+            } as any);
+          } else if (act.actionType === 'ADD_CART_ITEM') {
             if (idx === 0) firstTab = 'cart';
             target.cart.unshift({
               id: itemId,
@@ -300,23 +559,29 @@ export default function App() {
               undone: false
             } as any);
           } else if (act.actionType === 'UPDATE_EXPLANATION') {
-            if (idx === 0) firstTab = 'explanations';
-            target.explanations.unshift({
+            if (idx === 0) firstTab = 'knowledge';
+            const expItem = {
               id: itemId,
               title: safeTitle,
               stepsText: act.detailedExplanation || rawText,
               lastModified: timestamp,
               changeReason: safeNote,
-              source: 'KI-Zuordnung',
+              source: 'KI-Zuordnung' as const,
               aiTouched: true,
               customMeta: {}
+            };
+            target.explanations.unshift(expItem);
+            target.knowledge.unshift({
+              ...expItem,
+              kind: 'explanation',
+              content: expItem.stepsText
             });
             executedActions.push({
               actionId: `act-${itemId}`,
               actionType: act.actionType,
               targetProjectId: target.id,
               targetProjectName: target.name,
-              targetSubTab: 'explanations',
+              targetSubTab: 'knowledge',
               targetItemId: itemId,
               shortCheckableTitle: safeTitle,
               detailedExplanation: act.detailedExplanation,
@@ -324,24 +589,29 @@ export default function App() {
               undone: false
             } as any);
           } else if (act.actionType === 'ADD_INFO') {
-            if (idx === 0) firstTab = 'infos';
-            target.infos.unshift({
+            if (idx === 0) firstTab = 'knowledge';
+            const infItem = {
               id: itemId,
               title: safeTitle,
               content: act.detailedExplanation || rawText,
               attachments: attachment ? [attachment] : [],
               lastModified: timestamp,
               changeReason: safeNote,
-              source: 'KI-Zuordnung',
+              source: 'KI-Zuordnung' as const,
               aiTouched: true,
               customMeta: {}
+            };
+            target.infos.unshift(infItem);
+            target.knowledge.unshift({
+              ...infItem,
+              kind: 'info'
             });
             executedActions.push({
               actionId: `act-${itemId}`,
               actionType: act.actionType,
               targetProjectId: target.id,
               targetProjectName: target.name,
-              targetSubTab: 'infos',
+              targetSubTab: 'knowledge',
               targetItemId: itemId,
               shortCheckableTitle: safeTitle,
               detailedExplanation: act.detailedExplanation,
@@ -500,7 +770,7 @@ export default function App() {
     setTimeout(() => setHighlightedItemId(null), 2400);
   };
 
-  // Update 3: Vor-Ort Foto-Maßband (Direktes Anpinnen von Maßen auf Fotos)
+  // Vor-Ort Foto-Maßband (Direktes Anpinnen von Maßen auf Fotos)
   const handleImageClickForMeasurePin = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!previewAttachment || !newPinLabel.trim()) return;
     const rect = e.currentTarget.getBoundingClientRect();
@@ -515,7 +785,7 @@ export default function App() {
     const current = photoPins[previewAttachment.id] || [];
     const next = { ...photoPins, [previewAttachment.id]: [...current, pin] };
     setPhotoPins(next);
-    localStorage.setItem(PHOTO_PINS_STORAGE_KEY, JSON.stringify(next));
+    saveIdbItem(STORAGE_KEYS.PHOTO_PINS, next);
     setNewPinLabel('');
     notify('Maß-Pin auf dem Foto verankert.');
   };
@@ -544,7 +814,7 @@ export default function App() {
         <VoiceModal
           open={voiceModalOpen}
           autoStartMic={autoStartMicOnOpen}
-          activeProjectName={activeProject?.name || 'Pizza Bandit'}
+          activeProjectName={activeProject?.name || BRAND_CONFIG.projects['proj-foodtruck']?.name || 'Pizza Bandit'}
           projects={state.projects}
           aiLogs={state.aiLogs}
           onClose={() => setVoiceModalOpen(false)}
@@ -552,21 +822,35 @@ export default function App() {
           onAskQuestion={(q, att) =>
             askQuickAssistantQuestion(
               q,
-              activeProject?.name || 'Pizza Bandit',
+              activeProject?.name || BRAND_CONFIG.projects['proj-foodtruck']?.name || 'Pizza Bandit',
               state.userApiKey,
               att
             )
           }
           onSaveAnswerToInfos={(q, ans, att) => {
             if (!activeProject) return;
+            const newAtts = att ? [att] : [];
+            const newK: KnowledgeItem = {
+              id: `k-qa-${Date.now()}`,
+              title: enforceMaxSixWords(q, 'KI-Notiz'),
+              kind: 'info',
+              content: ans,
+              attachments: newAtts,
+              lastModified: formatNow(),
+              changeReason: 'Aus KI-Verlauf gespeichert',
+              source: 'KI-Zuordnung',
+              aiTouched: true,
+              customMeta: {}
+            };
             updateProject(activeProject.id, (p) => ({
               ...p,
+              knowledge: [newK, ...(p.knowledge || [])],
               infos: [
                 {
-                  id: `i-qa-${Date.now()}`,
-                  title: enforceMaxSixWords(q, 'KI-Notiz'),
+                  id: newK.id,
+                  title: newK.title,
                   content: ans,
-                  attachments: att ? [att] : [],
+                  attachments: newAtts,
                   lastModified: formatNow(),
                   changeReason: 'Aus KI-Verlauf gespeichert',
                   source: 'KI-Zuordnung',
@@ -576,7 +860,7 @@ export default function App() {
                 ...p.infos
               ]
             }));
-            notify('Unter Infos gespeichert.');
+            notify('Unter Wissen & Infos gespeichert.');
           }}
           onJumpToAction={handleJumpToAction}
           onUndoAiAction={handleUndoAiAction}
@@ -630,7 +914,7 @@ export default function App() {
               const ts = formatNow();
               updateProject(projId, (p) => ({
                 ...p,
-                [section]: (p[section] as any[]).map((it) =>
+                [section]: ((p as any)[section] as any[] || []).map((it) =>
                   it.id === itemId
                     ? { ...it, aiTouched: false, lastModified: ts, changeReason: 'Bestätigt' }
                     : it
@@ -683,122 +967,19 @@ export default function App() {
               }));
               notify('Checkliste zurückgesetzt.');
             }}
+            onAddKnowledge={handleAddKnowledge}
+            onUpdateKnowledge={handleUpdateKnowledge}
+            onUploadKnowledgeAttachment={handleUploadKnowledgeAttachment}
             onAddExplanation={(projId, title, stepsText) => {
-              const ts = formatNow();
-              updateProject(projId, (p) => ({
-                ...p,
-                explanations: [
-                  {
-                    id: `e-${Date.now()}`,
-                    title,
-                    stepsText,
-                    lastModified: ts,
-                    changeReason: 'Manuell erstellt',
-                    source: 'Manuell',
-                    aiTouched: false,
-                    customMeta: {}
-                  },
-                  ...p.explanations
-                ]
-              }));
+              handleAddKnowledge(projId, 'explanation', title, stepsText);
             }}
             onUpdateExplanation={(projId, expId, title, stepsText) => {
-              const ts = formatNow();
-              updateProject(projId, (p) => ({
-                ...p,
-                explanations: p.explanations.map((e) =>
-                  e.id === expId
-                    ? { ...e, title, stepsText, lastModified: ts, changeReason: 'Bearbeitet' }
-                    : e
-                )
-              }));
+              handleUpdateKnowledge(projId, expId, title, stepsText);
             }}
             onAddInfo={(projId, title, content) => {
-              const ts = formatNow();
-              updateProject(projId, (p) => ({
-                ...p,
-                infos: [
-                  {
-                    id: `i-${Date.now()}`,
-                    title,
-                    content,
-                    attachments: [],
-                    lastModified: ts,
-                    changeReason: 'Manuell erstellt',
-                    source: 'Manuell',
-                    aiTouched: false,
-                    customMeta: {}
-                  },
-                  ...p.infos
-                ]
-              }));
+              handleAddKnowledge(projId, 'info', title, content);
             }}
-            onUploadInfoAttachment={async (projId, infoId, file) => {
-              const isImage = file.type.startsWith('image/');
-              const isPdf =
-                file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
-              const isText =
-                file.type.startsWith('text/') || /\.(txt|md|json|csv)$/i.test(file.name);
-
-              if (isImage) {
-                const { dataUrl, sizeKB } = await compressImageFile(file);
-                const newAtt: Attachment = {
-                  id: `att-${Date.now()}`,
-                  name: file.name,
-                  type: 'image',
-                  mimeType: 'image/jpeg',
-                  size: sizeKB,
-                  dataUrl,
-                  textContent: null
-                };
-                updateProject(projId, (p) => ({
-                  ...p,
-                  infos: p.infos.map((inf) =>
-                    inf.id === infoId
-                      ? {
-                          ...inf,
-                          attachments: [...inf.attachments, newAtt],
-                          lastModified: formatNow(),
-                          changeReason: `Foto ${file.name} komprimiert gespeichert`
-                        }
-                      : inf
-                  )
-                }));
-                notify(`Foto "${file.name}" (${sizeKB}) gespeichert.`);
-                return;
-              }
-
-              const sizeKB = `${Math.max(1, Math.round(file.size / 1024))} KB`;
-              const reader = new FileReader();
-              reader.onload = (ev) => {
-                const res = ev.target?.result;
-                const newAtt: Attachment = {
-                  id: `att-${Date.now()}`,
-                  name: file.name,
-                  type: isPdf ? 'pdf' : 'text',
-                  mimeType: file.type || 'application/octet-stream',
-                  size: sizeKB,
-                  dataUrl: isPdf ? String(res) : null,
-                  textContent: isText ? String(res) : null
-                };
-                updateProject(projId, (p) => ({
-                  ...p,
-                  infos: p.infos.map((inf) =>
-                    inf.id === infoId
-                      ? {
-                          ...inf,
-                          attachments: [...inf.attachments, newAtt],
-                          lastModified: formatNow(),
-                          changeReason: `Anhang ${file.name}`
-                        }
-                      : inf
-                  )
-                }));
-                notify(`Datei "${file.name}" gespeichert.`);
-              };
-              if (isText && !isPdf) reader.readAsText(file);
-              else reader.readAsDataURL(file);
-            }}
+            onUploadInfoAttachment={handleUploadKnowledgeAttachment}
             onPreviewAttachment={(att) => setPreviewAttachment(att)}
             onAddCartItems={(projId, items) => {
               const ts = formatNow();
@@ -920,24 +1101,9 @@ export default function App() {
                   : [...(p.enabledPlugins || []), pluginId]
               }))
             }
+            onToggleTabForProject={handleToggleTabForProject}
             onSaveScratchpadToProject={(projId, title, content) => {
-              updateProject(projId, (p) => ({
-                ...p,
-                infos: [
-                  {
-                    id: `i-calc-${Date.now()}`,
-                    title,
-                    content,
-                    attachments: [],
-                    lastModified: formatNow(),
-                    changeReason: 'Aus Vorlage/Notiz gespeichert',
-                    source: 'Manuell',
-                    aiTouched: false,
-                    customMeta: {}
-                  },
-                  ...p.infos
-                ]
-              }));
+              handleAddKnowledge(projId, 'info', title, content);
             }}
             onChangeApiKey={(key) => setState((prev) => ({ ...prev, userApiKey: key }))}
             onToggleRealityCheck={() =>
@@ -1023,7 +1189,7 @@ export default function App() {
       <VoiceModal
         open={voiceModalOpen}
         autoStartMic={autoStartMicOnOpen}
-        activeProjectName={activeProject?.name || 'Pizza Bandit'}
+        activeProjectName={activeProject?.name || BRAND_CONFIG.projects['proj-foodtruck']?.name || 'Pizza Bandit'}
         projects={state.projects}
         aiLogs={state.aiLogs}
         onClose={() => setVoiceModalOpen(false)}
@@ -1031,21 +1197,35 @@ export default function App() {
         onAskQuestion={(q, att) =>
           askQuickAssistantQuestion(
             q,
-            activeProject?.name || 'Pizza Bandit',
+            activeProject?.name || BRAND_CONFIG.projects['proj-foodtruck']?.name || 'Pizza Bandit',
             state.userApiKey,
             att
           )
         }
         onSaveAnswerToInfos={(q, ans, att) => {
           if (!activeProject) return;
+          const newAtts = att ? [att] : [];
+          const newK: KnowledgeItem = {
+            id: `k-qa-${Date.now()}`,
+            title: enforceMaxSixWords(q, 'KI-Notiz'),
+            kind: 'info',
+            content: ans,
+            attachments: newAtts,
+            lastModified: formatNow(),
+            changeReason: 'Aus KI-Verlauf gespeichert',
+            source: 'KI-Zuordnung',
+            aiTouched: true,
+            customMeta: {}
+          };
           updateProject(activeProject.id, (p) => ({
             ...p,
+            knowledge: [newK, ...(p.knowledge || [])],
             infos: [
               {
-                id: `i-qa-${Date.now()}`,
-                title: enforceMaxSixWords(q, 'KI-Notiz'),
+                id: newK.id,
+                title: newK.title,
                 content: ans,
-                attachments: att ? [att] : [],
+                attachments: newAtts,
                 lastModified: formatNow(),
                 changeReason: 'Aus KI-Verlauf gespeichert',
                 source: 'KI-Zuordnung',
@@ -1055,7 +1235,7 @@ export default function App() {
               ...p.infos
             ]
           }));
-          notify('In Projekt-Infos gespeichert.');
+          notify('Unter Wissen & Infos gespeichert.');
         }}
         onJumpToAction={handleJumpToAction}
         onUndoAiAction={handleUndoAiAction}
@@ -1071,9 +1251,21 @@ export default function App() {
         onClose={() => setDeepResearchModalOpen(false)}
         onSaveDossierToProject={(projectId, title, markdownContent, followUpTasks) => {
           updateProject(projectId, (p) => {
-            const newInfo = {
-              id: `info-dossier-${Date.now()}`,
+            const newK: KnowledgeItem = {
+              id: `k-dossier-${Date.now()}`,
               title: enforceMaxSixWords(title, 'Rechts-Dossier'),
+              kind: 'reference',
+              content: markdownContent,
+              attachments: [],
+              lastModified: formatNow(),
+              changeReason: 'Deep Research Beleg',
+              source: 'KI-Recherche',
+              aiTouched: true,
+              customMeta: {}
+            };
+            const newInfo = {
+              id: newK.id,
+              title: newK.title,
               content: markdownContent,
               attachments: [],
               lastModified: formatNow(),
@@ -1099,6 +1291,7 @@ export default function App() {
             }));
             return {
               ...p,
+              knowledge: [newK, ...(p.knowledge || [])],
               infos: [newInfo, ...p.infos],
               tasks: [...newTasks, ...p.tasks]
             };
@@ -1144,12 +1337,27 @@ export default function App() {
               customMeta: {}
             }));
 
-            const receiptInfo = {
-              id: `info-receipt-${Date.now()}`,
+            const receiptContent = `Kassenbon / Rechnung von ${storeName}\nDatum: ${purchaseDate}\nGesamtbetrag: ${totalAmount} €\n\nErfasste Positionen:\n${items
+              .map((it) => `- ${it.quantity} ${it.title}: ${it.price} €`)
+              .join('\n')}`;
+
+            const receiptK: KnowledgeItem = {
+              id: `k-receipt-${Date.now()}`,
               title: enforceMaxSixWords(`Beleg ${storeName} ${totalAmount} €`, 'Kassenbon'),
-              content: `Kassenbon / Rechnung von ${storeName}\nDatum: ${purchaseDate}\nGesamtbetrag: ${totalAmount} €\n\nErfasste Positionen:\n${items
-                .map((it) => `- ${it.quantity} ${it.title}: ${it.price} €`)
-                .join('\n')}`,
+              kind: 'info',
+              content: receiptContent,
+              attachments: [],
+              lastModified: formatNow(),
+              changeReason: 'Kassenbon gescannt & abgeglichen',
+              source: 'Beleg-Scanner',
+              aiTouched: true,
+              customMeta: { totalAmount, storeName, purchaseDate }
+            };
+
+            const receiptInfo = {
+              id: receiptK.id,
+              title: receiptK.title,
+              content: receiptContent,
               attachments: [],
               lastModified: formatNow(),
               changeReason: 'Kassenbon gescannt & abgeglichen',
@@ -1160,6 +1368,7 @@ export default function App() {
 
             return {
               ...p,
+              knowledge: [receiptK, ...(p.knowledge || [])],
               cart: [...newCartItems, ...updatedCart],
               infos: [receiptInfo, ...p.infos]
             };
@@ -1233,9 +1442,11 @@ export default function App() {
                         archived: false,
                         customMeta: {},
                         enabledPlugins: [],
+                        enabledTabs: ['tasks', 'cart', 'knowledge', 'extras'],
                         tasks: [],
                         explanations: [],
                         infos: [],
+                        knowledge: [],
                         cart: []
                       }
                     ]
@@ -1321,7 +1532,7 @@ export default function App() {
                             [previewAttachment.id]: current.filter((p) => p.id !== pin.id)
                           };
                           setPhotoPins(next);
-                          localStorage.setItem(PHOTO_PINS_STORAGE_KEY, JSON.stringify(next));
+                          saveIdbItem(STORAGE_KEYS.PHOTO_PINS, next);
                           notify('Pin entfernt.');
                         }}
                         className="text-white/70 hover:text-white ml-0.5"

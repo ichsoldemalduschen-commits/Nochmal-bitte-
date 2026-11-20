@@ -1,8 +1,7 @@
 import { Project } from '../types';
 import { compressImageFile } from './aiRouter';
-
-const AUDIT_WATCHLIST_KEY = 'banditos_auto_audit_watchlist_v4';
-const AUDIT_SETTINGS_KEY = 'banditos_auto_audit_settings_v4';
+import { BRAND_CONFIG } from '../config/brandConfig';
+import { STORAGE_KEYS, getIdbItemSync, saveIdbItem } from './storage';
 
 export interface AuditWatchlistItem {
   id: string;
@@ -42,78 +41,31 @@ export interface DeepResearchResult {
 }
 
 export function loadAuditSettings(): AutoAuditSettings {
-  try {
-    const raw = localStorage.getItem(AUDIT_SETTINGS_KEY);
-    return raw
-      ? JSON.parse(raw)
-      : { weeklyAutoAuditEnabled: true, lastRunIso: null };
-  } catch {
-    return { weeklyAutoAuditEnabled: true, lastRunIso: null };
-  }
+  return getIdbItemSync<AutoAuditSettings>(STORAGE_KEYS.AUDIT_SETTINGS, {
+    weeklyAutoAuditEnabled: true,
+    lastRunIso: null
+  });
 }
 
 export function saveAuditSettings(settings: AutoAuditSettings): void {
-  try {
-    localStorage.setItem(AUDIT_SETTINGS_KEY, JSON.stringify(settings));
-  } catch {
-    // ignore
-  }
+  saveIdbItem(STORAGE_KEYS.AUDIT_SETTINGS, settings);
 }
 
-export function loadAuditWatchlist(projects: Project[]): AuditWatchlistItem[] {
-  try {
-    const raw = localStorage.getItem(AUDIT_WATCHLIST_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-    }
-  } catch {
-    // ignore
+export function loadAuditWatchlist(_projects: Project[]): AuditWatchlistItem[] {
+  const loaded = getIdbItemSync<AuditWatchlistItem[]>(
+    STORAGE_KEYS.AUDIT_WATCHLIST,
+    BRAND_CONFIG.defaultAuditWatchlist as AuditWatchlistItem[]
+  );
+  if (Array.isArray(loaded) && loaded.length > 0) {
+    return loaded;
   }
-
-  // Initial-Wächterliste aus deinen echten kritischen Projektpunkten
-  const defaults: AuditWatchlistItem[] = [
-    {
-      id: 'watch-gas-g607',
-      projectId: 'proj-foodtruck',
-      projectName: 'Pizza Bandit (Foodtruck)',
-      topic:
-        'Gewerbliche Flüssiggasanlage 50 mbar im Verkaufsanhänger & Hitzeschutz an der Hecktür (DVGW G 607 / DGUV Vorschrift 79)',
-      detectedReason: 'Kritischer Sicherheits- & Abnahmepunkt (Gas / Ofen)',
-      createdAt: new Date().toLocaleDateString('de-DE'),
-      completed: false
-    },
-    {
-      id: 'watch-hygiene-lmhv',
-      projectId: 'proj-foodtruck',
-      projectName: 'Pizza Bandit (Foodtruck)',
-      topic:
-        'Berührungslose Handwaschgelegenheit (Knie-/Fußtaster), Warmwasser & Frisch-/Abwassertrennung im mobilen Foodstand nach LMHV und DIN 10500',
-      detectedReason: 'Lebensmittelüberwachung / HACCP-Abnahme',
-      createdAt: new Date().toLocaleDateString('de-DE'),
-      completed: false
-    },
-    {
-      id: 'watch-lueftung-backstube',
-      projectId: 'proj-baeckerei',
-      projectName: 'Baustelle Bäckerei (Umbau)',
-      topic:
-        'Be- und Entlüftung, Brandschutzklappen und Feuchtraum-Deckenbeschichtung einer 150 m² gewerblichen Backstube (ASR A3.6 / VDI 2052 / Baurecht)',
-      detectedReason: 'Baurecht & Brandschutz Backstube',
-      createdAt: new Date().toLocaleDateString('de-DE'),
-      completed: false
-    }
-  ];
+  const defaults = BRAND_CONFIG.defaultAuditWatchlist as AuditWatchlistItem[];
   saveAuditWatchlist(defaults);
   return defaults;
 }
 
 export function saveAuditWatchlist(list: AuditWatchlistItem[]): void {
-  try {
-    localStorage.setItem(AUDIT_WATCHLIST_KEY, JSON.stringify(list));
-  } catch {
-    // ignore
-  }
+  saveIdbItem(STORAGE_KEYS.AUDIT_WATCHLIST, list);
 }
 
 /**
@@ -126,8 +78,7 @@ export function inspectAndQueueCriticalTopic(
   projectName: string,
   allProjects: Project[]
 ): void {
-  const criticalRegex =
-    /(gas|mbar|duomatic|abnahme|tüv|dguv|g\s*607|hygiene|gesundheitsamt|lmhv|waschbecken|abwasser|frischwasser|kühlkette|brandschutz|lüftung|abluft|baustrom|fi-schalter|zulassung|behörde|vorschrift|norm)/i;
+  const criticalRegex = BRAND_CONFIG.criticalAuditKeywords;
   if (!criticalRegex.test(text)) return;
 
   const list = loadAuditWatchlist(allProjects);

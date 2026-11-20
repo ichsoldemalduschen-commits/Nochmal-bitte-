@@ -1,8 +1,6 @@
-import { AiActionType, Attachment, PriorityType, Project } from '../types';
-
-const MODEL_STORAGE_KEY = 'banditos_preferred_gemini_model';
-const TTS_STORAGE_KEY = 'banditos_tts_enabled';
-const PREFS_STORAGE_KEY = 'banditos_user_prefs_v3';
+import { AiActionType, Attachment, KnowledgeKind, PriorityType, Project } from '../types';
+import { BRAND_CONFIG } from '../config/brandConfig';
+import { STORAGE_KEYS, getIdbItemSync, saveIdbItem } from './storage';
 
 export interface BanditUserPreferences {
   // Schaltbare ADHS-Unterstützung
@@ -41,21 +39,11 @@ export const DEFAULT_USER_PREFS: BanditUserPreferences = {
 };
 
 export function loadUserPrefs(): BanditUserPreferences {
-  try {
-    const raw = localStorage.getItem(PREFS_STORAGE_KEY);
-    if (!raw) return DEFAULT_USER_PREFS;
-    return { ...DEFAULT_USER_PREFS, ...JSON.parse(raw) };
-  } catch {
-    return DEFAULT_USER_PREFS;
-  }
+  return getIdbItemSync<BanditUserPreferences>(STORAGE_KEYS.USER_PREFS, DEFAULT_USER_PREFS);
 }
 
 export function saveUserPrefs(prefs: BanditUserPreferences): void {
-  try {
-    localStorage.setItem(PREFS_STORAGE_KEY, JSON.stringify(prefs));
-  } catch {
-    // ignore
-  }
+  saveIdbItem(STORAGE_KEYS.USER_PREFS, prefs);
 }
 
 export function triggerHapticFeedback(pattern: number | number[] = 14): void {
@@ -127,36 +115,19 @@ export async function compressImageFile(file: File): Promise<{ dataUrl: string; 
 }
 
 export function getPreferredModelMode(): string {
-  try {
-    return localStorage.getItem(MODEL_STORAGE_KEY) || 'SMART_PRO';
-  } catch {
-    return 'SMART_PRO';
-  }
+  return getIdbItemSync<string>(STORAGE_KEYS.PREFERRED_MODEL, 'SMART_PRO');
 }
 
 export function setPreferredModelMode(mode: string): void {
-  try {
-    localStorage.setItem(MODEL_STORAGE_KEY, mode);
-  } catch {
-    // ignore
-  }
+  saveIdbItem(STORAGE_KEYS.PREFERRED_MODEL, mode);
 }
 
 export function getTtsEnabled(): boolean {
-  try {
-    const val = localStorage.getItem(TTS_STORAGE_KEY);
-    return val === null ? true : val === 'true';
-  } catch {
-    return true;
-  }
+  return getIdbItemSync<boolean>(STORAGE_KEYS.TTS_ENABLED, true);
 }
 
 export function setTtsEnabled(enabled: boolean): void {
-  try {
-    localStorage.setItem(TTS_STORAGE_KEY, String(enabled));
-  } catch {
-    // ignore
-  }
+  saveIdbItem(STORAGE_KEYS.TTS_ENABLED, enabled);
 }
 
 export function speakText(text: string, onEnd?: () => void): void {
@@ -188,6 +159,7 @@ export function speakText(text: string, onEnd?: () => void): void {
 
 export interface StructuredAiActionPlan {
   actionType: AiActionType;
+  knowledgeKind?: KnowledgeKind;
   targetProjectId: string;
   shortCheckableTitle: string;
   detailedExplanation: string;
@@ -364,6 +336,7 @@ const AI_ROUTER_RESPONSE_SCHEMA = {
             type: 'STRING',
             enum: [
               'ADD_TASK',
+              'ADD_KNOWLEDGE',
               'UPDATE_EXPLANATION',
               'ADD_INFO',
               'ADD_CART_ITEM',
@@ -431,13 +404,32 @@ function buildWorkspaceContextSummary(projects: Project[]): string {
         .slice(0, 12)
         .map((c) => `- [Einkauf] ${c.title} (${c.quantity})`)
         .join('\n');
-      const infoTitles = p.infos
+      const knowledgeList = (p.knowledge && p.knowledge.length > 0
+        ? p.knowledge
+        : [
+            ...(p.explanations || []).map((e) => ({
+              id: e.id,
+              kind: 'explanation' as const,
+              title: e.title,
+              content: e.stepsText
+            })),
+            ...(p.infos || []).map((i) => ({
+              id: i.id,
+              kind: 'info' as const,
+              title: i.title,
+              content: i.content
+            }))
+          ]
+      )
         .slice(0, 8)
-        .map((i) => `- [Info] ${i.title}: ${i.content.slice(0, 120)}`)
+        .map(
+          (k) =>
+            `- [${k.kind === 'explanation' ? 'Ablauf' : 'Wissen'}] ${k.title}: ${k.content.slice(0, 120)}`
+        )
         .join('\n');
       return `PROJEKT ID="${p.id}" | NAME="${p.name}" | BEREICH="${p.domain}":\n${
         openTasks || '(Keine offenen Tasks)'
-      }\n${openCart || ''}\n${infoTitles || ''}`;
+      }\n${openCart || ''}\n${knowledgeList || ''}`;
     })
     .join('\n\n');
 }
@@ -475,26 +467,13 @@ export function buildLocalFallbackPlan(
 
   const actions: StructuredAiActionPlan[] = segments.map((seg) => {
     const lower = seg.toLowerCase();
-    let targetProjectId = defaultProjectId || 'proj-foodtruck';
+    let targetProjectId = defaultProjectId || BRAND_CONFIG.defaultProjectId;
 
-    if (
-      /(baustelle\s*bäckerei|backstube.*umbau|umbau.*bäckerei|decke|tiefgrund|lüftung|abluft|wickelfalz|trockenbau|fliesen|wände|baustelle)/i.test(
-        lower
-      )
-    ) {
-      targetProjectId = 'proj-baeckerei';
-    } else if (
-      /(pizza|bandit|anhänger|tsa|auszug|saladette|ofen|gas|sauerteig|mehl|dinkel|teig|backen|event|waschbecken|eurobox)/i.test(
-        lower
-      )
-    ) {
-      targetProjectId = 'proj-foodtruck';
-    } else if (/(smart\s*home|zigbee|proxmox|home\s*assistant|sensor|vlan)/i.test(lower)) {
-      targetProjectId = 'proj-smarthome';
-    } else if (/(gewohnheit|routine|mobilität|training|sport)/i.test(lower)) {
-      targetProjectId = 'proj-gewohnheiten';
-    } else if (/(privat|alltag|haushalt|steuer|auto|wochenende|familie)/i.test(lower)) {
-      targetProjectId = 'proj-alltag';
+    for (const pConfig of Object.values(BRAND_CONFIG.projects)) {
+      if (pConfig.routingKeywords && pConfig.routingKeywords.test(lower)) {
+        targetProjectId = pConfig.id;
+        break;
+      }
     }
 
     let actionType: AiActionType = 'ADD_TASK';
@@ -505,9 +484,9 @@ export function buildLocalFallbackPlan(
     ) {
       actionType = 'ADD_CART_ITEM';
     } else if (/(erklärung|anleitung|rezept|ablauf|schritt)/i.test(lower)) {
-      actionType = 'UPDATE_EXPLANATION';
-    } else if (/(info|maß|maße|merke|notiere\s+info|daten)/i.test(lower)) {
-      actionType = 'ADD_INFO';
+      actionType = 'ADD_KNOWLEDGE';
+    } else if (/(wissen|info|maß|maße|merke|notiere\s+info|daten|dossier)/i.test(lower)) {
+      actionType = 'ADD_KNOWLEDGE';
     } else if (/(erledigt|abgehakt|ist\s+fertig|gemacht)/i.test(lower)) {
       actionType = 'CHECK_OFF_TASK';
     }
@@ -568,17 +547,14 @@ export async function routeVoiceCommand(
       ? 'ADHS-STARTHILFE AKTIV: Wenn du einen neuen Task (ADD_TASK) anlegst oder Aufgaben besprichst, füge in "detailedExplanation" immer eine Zeile "Erster 2-Minuten-Handgriff: [konkreter sofort machbarer erster Handgriff]" hinzu.'
       : '';
 
-  const dynamicSystemPrompt = `Du bist der autonome System-Agent von BANDIT.OS.
+  const dynamicSystemPrompt = `Du bist der autonome System-Agent von ${BRAND_CONFIG.appName}.
 Verwende KEINE Emojis. ${toneInstruction}
 ${adhdInstruction}
 
-PROJEKT-ZUORDNUNG:
-1. "proj-foodtruck" (Pizza Bandit): Alles rund um den DDR-TSA-Anhänger (Auszugtisch, Saladette-Lift, Ofen, Gas, Waschbecken, 12V/230V-Elektrik, Euroboxen) SOWIE das gesamte Back-, Teig-, Rezept- und Event-Geschäft.
-2. "proj-baeckerei" (Baustelle Bäckerei): AUSSCHLIESSLICH baulicher Umbau und Renovierung der 150m² Backstube (Decke, Wände, Lüftung, Trockenbau, Baustrom).
-3. "proj-smarthome", "proj-gewohnheiten", "proj-alltag": Private Projekte.
+${BRAND_CONFIG.systemPromptProjectContext}
 
 REGELN:
-- Du hast vollen Lesezugriff auf alle Projekte, Tasks, Einkäufe und Infos im Kontext.
+- Du hast vollen Lesezugriff auf alle Projekte, Tasks, Einkäufe und Wissenseinträge (Abläufe & Infos) im Kontext.
 - Bei einfachen Befehlen ("Merke dir...", "Leg X in den Einkaufswagen") halte "spokenFeedback" ultrakurz (z. B. "Ist erledigt.").
 - Bei Unklarheit setze "needsClarification": true und stelle eine präzise Rückfrage.`;
 
