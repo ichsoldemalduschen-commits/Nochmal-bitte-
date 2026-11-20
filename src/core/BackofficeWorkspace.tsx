@@ -19,6 +19,7 @@ import {
   Smartphone,
   Trash2,
   Upload,
+  Volume2,
   Webhook
 } from 'lucide-react';
 import {
@@ -33,14 +34,23 @@ import {
   THEME
 } from '../types';
 import { PLUGIN_REGISTRY } from '../plugins/registry';
-import { STORAGE_KEYS, getIdbItemSync, saveIdbItem } from '../services/storage';
+import {
+  STORAGE_KEYS,
+  getAzureSpeechKey,
+  getAzureSpeechRegion,
+  getIdbItemSync,
+  saveAzureSpeechKey,
+  saveAzureSpeechRegion,
+  saveIdbItem
+} from '../services/storage';
 import {
   BanditUserPreferences,
   getPreferredModelMode,
   loadUserPrefs,
   saveUserPrefs,
   setPreferredModelMode,
-  testGeminiApiKey
+  testGeminiApiKey,
+  testGiselaVoice
 } from '../services/aiRouter';
 import { exportDayPlanIcs, exportSalesLogsCsv } from '../services/exportBridge';
 
@@ -149,6 +159,15 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
     text?: string;
   }>({ loading: false });
 
+  const [azureSpeechKey, setAzureSpeechKey] = useState<string>(getAzureSpeechKey);
+  const [azureSpeechRegion, setAzureSpeechRegion] = useState<string>(getAzureSpeechRegion);
+  const [giselaTesting, setGiselaTesting] = useState(false);
+  const [giselaTestStatus, setGiselaTestStatus] = useState<{
+    ok: boolean;
+    engine: 'azure-gisela' | 'browser-fallback';
+    message: string;
+  } | null>(null);
+
   const updatePrefs = (patch: Partial<BanditUserPreferences>) => {
     const next = { ...prefs, ...patch };
     setPrefs(next);
@@ -164,6 +183,23 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
     const res = await testGeminiApiKey(userApiKey);
     if (res.availableModels) setAvailableModels(res.availableModels);
     setApiTestStatus({ loading: false, ok: res.ok, text: res.message });
+  };
+
+  const handleTestGiselaVoice = async () => {
+    setGiselaTesting(true);
+    setGiselaTestStatus(null);
+    try {
+      const res = await testGiselaVoice(azureSpeechKey, azureSpeechRegion);
+      setGiselaTestStatus(res);
+    } catch (e: any) {
+      setGiselaTestStatus({
+        ok: false,
+        engine: 'browser-fallback',
+        message: `Fehler beim Test: ${e?.message || 'Unbekannt'}`
+      });
+    } finally {
+      setGiselaTesting(false);
+    }
   };
 
   const handleSaveCurrentProjectAsBlueprint = () => {
@@ -688,6 +724,64 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
                 {apiTestStatus.text}
               </div>
             )}
+
+            {/* STIMME GISELA (AZURE NEURAL TTS) */}
+            <div className="p-3.5 rounded-2xl bg-[#242930] border border-white/5 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <div className="text-xs font-bold text-white flex items-center gap-2">
+                  <Volume2 className="w-4 h-4 text-[#14B8A6]" />
+                  <span>Stimme „Gisela“ (Microsoft Azure Neural TTS)</span>
+                </div>
+                <span className="text-xs text-[#9CA3AF]">Optional • Offline-Fallback aktiv</span>
+              </div>
+              <div className="space-y-2">
+                <input
+                  type="password"
+                  value={azureSpeechKey}
+                  onChange={(e) => {
+                    setAzureSpeechKey(e.target.value);
+                    saveAzureSpeechKey(e.target.value);
+                  }}
+                  placeholder="Azure Speech API-Key (optional)..."
+                  className="w-full min-h-[44px] px-3.5 py-2 rounded-xl text-xs font-mono bg-[#181A1B] text-white border border-white/10"
+                />
+                <input
+                  type="text"
+                  value={azureSpeechRegion}
+                  onChange={(e) => {
+                    setAzureSpeechRegion(e.target.value);
+                    saveAzureSpeechRegion(e.target.value);
+                  }}
+                  placeholder="Azure Region (z. B. germanywestcentral oder westeurope)"
+                  className="w-full min-h-[44px] px-3.5 py-2 rounded-xl text-xs bg-[#181A1B] text-white border border-white/10"
+                />
+                <button
+                  type="button"
+                  disabled={giselaTesting}
+                  onClick={handleTestGiselaVoice}
+                  className="w-full min-h-[44px] px-4 py-2 rounded-xl text-xs font-bold text-white flex items-center justify-center gap-2 active:scale-95 transition"
+                  style={{ backgroundColor: THEME.accentPrimary }}
+                >
+                  {giselaTesting ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Volume2 className="w-4 h-4" />
+                  )}
+                  <span>Stimme Gisela testen</span>
+                </button>
+                {giselaTestStatus && (
+                  <div
+                    className={`p-3 rounded-2xl text-xs border ${
+                      giselaTestStatus.engine === 'azure-gisela'
+                        ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                        : 'bg-amber-500/10 border-amber-500/30 text-amber-300'
+                    }`}
+                  >
+                    {giselaTestStatus.message}
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         )}
       </div>

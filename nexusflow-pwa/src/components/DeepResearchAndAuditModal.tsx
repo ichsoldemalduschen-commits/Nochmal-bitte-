@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Bell,
   BookOpenCheck,
@@ -13,6 +13,8 @@ import {
   ShieldAlert,
   Trash2,
   Upload,
+  Volume2,
+  VolumeX,
   X
 } from 'lucide-react';
 import { AppStateSnapshot, Project, THEME } from '../types';
@@ -34,6 +36,7 @@ import {
   requestPushNotificationPermission,
   saveCloudConfig
 } from '../services/cloudSyncAndPush';
+import { speakText, stopSpeaking, triggerHapticFeedback } from '../services/aiRouter';
 
 interface DeepResearchAndAuditModalProps {
   open: boolean;
@@ -87,6 +90,13 @@ export const DeepResearchAndAuditModal: React.FC<DeepResearchAndAuditModalProps>
     title: string;
     content: string;
   } | null>(null);
+  const [isSpeakingDossier, setIsSpeakingDossier] = useState(false);
+
+  useEffect(() => {
+    return () => {
+      stopSpeaking();
+    };
+  }, []);
 
   const [watchlist, setWatchlist] = useState<AuditWatchlistItem[]>(() =>
     loadAuditWatchlist(projects)
@@ -113,9 +123,26 @@ export const DeepResearchAndAuditModal: React.FC<DeepResearchAndAuditModalProps>
   const selectedProj =
     activeProjects.find((p) => p.id === targetProjectId) || activeProjects[0];
 
+  const handleToggleSpeakDossier = () => {
+    if (!lastDossierPreview) return;
+    if (isSpeakingDossier) {
+      stopSpeaking();
+      setIsSpeakingDossier(false);
+      return;
+    }
+    stopSpeaking();
+    setIsSpeakingDossier(true);
+    triggerHapticFeedback(12);
+    speakText(`${lastDossierPreview.title}.\n${lastDossierPreview.content}`, () => {
+      setIsSpeakingDossier(false);
+    });
+  };
+
   const handleRunDeepResearch = async (topicToRun: string, watchItemId?: string) => {
     if (!topicToRun.trim() || !selectedProj || isResearching) return;
     setIsResearching(true);
+    stopSpeaking();
+    setIsSpeakingDossier(false);
     setLastDossierPreview(null);
 
     const res = await runDeepResearchWithCitations(
@@ -200,16 +227,20 @@ export const DeepResearchAndAuditModal: React.FC<DeepResearchAndAuditModalProps>
             <div className="text-xs font-extrabold uppercase tracking-wider text-white">
               BANDIT.OS Deep Research, Scanner &amp; Cloud
             </div>
-            <div className="text-[10px] text-[#9CA3AF]">
+            <div className="text-xs text-[#9CA3AF]">
               Rechtssichere Beleg-Dossiers, Kassenbon-Scanner &amp; Echtzeit-Sync
             </div>
           </div>
           <button
             type="button"
-            onClick={onClose}
-            className="p-1.5 rounded-xl bg-[#181A1B] text-[#9CA3AF] hover:text-white"
+            onClick={() => {
+              stopSpeaking();
+              onClose();
+            }}
+            className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl bg-[#181A1B] text-[#9CA3AF] hover:text-white"
+            aria-label="Schließen"
           >
-            <X className="w-4 h-4" />
+            <X className="w-5 h-5" />
           </button>
         </div>
 
@@ -221,31 +252,31 @@ export const DeepResearchAndAuditModal: React.FC<DeepResearchAndAuditModalProps>
           <button
             type="button"
             onClick={() => setActiveSection('research')}
-            className={`py-2 rounded-xl text-[11px] font-bold flex items-center justify-center gap-1.5 ${
+            className={`min-h-[44px] py-2 px-1 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition ${
               activeSection === 'research'
                 ? 'bg-[#0A9396] text-white'
                 : 'text-[#9CA3AF] hover:text-white'
             }`}
           >
-            <Scale className="w-3.5 h-3.5" />
+            <Scale className="w-4 h-4" />
             <span>Deep Research</span>
           </button>
           <button
             type="button"
             onClick={() => setActiveSection('receipt')}
-            className={`py-2 rounded-xl text-[11px] font-bold flex items-center justify-center gap-1.5 ${
+            className={`min-h-[44px] py-2 px-1 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition ${
               activeSection === 'receipt'
                 ? 'bg-[#0A9396] text-white'
                 : 'text-[#9CA3AF] hover:text-white'
             }`}
           >
-            <Receipt className="w-3.5 h-3.5" />
+            <Receipt className="w-4 h-4" />
             <span>Beleg-Scanner</span>
           </button>
           <button
             type="button"
             onClick={() => setActiveSection('cloud_push')}
-            className={`py-2 rounded-xl text-[11px] font-bold flex items-center justify-center gap-1.5 ${
+            className={`min-h-[44px] py-2 px-1 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition ${
               activeSection === 'cloud_push'
                 ? 'bg-[#0A9396] text-white'
                 : 'text-[#9CA3AF] hover:text-white'
@@ -296,7 +327,7 @@ export const DeepResearchAndAuditModal: React.FC<DeepResearchAndAuditModalProps>
                   <select
                     value={researchDepth}
                     onChange={(e) => setResearchDepth(e.target.value as any)}
-                    className="px-2.5 py-2 rounded-xl text-[11px] bg-[#181A1B] text-white border border-white/10"
+                    className="px-2.5 py-2 rounded-xl text-xs bg-[#181A1B] text-white border border-white/10"
                   >
                     <option value="full_dossier">
                       Voll-Dossier (Gesetze, Zitate, Links &amp; To-dos)
@@ -332,7 +363,7 @@ export const DeepResearchAndAuditModal: React.FC<DeepResearchAndAuditModalProps>
                       <ShieldAlert className="w-4 h-4 text-[#F59E0B]" />
                       <span>Wöchentlicher Auto-Audit &amp; Kritische Prüfliste</span>
                     </div>
-                    <div className="text-[10px] text-[#9CA3AF]">
+                    <div className="text-xs text-[#9CA3AF]">
                       Sammelt unter der Woche kritische Bau-/Rechtspunkte{' '}
                       {auditSettings.lastRunIso
                         ? `• Letzter Lauf: ${auditSettings.lastRunIso}`
@@ -349,7 +380,7 @@ export const DeepResearchAndAuditModal: React.FC<DeepResearchAndAuditModalProps>
                       setAuditSettings(next);
                       saveAuditSettings(next);
                     }}
-                    className="px-2.5 py-1 rounded-lg text-[10px] font-bold text-white"
+                    className="min-h-[44px] px-3 py-1 rounded-xl text-xs font-bold text-white"
                     style={{
                       backgroundColor: auditSettings.weeklyAutoAuditEnabled
                         ? THEME.accentPrimary
@@ -364,7 +395,7 @@ export const DeepResearchAndAuditModal: React.FC<DeepResearchAndAuditModalProps>
                   type="button"
                   disabled={isResearching}
                   onClick={handleRunWeeklyBatchAudit}
-                  className="w-full py-2 px-3 rounded-xl text-xs font-bold bg-[#181A1B] text-[#14B8A6] border border-[#14B8A6]/40 flex items-center justify-center gap-1.5"
+                  className="w-full min-h-[44px] py-2 px-3 rounded-xl text-xs font-bold bg-[#181A1B] text-[#14B8A6] border border-[#14B8A6]/40 flex items-center justify-center gap-1.5"
                 >
                   <RefreshCw
                     className={`w-3.5 h-3.5 ${isResearching ? 'animate-spin' : ''}`}
@@ -376,11 +407,11 @@ export const DeepResearchAndAuditModal: React.FC<DeepResearchAndAuditModalProps>
                   {watchlist.map((item) => (
                     <div
                       key={item.id}
-                      className={`p-2.5 rounded-xl bg-[#181A1B] border border-white/10 space-y-1.5 ${
+                      className={`p-3 rounded-xl bg-[#181A1B] border border-white/10 space-y-1.5 ${
                         item.completed ? 'opacity-60' : ''
                       }`}
                     >
-                      <div className="flex items-center justify-between text-[10px] text-[#9CA3AF]">
+                      <div className="flex items-center justify-between text-xs text-[#9CA3AF]">
                         <span className="font-bold text-[#14B8A6]">
                           {item.projectName}
                         </span>
@@ -390,7 +421,7 @@ export const DeepResearchAndAuditModal: React.FC<DeepResearchAndAuditModalProps>
                         {item.topic}
                       </p>
                       <div className="flex items-center justify-between pt-1">
-                        <span className="text-[10px] text-[#9CA3AF]">
+                        <span className="text-xs text-[#9CA3AF]">
                           {item.completed ? '✓ Dossier unter Infos abgelegt' : 'Offen'}
                         </span>
                         <div className="flex items-center gap-1.5">
@@ -401,7 +432,7 @@ export const DeepResearchAndAuditModal: React.FC<DeepResearchAndAuditModalProps>
                               setTargetProjectId(item.projectId);
                               void handleRunDeepResearch(item.topic, item.id);
                             }}
-                            className="px-2.5 py-1 rounded-lg text-[10px] font-bold text-white"
+                            className="min-h-[44px] px-3 py-1.5 rounded-xl text-xs font-bold text-white"
                             style={{ backgroundColor: THEME.accentPrimary }}
                           >
                             Prüfen &amp; Belege holen
@@ -413,9 +444,10 @@ export const DeepResearchAndAuditModal: React.FC<DeepResearchAndAuditModalProps>
                               setWatchlist(next);
                               saveAuditWatchlist(next);
                             }}
-                            className="p-1 text-[#9CA3AF] hover:text-red-400"
+                            className="min-h-[44px] min-w-[44px] flex items-center justify-center p-2 text-[#9CA3AF] hover:text-red-400"
+                            aria-label="Löschen"
                           >
-                            <Trash2 className="w-3.5 h-3.5" />
+                            <Trash2 className="w-4 h-4" />
                           </button>
                         </div>
                       </div>
@@ -426,9 +458,33 @@ export const DeepResearchAndAuditModal: React.FC<DeepResearchAndAuditModalProps>
 
               {lastDossierPreview && (
                 <div className="p-3.5 rounded-2xl bg-[#181A1B] border border-[#14B8A6] space-y-2">
-                  <div className="text-xs font-bold text-[#14B8A6] flex items-center gap-1.5">
-                    <FileCheck2 className="w-4 h-4" />
-                    <span>Fertiges Dossier (unter Projekt-Infos gespeichert):</span>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-xs font-bold text-[#14B8A6] flex items-center gap-1.5">
+                      <FileCheck2 className="w-4 h-4 shrink-0" />
+                      <span>Fertiges Dossier (unter Projekt-Infos gespeichert):</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleToggleSpeakDossier}
+                      className={`min-h-[44px] px-3.5 py-2 rounded-xl border transition active:scale-95 flex items-center gap-2 text-xs font-bold shrink-0 ${
+                        isSpeakingDossier
+                          ? 'bg-[#0A9396] text-white border-[#14B8A6] animate-pulse'
+                          : 'bg-[#1C2026] text-[#14B8A6] border-white/10 hover:border-[#14B8A6]/40 hover:text-white'
+                      }`}
+                      title={isSpeakingDossier ? 'Vorlesen anhalten' : 'Dossier flüssig vorlesen'}
+                    >
+                      {isSpeakingDossier ? (
+                        <>
+                          <VolumeX className="w-4 h-4" />
+                          <span>Stopp</span>
+                        </>
+                      ) : (
+                        <>
+                          <Volume2 className="w-4 h-4" />
+                          <span>Vorlesen</span>
+                        </>
+                      )}
+                    </button>
                   </div>
                   <div className="text-xs text-white whitespace-pre-wrap max-h-60 overflow-y-auto leading-relaxed">
                     {lastDossierPreview.content}
@@ -576,7 +632,7 @@ export const DeepResearchAndAuditModal: React.FC<DeepResearchAndAuditModalProps>
                   </button>
                 </div>
                 {cloudCfg.lastSyncedAt && (
-                  <div className="text-[10px] text-[#9CA3AF] text-center">
+                  <div className="text-xs text-[#9CA3AF] text-center">
                     Zuletzt synchronisiert: {cloudCfg.lastSyncedAt}
                   </div>
                 )}
@@ -593,7 +649,7 @@ export const DeepResearchAndAuditModal: React.FC<DeepResearchAndAuditModalProps>
                     <div className="text-xs font-bold text-white">
                       Native Smartphone Push-Erinnerungen
                     </div>
-                    <div className="text-[10px] text-[#9CA3AF]">
+                    <div className="text-xs text-[#9CA3AF]">
                       Meldet fällige Aufgaben-Zeiten direkt auf dem Sperrbildschirm
                     </div>
                   </div>

@@ -428,16 +428,18 @@ export default function App() {
 
   const handleDistributeVoiceCommand = async (
     rawText: string,
-    attachment: Attachment | null
+    attachment: Attachment | null,
+    requestedMode?: 'flash' | 'research'
   ) => {
     const defaultProjId = BRAND_CONFIG.defaultProjectId;
-    const { plan, engine } = await routeVoiceCommand(
+    const { plan, engine, autoUpscaledToPro } = await routeVoiceCommand(
       rawText,
       state.userApiKey,
       activeProject?.id || defaultProjId,
       state.projects,
       undefined,
-      attachment
+      attachment,
+      requestedMode
     );
 
     const timestamp = formatNow();
@@ -684,7 +686,8 @@ export default function App() {
       needsClarification: Boolean(plan.needsClarification),
       engine,
       logId,
-      actions: executedActions
+      actions: executedActions,
+      autoUpscaledToPro
     };
   };
 

@@ -156,5 +156,13 @@ export const BRAND_CONFIG: BrandConfig = {
   systemPromptProjectContext: `PROJEKT-ZUORDNUNG:
 1. "proj-foodtruck" (Pizza Bandit): Alles rund um den DDR-TSA-Anhänger (Auszugtisch, Saladette-Lift, Ofen, Gas, Waschbecken, 12V/230V-Elektrik, Euroboxen) SOWIE das gesamte Back-, Teig-, Rezept- und Event-Geschäft.
 2. "proj-baeckerei" (Baustelle Bäckerei): AUSSCHLIESSLICH baulicher Umbau und Renovierung der 150m² Backstube (Decke, Wände, Lüftung, Trockenbau, Baustrom).
-3. "proj-smarthome", "proj-gewohnheiten", "proj-alltag": Private Projekte.`
+3. "proj-smarthome", "proj-gewohnheiten", "proj-alltag": Private Projekte.
+
+WICHTIG BEI MEHRDEUTIGEN BEGRIFFEN:
+Wenn der Nutzer neutrale Werkzeuge, Baumaterialien oder Maße nennt, die ohne Kontext nicht eindeutig einem Projekt zuordenbar sind (z. B. "Silikon kaufen", "Schrauben besorgen", "Maße nehmen", "Acryl", "Malerband", "Dichtband"), ordne diese NICHT blind einem Projekt zu!
+Setze stattdessen STRIKT:
+"needsClarification": true,
+"isQuestion": true,
+"actions": [],
+und stelle in "spokenFeedback" und "directAnswer" eine kurze, präzise Rückfrage nach dem gewünschten Projekt (z. B. "Geht das Silikon an den Foodtruck oder in die Baustelle?").`
 };

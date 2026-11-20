@@ -9,7 +9,7 @@ import {
   X
 } from 'lucide-react';
 import { ExplanationItem, KnowledgeItem, THEME } from '../types';
-import { speakText, triggerHapticFeedback } from '../services/aiRouter';
+import { speakText, stopSpeaking, triggerHapticFeedback } from '../services/aiRouter';
 
 interface StepByStepAudioGuideProps {
   item?: KnowledgeItem | ExplanationItem | null;
@@ -44,6 +44,12 @@ export const StepByStepAudioGuide: React.FC<StepByStepAudioGuideProps> = ({
       .filter(Boolean);
     return lines.length > 0 ? lines : [text];
   }, [actualItem]);
+
+  useEffect(() => {
+    return () => {
+      stopSpeaking();
+    };
+  }, []);
 
   const readStepAloud = (idx: number) => {
     if (!steps[idx]) return;
@@ -87,6 +93,7 @@ export const StepByStepAudioGuide: React.FC<StepByStepAudioGuideProps> = ({
       } else if (/(wiederholen|nochmal|bitte\s+wiederholen)/i.test(phrase)) {
         readStepAloud(currentIndex);
       } else if (/(stopp|beenden|schließen)/i.test(phrase)) {
+        stopSpeaking();
         onClose();
       }
     };
@@ -129,7 +136,7 @@ export const StepByStepAudioGuide: React.FC<StepByStepAudioGuideProps> = ({
       >
         <div className="flex items-center justify-between border-b border-white/10 pb-3">
           <div>
-            <div className="text-[10px] font-extrabold uppercase tracking-wider text-[#14B8A6]">
+            <div className="text-xs font-extrabold uppercase tracking-wider text-[#14B8A6]">
               Freihändiger Vorlesemodus (Audio-Guide)
             </div>
             <h3 className="text-sm font-bold text-white truncate max-w-[260px]">
@@ -139,14 +146,13 @@ export const StepByStepAudioGuide: React.FC<StepByStepAudioGuideProps> = ({
           <button
             type="button"
             onClick={() => {
-              if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-                window.speechSynthesis.cancel();
-              }
+              stopSpeaking();
               onClose();
             }}
-            className="p-2 rounded-xl bg-[#181A1B] text-[#9CA3AF] hover:text-white"
+            className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl bg-[#181A1B] text-[#9CA3AF] hover:text-white"
+            aria-label="Schließen"
           >
-            <X className="w-4 h-4" />
+            <X className="w-5 h-5" />
           </button>
         </div>
 
@@ -178,12 +184,12 @@ export const StepByStepAudioGuide: React.FC<StepByStepAudioGuideProps> = ({
 
         {/* Sprachsteuerungs-Hinweis */}
         <div className="p-3 rounded-xl bg-[#24292E] border border-white/10 flex items-center justify-between gap-2">
-          <div className="text-[11px] text-[#9CA3AF]">
+          <div className="text-xs text-[#9CA3AF]">
             Sprachbefehle: <strong className="text-white">„Weiter“</strong>,{' '}
             <strong className="text-white">„Wiederholen“</strong>,{' '}
             <strong className="text-white">„Zurück“</strong>
             {lastHeardCommand && (
-              <div className="text-[10px] text-[#14B8A6] mt-0.5">
+              <div className="text-xs text-[#14B8A6] mt-0.5">
                 Erkannt: „{lastHeardCommand}“
               </div>
             )}
@@ -191,16 +197,16 @@ export const StepByStepAudioGuide: React.FC<StepByStepAudioGuideProps> = ({
           <button
             type="button"
             onClick={() => setVoiceControlActive((v) => !v)}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 ${
+            className={`min-h-[44px] px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition ${
               voiceControlActive
                 ? 'bg-[#0A9396] text-white'
                 : 'bg-[#181A1B] text-[#9CA3AF]'
             }`}
           >
             {voiceControlActive ? (
-              <Mic className="w-3.5 h-3.5 animate-pulse" />
+              <Mic className="w-4 h-4 animate-pulse" />
             ) : (
-              <MicOff className="w-3.5 h-3.5" />
+              <MicOff className="w-4 h-4" />
             )}
             <span>{voiceControlActive ? 'Hört zu' : 'Aus'}</span>
           </button>
@@ -212,7 +218,7 @@ export const StepByStepAudioGuide: React.FC<StepByStepAudioGuideProps> = ({
             type="button"
             disabled={currentIndex === 0}
             onClick={() => setCurrentIndex((i) => Math.max(0, i - 1))}
-            className="py-3 rounded-xl bg-[#181A1B] text-white text-xs font-bold border border-white/10 disabled:opacity-40 flex items-center justify-center gap-1"
+            className="min-h-[44px] py-3 rounded-xl bg-[#181A1B] text-white text-xs font-bold border border-white/10 disabled:opacity-40 flex items-center justify-center gap-1 active:scale-95 transition"
           >
             <ChevronLeft className="w-4 h-4" />
             <span>Zurück</span>
@@ -221,7 +227,7 @@ export const StepByStepAudioGuide: React.FC<StepByStepAudioGuideProps> = ({
           <button
             type="button"
             onClick={() => readStepAloud(currentIndex)}
-            className="py-3 rounded-xl bg-[#181A1B] text-[#14B8A6] text-xs font-bold border border-white/10 flex items-center justify-center gap-1.5"
+            className="min-h-[44px] py-3 rounded-xl bg-[#181A1B] text-[#14B8A6] text-xs font-bold border border-white/10 flex items-center justify-center gap-1.5 active:scale-95 transition"
           >
             <RotateCcw className="w-4 h-4" />
             <span>Nochmal</span>
@@ -231,7 +237,7 @@ export const StepByStepAudioGuide: React.FC<StepByStepAudioGuideProps> = ({
             type="button"
             disabled={currentIndex >= steps.length - 1}
             onClick={() => setCurrentIndex((i) => Math.min(steps.length - 1, i + 1))}
-            className="py-3 rounded-xl text-white text-xs font-bold disabled:opacity-40 flex items-center justify-center gap-1"
+            className="min-h-[44px] py-3 rounded-xl text-white text-xs font-bold disabled:opacity-40 flex items-center justify-center gap-1 active:scale-95 transition"
             style={{ backgroundColor: accentColor }}
           >
             <span>Weiter</span>

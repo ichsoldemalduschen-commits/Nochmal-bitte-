@@ -15,6 +15,9 @@ export const STORAGE_KEYS = {
   AUDIT_SETTINGS: 'banditos_auto_audit_settings_v4',
   PREFERRED_MODEL: 'banditos_preferred_gemini_model',
   TTS_ENABLED: 'banditos_tts_enabled',
+  AZURE_SPEECH_KEY: 'banditos_azure_speech_key_v1',
+  AZURE_SPEECH_REGION: 'banditos_azure_speech_region_v1',
+  ACTIVE_AI_MODE: 'banditos_active_ai_mode_v1',
   FIRED_REMINDERS: 'banditos_fired_reminders_v4'
 } as const;
 
@@ -154,6 +157,9 @@ export async function migrateLocalStorageToIndexedDB(): Promise<void> {
     STORAGE_KEYS.AUDIT_SETTINGS,
     STORAGE_KEYS.PREFERRED_MODEL,
     STORAGE_KEYS.TTS_ENABLED,
+    STORAGE_KEYS.AZURE_SPEECH_KEY,
+    STORAGE_KEYS.AZURE_SPEECH_REGION,
+    STORAGE_KEYS.ACTIVE_AI_MODE,
     STORAGE_KEYS.FIRED_REMINDERS
   ];
 
@@ -334,3 +340,35 @@ export function downloadStateBackupJson(snapshot: AppStateSnapshot): void {
 }
 
 export const migrateLocalStorageToIDB = migrateLocalStorageToIndexedDB;
+
+export function getTtsEnabled(): boolean {
+  return getIdbItemSync<boolean>(STORAGE_KEYS.TTS_ENABLED, true);
+}
+
+export function saveTtsEnabled(enabled: boolean): void {
+  saveIdbItem(STORAGE_KEYS.TTS_ENABLED, enabled);
+}
+
+export function getAzureSpeechKey(): string {
+  return getIdbItemSync<string>(STORAGE_KEYS.AZURE_SPEECH_KEY, '');
+}
+
+export function saveAzureSpeechKey(key: string): void {
+  saveIdbItem(STORAGE_KEYS.AZURE_SPEECH_KEY, key);
+}
+
+export function getAzureSpeechRegion(): string {
+  return getIdbItemSync<string>(STORAGE_KEYS.AZURE_SPEECH_REGION, 'germanywestcentral');
+}
+
+export function saveAzureSpeechRegion(region: string): void {
+  saveIdbItem(STORAGE_KEYS.AZURE_SPEECH_REGION, region);
+}
+
+export function getActiveAiMode(): 'flash' | 'research' {
+  return getIdbItemSync<'flash' | 'research'>(STORAGE_KEYS.ACTIVE_AI_MODE, 'flash');
+}
+
+export function saveActiveAiMode(mode: 'flash' | 'research'): void {
+  saveIdbItem(STORAGE_KEYS.ACTIVE_AI_MODE, mode);
+}

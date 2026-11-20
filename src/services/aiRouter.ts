@@ -1,6 +1,9 @@
 import { AiActionType, Attachment, KnowledgeKind, PriorityType, Project } from '../types';
 import { BRAND_CONFIG } from '../config/brandConfig';
-import { STORAGE_KEYS, getIdbItemSync, saveIdbItem } from './storage';
+import { STORAGE_KEYS, getActiveAiMode, getIdbItemSync, saveActiveAiMode, saveIdbItem } from './storage';
+import { speakText, stopSpeaking, testGiselaVoice } from './azureSpeech';
+
+export { speakText, stopSpeaking, testGiselaVoice };
 
 export interface BanditUserPreferences {
   // Schaltbare ADHS-Unterstützung
@@ -130,33 +133,6 @@ export function setTtsEnabled(enabled: boolean): void {
   saveIdbItem(STORAGE_KEYS.TTS_ENABLED, enabled);
 }
 
-export function speakText(text: string, onEnd?: () => void): void {
-  if (!getTtsEnabled() || typeof window === 'undefined' || !('speechSynthesis' in window)) {
-    if (onEnd) onEnd();
-    return;
-  }
-  try {
-    window.speechSynthesis.cancel();
-    const clean = text.replace(/[*#_`~]/g, '').trim();
-    if (!clean) {
-      if (onEnd) onEnd();
-      return;
-    }
-    const utter = new SpeechSynthesisUtterance(clean);
-    utter.lang = 'de-DE';
-    utter.rate = 1.08;
-    utter.onend = () => {
-      if (onEnd) onEnd();
-    };
-    utter.onerror = () => {
-      if (onEnd) onEnd();
-    };
-    window.speechSynthesis.speak(utter);
-  } catch {
-    if (onEnd) onEnd();
-  }
-}
-
 export interface StructuredAiActionPlan {
   actionType: AiActionType;
   knowledgeKind?: KnowledgeKind;
@@ -229,27 +205,37 @@ export async function fetchAvailableGeminiModels(apiKey: string): Promise<string
 
 async function buildModelCandidateList(
   apiKey: string,
-  task: 'sort' | 'qa'
+  task: 'sort' | 'qa',
+  effectiveMode?: 'flash' | 'research'
 ): Promise<string[]> {
   const mode = getPreferredModelMode();
   const defaultsProFirst = [
-    'gemini-3.8-pro',
-    'gemini-3.8-flash',
-    'gemini-3.5-pro',
-    'gemini-3.5-flash'
+    'gemini-2.5-pro',
+    'gemini-1.5-pro',
+    'gemini-2.5-flash',
+    'gemini-1.5-flash'
   ];
   const defaultsFlashFirst = [
-    'gemini-3.8-flash',
-    'gemini-3.8-pro',
-    'gemini-3.5-flash',
-    'gemini-3.5-pro'
+    'gemini-2.5-flash',
+    'gemini-1.5-flash',
+    'gemini-2.5-pro',
+    'gemini-1.5-pro'
   ];
 
   let baseList: string[] = [];
-  if (mode === 'ALWAYS_PRO') baseList = defaultsProFirst;
-  else if (mode === 'ALWAYS_FLASH') baseList = defaultsFlashFirst;
-  else if (mode === 'SMART_PRO') baseList = task === 'qa' ? defaultsProFirst : defaultsFlashFirst;
-  else baseList = [mode, ...defaultsProFirst];
+  if (effectiveMode === 'research') {
+    baseList = defaultsProFirst;
+  } else if (effectiveMode === 'flash') {
+    baseList = defaultsFlashFirst;
+  } else if (mode === 'ALWAYS_PRO') {
+    baseList = defaultsProFirst;
+  } else if (mode === 'ALWAYS_FLASH') {
+    baseList = defaultsFlashFirst;
+  } else if (mode === 'SMART_PRO') {
+    baseList = task === 'qa' ? defaultsProFirst : defaultsFlashFirst;
+  } else {
+    baseList = [mode, ...defaultsProFirst];
+  }
 
   return Array.from(new Set(baseList));
 }
@@ -257,10 +243,11 @@ async function buildModelCandidateList(
 async function callGeminiWithAutoFallback(
   apiKey: string,
   task: 'sort' | 'qa',
-  payload: Record<string, unknown>
+  payload: Record<string, unknown>,
+  effectiveMode?: 'flash' | 'research'
 ): Promise<{ ok: boolean; data?: any; usedModel: string; errorMessage?: string }> {
   const cleanKey = apiKey.trim();
-  const candidates = await buildModelCandidateList(cleanKey, task);
+  const candidates = await buildModelCandidateList(cleanKey, task, effectiveMode);
   let lastError = 'Unbekannter API-Fehler';
 
   for (const modelName of candidates) {
@@ -458,6 +445,23 @@ export function buildLocalFallbackPlan(
     };
   }
 
+  // Rückfrage-Schutz bei neutralen / mehrdeutigen Begriffen ohne Projektkontext
+  const isAmbiguous =
+    /(?:^|\b)(silikon|schrauben|maße|acryl|dichtband|malerband|dübel|nägel)(?:\b|$)/i.test(trimmed) &&
+    !/(foodtruck|anhänger|tsa|pizza|baustelle|bäckerei|backstube|privat|smarthome)/i.test(trimmed);
+
+  if (isAmbiguous) {
+    return {
+      isQuestion: true,
+      needsClarification: true,
+      spokenFeedback: 'Für welches Projekt soll ich das eintragen – Foodtruck oder Baustelle?',
+      directAnswer:
+        'Rückfrage: Zu welchem Projekt gehört das (z. B. Pizza Bandit Foodtruck oder Baustelle Bäckerei)?',
+      summary: 'Rückfrage zu Projektzuordnung',
+      actions: []
+    };
+  }
+
   const segments = trimmed
     .split(
       /;|\.\s+|\s+(?:außerdem|zusätzlich|und\s+dann\s+noch|und\s+ergänze|und\s+erstelle|und\s+notiere|und\s+packe|und\s+kaufe|und\s+brauche)\s+/i
@@ -530,10 +534,18 @@ export async function routeVoiceCommand(
   defaultProjectId: string,
   allProjects?: Project[],
   chatHistory?: ChatTurnHistory[],
-  attachment?: Attachment | null
-): Promise<{ plan: StructuredAiResponse; engine: string }> {
+  attachment?: Attachment | null,
+  requestedMode?: 'flash' | 'research'
+): Promise<{ plan: StructuredAiResponse; engine: string; autoUpscaledToPro?: boolean }> {
   const cleanKey = apiKey ? apiKey.trim() : '';
   const prefs = loadUserPrefs();
+
+  // 1-Tipp-Modus: Flash (⚡ Sprech) vs. Research (🧠 Pro) mit automatischer Hochschaltung bei Foto/Recherche
+  const currentMode = requestedMode || getActiveAiMode() || 'flash';
+  const hasPhoto = Boolean(attachment && attachment.dataUrl && attachment.dataUrl.startsWith('data:image/'));
+  const isComplexQuery = /(recherche|analyse|vergleich|rechtlich|vorschrift|norm|paragraph|dguv|din|haccp|gutachten|unterschied|warum genau|detailliert|erkläre ausführlich)/i.test(rawText);
+  const autoUpscaledToPro = currentMode === 'flash' && (hasPhoto || isComplexQuery);
+  const effectiveMode: 'flash' | 'research' = autoUpscaledToPro ? 'research' : currentMode;
 
   const toneInstruction =
     prefs.aiTone === 'short'
@@ -556,7 +568,8 @@ ${BRAND_CONFIG.systemPromptProjectContext}
 REGELN:
 - Du hast vollen Lesezugriff auf alle Projekte, Tasks, Einkäufe und Wissenseinträge (Abläufe & Infos) im Kontext.
 - Bei einfachen Befehlen ("Merke dir...", "Leg X in den Einkaufswagen") halte "spokenFeedback" ultrakurz (z. B. "Ist erledigt.").
-- Bei Unklarheit setze "needsClarification": true und stelle eine präzise Rückfrage.`;
+- Bei Unklarheit setze "needsClarification": true und stelle eine präzise Rückfrage.
+- WICHTIG BEI MEHRDEUTIGKEIT: Wenn der Nutzer neutrale Werkzeuge, Baumaterialien oder Maße nennt, die ohne Kontext nicht eindeutig einem Projekt zuordenbar sind (z. B. "Silikon kaufen", "Schrauben besorgen", "Maße nehmen", "Acryl", "Malerband", "Dichtband"), ordne NICHT blind zu! Setze "needsClarification": true, "isQuestion": true, "actions": [] und frage kurz und präzise, zu welchem Projekt es gehört.`;
 
   if (cleanKey) {
     try {
@@ -593,19 +606,24 @@ REGELN:
         }
       }
 
-      const taskType = rawText.trim().endsWith('?') || Boolean(attachment) ? 'qa' : 'sort';
+      const taskType = effectiveMode === 'research' || rawText.trim().endsWith('?') || Boolean(attachment) ? 'qa' : 'sort';
 
-      const result = await callGeminiWithAutoFallback(cleanKey, taskType, {
-        systemInstruction: {
-          parts: [{ text: dynamicSystemPrompt }]
+      const result = await callGeminiWithAutoFallback(
+        cleanKey,
+        taskType,
+        {
+          systemInstruction: {
+            parts: [{ text: dynamicSystemPrompt }]
+          },
+          contents: [{ role: 'user', parts: userParts }],
+          generationConfig: {
+            temperature: 0.2,
+            responseMimeType: 'application/json',
+            responseSchema: AI_ROUTER_RESPONSE_SCHEMA
+          }
         },
-        contents: [{ role: 'user', parts: userParts }],
-        generationConfig: {
-          temperature: 0.2,
-          responseMimeType: 'application/json',
-          responseSchema: AI_ROUTER_RESPONSE_SCHEMA
-        }
-      });
+        effectiveMode
+      );
 
       if (!result.ok) {
         const fallback = buildLocalFallbackPlan(rawText, defaultProjectId);
@@ -614,7 +632,8 @@ REGELN:
             ...fallback,
             directAnswer: `Hinweis: API meldete "${result.errorMessage}". Lokale Zuordnung genutzt.`
           },
-          engine: `Fallback (${result.errorMessage})`
+          engine: `Fallback (${result.errorMessage})`,
+          autoUpscaledToPro
         };
       }
 
@@ -657,7 +676,8 @@ REGELN:
               `${sanitizedActions.length} Aktion(en) ausgeführt.`,
             actions: sanitizedActions
           },
-          engine: result.usedModel
+          engine: result.usedModel,
+          autoUpscaledToPro
         };
       }
     } catch (err: any) {
@@ -667,7 +687,8 @@ REGELN:
 
   return {
     plan: buildLocalFallbackPlan(rawText, defaultProjectId),
-    engine: cleanKey ? 'Fallback (Verbindungsfehler)' : 'Lokaler Modus (Kein API-Key)'
+    engine: cleanKey ? 'Fallback (Verbindungsfehler)' : 'Lokaler Modus (Kein API-Key)',
+    autoUpscaledToPro
   };
 }
 

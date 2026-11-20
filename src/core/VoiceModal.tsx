@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   ArrowUpRight,
+  Brain,
   ChevronDown,
   Loader2,
   Maximize2,
@@ -23,9 +24,10 @@ import {
   loadUserPrefs,
   setTtsEnabled,
   speakText,
+  stopSpeaking,
   triggerHapticFeedback
 } from '../services/aiRouter';
-import { STORAGE_KEYS, getIdbItemSync, saveIdbItem } from '../services/storage';
+import { STORAGE_KEYS, getActiveAiMode, getIdbItemSync, saveActiveAiMode, saveIdbItem } from '../services/storage';
 
 export interface ConversationMessage {
   id: string;
@@ -47,7 +49,8 @@ interface VoiceModalProps {
   onClose: () => void;
   onExecuteCommand: (
     rawText: string,
-    attachment: Attachment | null
+    attachment: Attachment | null,
+    requestedMode?: 'flash' | 'research'
   ) => Promise<{
     replyText: string;
     spokenText: string;
@@ -55,6 +58,7 @@ interface VoiceModalProps {
     engine: string;
     logId?: string;
     actions: AiExecutedAction[];
+    autoUpscaledToPro?: boolean;
   } | void>;
   onAskQuestion: (question: string, attachment: Attachment | null) => Promise<string>;
   onSaveAnswerToInfos: (question: string, answer: string, attachment: Attachment | null) => void;
@@ -130,6 +134,8 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
   const [attachment, setAttachment] = useState<Attachment | null>(null);
   const [remainingMs, setRemainingMs] = useState<number>(SILENCE_AUTO_SEND_MS);
   const [ttsActive, setTtsActive] = useState<boolean>(getTtsEnabled);
+  const [aiMode, setAiMode] = useState<'flash' | 'research'>(() => getActiveAiMode());
+  const [upscaleNotice, setUpscaleNotice] = useState<string | null>(null);
 
   const [isMinimized, setIsMinimized] = useState(false);
   const headerTouchYRef = useRef<number | null>(null);
@@ -168,9 +174,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
   const startMicrophoneImmediately = () => {
     setSpeechNotice('');
     autoSendTriggeredRef.current = false;
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-    }
+    stopSpeaking();
 
     const SpeechRec =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -292,8 +296,13 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
     setMessages((prev) => [...prev, userMsg]);
 
     try {
-      const result = await onExecuteCommand(clean, currentAtt);
+      const result = await onExecuteCommand(clean, currentAtt, aiMode);
       if (result) {
+        if (result.autoUpscaledToPro) {
+          setUpscaleNotice('⚡ Sprech → 🧠 Research (Automatisch für Foto/Analyse auf Pro geschaltet)');
+          window.setTimeout(() => setUpscaleNotice(null), 4000);
+        }
+
         const assistantMsg: ConversationMessage = {
           id: `msg-a-${Date.now()}`,
           role: 'assistant',
@@ -375,6 +384,41 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
               </div>
 
               <div className="flex items-center gap-1.5 shrink-0">
+                {/* 1-Tipp-Umschalter auch im minimierten Zustand */}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const next = aiMode === 'flash' ? 'research' : 'flash';
+                    setAiMode(next);
+                    saveActiveAiMode(next);
+                    triggerHapticFeedback(12);
+                  }}
+                  className={`min-h-[44px] px-2.5 rounded-xl text-xs font-bold border flex items-center gap-1 active:scale-95 transition ${
+                    aiMode === 'flash'
+                      ? 'bg-[#0A9396]/20 border-[#14B8A6] text-[#14B8A6]'
+                      : 'bg-purple-950/40 border-purple-500 text-purple-300'
+                  }`}
+                  title={
+                    aiMode === 'flash'
+                      ? 'Aktuell: ⚡ Sprech (Flash) – Tippen für 🧠 Research (Pro)'
+                      : 'Aktuell: 🧠 Research (Pro) – Tippen für ⚡ Sprech (Flash)'
+                  }
+                  aria-label="KI-Modus umschalten"
+                >
+                  {aiMode === 'flash' ? (
+                    <>
+                      <Zap className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                      <span>⚡ Sprech</span>
+                    </>
+                  ) : (
+                    <>
+                      <Brain className="w-3.5 h-3.5 text-purple-300 shrink-0" />
+                      <span>🧠 Research</span>
+                    </>
+                  )}
+                </button>
+
                 <button
                   type="button"
                   onClick={(e) => {
@@ -391,6 +435,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
+                    stopSpeaking();
                     stopMicrophone();
                     onClose();
                   }}
@@ -402,6 +447,14 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                 </button>
               </div>
             </div>
+
+            {/* Automatische Hochschaltung Hinweis */}
+            {upscaleNotice && (
+              <div className="px-3 py-1.5 rounded-xl bg-purple-950/70 border border-purple-500/40 text-purple-200 text-xs flex items-center gap-2">
+                <Brain className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                <span className="truncate">{upscaleNotice}</span>
+              </div>
+            )}
 
             {/* Letzte Antwort / Nachricht Preview */}
             {messages.length > 0 && !isListening && (
@@ -552,14 +605,48 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
             </div>
 
             <div className="flex items-center gap-1.5 shrink-0">
+              {/* 1-Tipp-Umschalter: ⚡ Sprech (Flash) ↔ 🧠 Research (Pro) */}
+              <button
+                type="button"
+                onClick={() => {
+                  const next = aiMode === 'flash' ? 'research' : 'flash';
+                  setAiMode(next);
+                  saveActiveAiMode(next);
+                  triggerHapticFeedback(12);
+                }}
+                className={`min-h-[44px] px-3.5 py-1.5 rounded-xl text-xs font-bold border flex items-center gap-1.5 active:scale-95 transition ${
+                  aiMode === 'flash'
+                    ? 'bg-[#0A9396]/25 border-[#14B8A6] text-white shadow-sm'
+                    : 'bg-purple-900/35 border-purple-400 text-purple-200 shadow-sm'
+                }`}
+                title={
+                  aiMode === 'flash'
+                    ? 'Aktuell: ⚡ Sprech (Flash, schnell) – Tippen für 🧠 Research (Pro)'
+                    : 'Aktuell: 🧠 Research (Pro, tiefgründig) – Tippen für ⚡ Sprech (Flash)'
+                }
+                aria-label="KI-Modus umschalten"
+              >
+                {aiMode === 'flash' ? (
+                  <>
+                    <Zap className="w-4 h-4 text-amber-400 shrink-0" />
+                    <span>⚡ Sprech</span>
+                  </>
+                ) : (
+                  <>
+                    <Brain className="w-4 h-4 text-purple-300 shrink-0" />
+                    <span>🧠 Research</span>
+                  </>
+                )}
+              </button>
+
               <button
                 type="button"
                 onClick={() => {
                   const next = !ttsActive;
                   setTtsActive(next);
                   setTtsEnabled(next);
-                  if (!next && typeof window !== 'undefined' && 'speechSynthesis' in window) {
-                    window.speechSynthesis.cancel();
+                  if (!next) {
+                    stopSpeaking();
                   }
                 }}
                 className={`min-h-[44px] px-2.5 py-1.5 rounded-xl text-xs font-bold border flex items-center gap-1 active:scale-95 transition ${
@@ -602,6 +689,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
               <button
                 type="button"
                 onClick={() => {
+                  stopSpeaking();
                   stopMicrophone();
                   onClose();
                 }}
@@ -613,6 +701,14 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
               </button>
             </div>
           </div>
+
+          {/* Automatische Hochschaltung Hinweis im Vollbild */}
+          {upscaleNotice && (
+            <div className="mt-2 px-3 py-1.5 rounded-xl bg-purple-950/70 border border-purple-500/40 text-purple-200 text-xs flex items-center gap-2 animate-fadeIn">
+              <Brain className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+              <span className="truncate">{upscaleNotice}</span>
+            </div>
+          )}
         </div>
 
         {/* Personalisierte Schnell-Befehle (Quick-Chips) */}

@@ -2,6 +2,7 @@ import React, { useMemo, useRef, useState } from 'react';
 import {
   BookOpen,
   Volume2,
+  VolumeX,
   Scale,
   Calendar,
   Check,
@@ -53,6 +54,7 @@ import {
   loadUserPrefs,
   saveUserPrefs,
   speakText,
+  stopSpeaking,
   triggerHapticFeedback
 } from '../services/aiRouter';
 
@@ -337,14 +339,12 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
   }, [projectKnowledge, knowledgeFilter, searchQuery]);
 
   const handleSpeakKnowledge = (item: KnowledgeItem) => {
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      if (speakingKnowledgeId === item.id) {
-        window.speechSynthesis.cancel();
-        setSpeakingKnowledgeId(null);
-        return;
-      }
-      window.speechSynthesis.cancel();
+    if (speakingKnowledgeId === item.id) {
+      stopSpeaking();
+      setSpeakingKnowledgeId(null);
+      return;
     }
+    stopSpeaking();
     setSpeakingKnowledgeId(item.id);
     triggerHapticFeedback(12);
     speakText(`${item.title}.\n${item.content}`, () => {
@@ -2023,7 +2023,11 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
                             }
                             aria-label="Vorlesen"
                           >
-                            <Volume2 className="w-5 h-5" />
+                            {isSpeaking ? (
+                              <VolumeX className="w-5 h-5" />
+                            ) : (
+                              <Volume2 className="w-5 h-5" />
+                            )}
                           </button>
 
                           <div className="min-w-[44px] min-h-[44px] flex items-center justify-center text-[#9CA3AF]">
@@ -2125,6 +2129,42 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
 
                               <div className="flex items-center justify-between pt-2 border-t border-white/5">
                                 <div className="flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (item.kind === 'explanation') {
+                                        setActiveAudioGuideExp(item);
+                                      } else {
+                                        handleSpeakKnowledge(item);
+                                      }
+                                    }}
+                                    className={`min-h-[44px] px-4 rounded-xl text-xs font-semibold flex items-center gap-2 border border-white/5 active:scale-95 transition ${
+                                      isSpeaking
+                                        ? 'bg-[#0A9396] text-white border-[#14B8A6] animate-pulse'
+                                        : 'bg-[#242930] hover:bg-[#2A3038] text-[#14B8A6] hover:text-white'
+                                    }`}
+                                    title={
+                                      item.kind === 'explanation'
+                                        ? 'Freihändigen Audio-Guide starten'
+                                        : isSpeaking
+                                        ? 'Vorlesen anhalten'
+                                        : 'Text flüssig vorlesen'
+                                    }
+                                  >
+                                    {isSpeaking ? (
+                                      <>
+                                        <VolumeX className="w-4 h-4" />
+                                        <span>Stopp</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Volume2 className="w-4 h-4" />
+                                        <span>{item.kind === 'explanation' ? 'Audio-Guide' : 'Vorlesen'}</span>
+                                      </>
+                                    )}
+                                  </button>
+
                                   <button
                                     type="button"
                                     onClick={(e) => {
