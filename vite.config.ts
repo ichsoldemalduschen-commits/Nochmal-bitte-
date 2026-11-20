@@ -3,14 +3,14 @@ import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig({
-  base: './',
+  base: '/Nochmal-bitte-/',
   plugins: [
     react(),
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['pwa-192x192.png', 'pwa-512x512.png', 'raccoon-logo.png'],
       manifest: {
-        id: './',
+        id: '/Nochmal-bitte-/',
         name: 'BANDIT.OS Workspace',
         short_name: 'BANDIT.OS',
         description: 'Modulares Arbeits-, Projekt- und Fokus-System mit autonomer Sprach-KI',
@@ -18,8 +18,8 @@ export default defineConfig({
         background_color: '#181A1B',
         display: 'standalone',
         orientation: 'portrait',
-        start_url: './',
-        scope: './',
+        start_url: '/Nochmal-bitte-/',
+        scope: '/Nochmal-bitte-/',
         icons: [
           {
             src: 'pwa-192x192.png',
@@ -51,7 +51,7 @@ export default defineConfig({
             name: 'BANDIT.OS Frontdisplay',
             short_name: 'Frontdisplay',
             description: 'Kompaktansicht fuer das Galaxy Z Flip 7 Frontdisplay',
-            url: './?mode=cover'
+            url: '/Nochmal-bitte-/?mode=cover'
           }
         ]
       }
