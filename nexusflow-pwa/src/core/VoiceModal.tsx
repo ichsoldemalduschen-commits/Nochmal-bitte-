@@ -376,7 +376,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
     return (
       <div className="fixed bottom-3 inset-x-0 z-50 pointer-events-none">
         <div className="w-full max-w-[440px] mx-auto px-3">
-          <div className="pointer-events-auto rounded-3xl border border-white/15 p-2.5 shadow-2xl space-y-2 bg-[#1C2026] transition-all duration-300">
+          <div className="pointer-events-auto rounded-3xl border border-white/15 p-2.5 shadow-2xl space-y-2 bg-[#1C2026] transition-all duration-300 overflow-hidden">
             {/* Grab handle & Header: Tap to pull back up */}
             <div
               onClick={() => setIsMinimized(false)}
@@ -601,8 +601,8 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
             title="Nach unten wischen oder klicken zum Minimieren"
           />
 
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2.5 min-w-0">
+          <div className="flex items-center justify-between gap-2 flex-wrap min-w-0">
+            <div className="flex items-center gap-2.5 min-w-0 flex-1">
               <span
                 className={`w-2.5 h-2.5 rounded-full shrink-0 ${
                   isListening ? 'bg-red-500 animate-ping' : 'bg-[#14B8A6]'
@@ -618,7 +618,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
               </div>
             </div>
 
-            <div className="flex items-center gap-1.5 shrink-0">
+            <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
               {/* 1-Tipp-Umschalter: ⚡ Sprech (Flash) ↔ 🧠 Research (Pro) */}
               <button
                 type="button"
@@ -791,7 +791,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                             act.undone ? 'opacity-40' : ''
                           }`}
                         >
-                          <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center justify-between gap-2 flex-wrap min-w-0">
                             <button
                               type="button"
                               onClick={() => {
@@ -800,7 +800,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                                   onClose();
                                 }
                               }}
-                              className="text-xs font-bold text-[#14B8A6] hover:underline text-left flex items-center gap-1 truncate"
+                              className="text-xs font-bold text-[#14B8A6] hover:underline text-left flex items-center gap-1 truncate min-w-0"
                             >
                               <span className="truncate">{act.shortCheckableTitle}</span>
                               <ArrowUpRight className="w-3.5 h-3.5 shrink-0" />
@@ -811,7 +811,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                           </div>
 
                           {!act.undone && msg.logId && (
-                            <div className="flex items-center justify-between gap-2 pt-1 border-t border-white/5">
+                            <div className="flex items-center justify-between gap-2 pt-1 border-t border-white/5 flex-wrap min-w-0">
                               {onMoveAiAction && activeProjects.length > 0 && (
                                 <select
                                   value={act.targetProjectId}

@@ -1309,7 +1309,7 @@ export default function App() {
                 type="text"
                 value={bottomAiText}
                 onChange={(e) => setBottomAiText(e.target.value)}
-                placeholder="Frag mich oder gib mir Aufgaben..."
+                placeholder="Frag mich oder sprich…"
                 className="w-full min-h-[44px] pl-3.5 pr-2 py-2 rounded-2xl bg-[#242930] text-xs text-white placeholder-[#9CA3AF] border border-white/5 focus:outline-none focus:border-[#14B8A6]/60 transition"
               />
             </div>

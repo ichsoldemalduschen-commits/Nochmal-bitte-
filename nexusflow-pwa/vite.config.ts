@@ -1,9 +1,23 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
+import { execSync } from 'child_process';
+
+const now = new Date();
+const buildTimestamp = `${String(now.getDate()).padStart(2, '0')}.${String(now.getMonth() + 1).padStart(2, '0')}. · ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+let buildCommit = 'dev';
+try {
+  buildCommit = execSync('git rev-parse --short HEAD').toString().trim();
+} catch {
+  /* fallback */
+}
 
 export default defineConfig({
   base: '/Nochmal-bitte-/',
+  define: {
+    __BUILD_TIMESTAMP__: JSON.stringify(buildTimestamp),
+    __BUILD_COMMIT__: JSON.stringify(buildCommit)
+  },
   plugins: [
     react(),
     VitePWA({

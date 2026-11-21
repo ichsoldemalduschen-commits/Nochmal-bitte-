@@ -130,7 +130,7 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
   onImportFullBackup,
   onNotify
 }) => {
-  const [openSection, setOpenSection] = useState<AccordionSectionId | null>('adhd');
+  const [openSection, setOpenSection] = useState<AccordionSectionId | null>(null);
   const [prefs, setPrefs] = useState<BanditUserPreferences>(loadUserPrefs);
   const [newQuickCmd, setNewQuickCmd] = useState('');
   const [expandedProjectIds, setExpandedProjectIds] = useState<Record<string, boolean>>({});
@@ -1346,6 +1346,37 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
             </div>
           </div>
         )}
+      </div>
+      {/* BUILD-STEMPEL */}
+      <div className="mt-6 px-4 pb-4 flex items-center justify-between gap-3">
+        <span className="text-xs text-[#9CA3AF]/60 font-mono truncate">
+          Build {typeof __BUILD_TIMESTAMP__ !== 'undefined' ? __BUILD_TIMESTAMP__ : 'dev'} · {typeof __BUILD_COMMIT__ !== 'undefined' ? __BUILD_COMMIT__ : 'local'}
+        </span>
+        <button
+          type="button"
+          onClick={() => {
+            if ('serviceWorker' in navigator) {
+              navigator.serviceWorker.getRegistration().then((reg) => {
+                if (reg) {
+                  reg.update().then(() => {
+                    window.location.reload();
+                  }).catch(() => {
+                    window.location.reload();
+                  });
+                } else {
+                  window.location.reload();
+                }
+              }).catch(() => {
+                window.location.reload();
+              });
+            } else {
+              window.location.reload();
+            }
+          }}
+          className="min-h-[44px] px-3.5 rounded-xl text-xs font-semibold text-[#9CA3AF]/80 hover:text-white bg-[#242930] hover:bg-[#2A3038] border border-white/5 active:scale-95 transition shrink-0"
+        >
+          Neu laden
+        </button>
       </div>
     </div>
   );

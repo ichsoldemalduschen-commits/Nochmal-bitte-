@@ -34,7 +34,7 @@ Hintergrundfarben der App-Ebenen:
 
 ## 3  ADHS-Regeln
 
-- **Kein Durchstreichen:** Erledigte Aufgaben werden ausgeblendet oder ans Ende sortiert – niemals mit `line-through` markiert.
+- **Zartes Durchstreichen erlaubt:** Erledigte Einträge dürfen zart durchgestrichen (`line-through`) und leicht ausgegraut werden, um Platz auf schmalen Screens zu sparen. Die Markierung muss jederzeit umkehrbar sein.
 - **KI-Änderungsmarkierung:** Automatische KI-Modifikationen an Einträgen immer mit rotem Punkt `●` (`color: #EF4444`) kennzeichnen (entspricht dem `aiTouched`-Flag).
 - **Progressive Disclosure:** Formulare, Einstellungen und Extras sind standardmäßig eingeklappt und werden erst auf Nutzerinteraktion geöffnet (`isAddingTask`, `isAddingInfo` etc.). Niemals beim Laden aufgeklappte Formulare zeigen.
 - **Fokus-Anker:** Der „Wo war ich gerade?"-Anker (`adhdFocusAnchor`) bleibt immer sichtbar ganz oben, solange aktiviert.
@@ -79,3 +79,44 @@ Hintergrundfarben der App-Ebenen:
 - Commit-Format: `<type>: <kurze Beschreibung>` (z.B. `fix:`, `feat:`, `refactor:`, `docs:`)
 - Vor jedem Merge: `npm run build` muss fehlerfrei durchlaufen.
 - Keine Commits mit `console.error`-Lücken in Produktionspfaden.
+
+---
+
+## 8  Mobile-Overflow-Regel (390 px)
+
+Auf **390 px Viewportbreite** darf kein Element horizontal aus Karten oder dem Viewport ragen.
+
+- Alle Flex-Children: `min-w-0` setzen, damit `text-overflow` / `truncate` greift.
+- Button-Leisten: `flex-wrap` statt erzwungener Einzeiligkeit.
+- Keine fixe `min-width` auf Karten-Inhalten, die breiter als der Container werden kann.
+- Testlauf: DevTools → 390 × 844 (iPhone 14) → kein horizontaler Scrollbalken auf `<body>`.
+
+---
+
+## 9  git diff Schutzregel
+
+Vor jedem Commit **muss** per `git diff --stat` geprüft werden, dass keine bestehenden UI-Bereiche oder Features außerhalb des aktuellen Auftrags gelöscht wurden.
+
+- Große negative Zeilendifferenzen ohne Gegenstück (z. B. Rename/Move) sind ein Warnsignal.
+- Stichproben im Diff: Bestehende Sektionen (Azure, Gisela, Backoffice-Tabs, v4.0-Funktionen) müssen vollständig erhalten bleiben.
+- Erst nach bestandener Prüfung darf committed werden.
+
+---
+
+## 10  Modulare Ordnerstruktur `src/core/front/`
+
+Die ehemalige Mono-Datei `FrontWorkspace.tsx` (> 2 500 Zeilen) ist in eigenständige Module zerlegt:
+
+| Modul | Verantwortung |
+|---|---|
+| `FrontWorkspace.tsx` (Shell) | Shared State (Prefs, Drawer, Theme), Touch-Handler, Layout-Orchestrierung |
+| `front/NavigationDrawer.tsx` | Linker Swipe-Drawer mit Projekt-/Domain-Navigation |
+| `front/FrontHeader.tsx` | Projekt-Kopfzeile, Suche, Logo-Upload |
+| `front/TasksView.tsx` | Task-Liste, Hinzufügen, Sortierung, ADHS-Features |
+| `front/CartView.tsx` | Einkaufswagen-Sektion |
+| `front/KnowledgeView.tsx` | Wissens-Sektion (Erklärungen, Infos, Attachments) |
+| `front/ExtrasView.tsx` | Plugin-Rendering |
+| `front/AiBottomBar.tsx` | Untere KI-Eingabeleiste |
+| `front/index.ts` | Barrel-Reexport aller Module |
+
+> **Regel:** Neue Front-Features gehören in das passende Modul oder ein neues Modul unter `src/core/front/`, nicht zurück in die Shell.
