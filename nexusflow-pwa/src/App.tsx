@@ -6,12 +6,14 @@ import {
   AppStateSnapshot,
   Attachment,
   BackofficeTabId,
+  CartItem,
   DomainType,
   KnowledgeItem,
   KnowledgeKind,
   Project,
   ProjectTabId,
   PriorityType,
+  TaskItem,
   THEME
 } from './types';
 import { BRAND_CONFIG } from './config/brandConfig';
@@ -175,8 +177,10 @@ export default function App() {
     }
   };
 
+  const isPrivateDomain = (d?: string) => d === 'privat' || d === 'private';
+
   const domainProjects = useMemo(
-    () => state.projects.filter((p) => !p.archived && p.domain === activeDomain),
+    () => state.projects.filter((p) => !p.archived && isPrivateDomain(p.domain) === isPrivateDomain(activeDomain)),
     [state.projects, activeDomain]
   );
 
@@ -189,9 +193,9 @@ export default function App() {
   );
 
   const activeVisualTheme = useMemo(() => {
-    if (activeDomain === 'privat') {
+    if (isPrivateDomain(activeDomain)) {
       return {
-        primary: BRAND_CONFIG.domainColors.privat,
+        primary: BRAND_CONFIG.domainColors.private.primary,
         highlight: '#818CF8',
         glow: 'rgba(79, 70, 229, 0.35)'
       };
@@ -244,6 +248,135 @@ export default function App() {
       };
     });
     notify('Modul-Einstellung aktualisiert.');
+  };
+
+  const handleUpdateTask = (projId: string, taskId: string, patch: Partial<TaskItem>) => {
+    const ts = formatNow();
+    updateProject(projId, (p) => ({
+      ...p,
+      tasks: p.tasks.map((t) => (t.id === taskId ? { ...t, ...patch, lastModified: ts } : t))
+    }));
+    notify('Aufgabe aktualisiert.');
+  };
+
+  const handleMoveTask = (fromProjId: string, toProjId: string, taskId: string) => {
+    if (fromProjId === toProjId) return;
+    const ts = formatNow();
+    const fromProj = state.projects.find((p) => p.id === fromProjId);
+    const taskToMove = fromProj?.tasks.find((t) => t.id === taskId);
+    if (!taskToMove) return;
+
+    setState((prev) => ({
+      ...prev,
+      projects: prev.projects.map((p) => {
+        if (p.id === fromProjId) {
+          return { ...p, tasks: p.tasks.filter((t) => t.id !== taskId) };
+        }
+        if (p.id === toProjId) {
+          return {
+            ...p,
+            tasks: [{ ...taskToMove, lastModified: ts, changeReason: 'Verschoben' }, ...p.tasks]
+          };
+        }
+        return p;
+      })
+    }));
+    notify('Aufgabe in anderes Projekt verschoben.');
+  };
+
+  const handleUpdateCartItem = (projId: string, cartId: string, patch: Partial<CartItem>) => {
+    const ts = formatNow();
+    updateProject(projId, (p) => ({
+      ...p,
+      cart: p.cart.map((c) => (c.id === cartId ? { ...c, ...patch, lastModified: ts } : c))
+    }));
+    notify('Einkaufs-Artikel aktualisiert.');
+  };
+
+  const handleMoveCartItem = (fromProjId: string, toProjId: string, cartId: string) => {
+    if (fromProjId === toProjId) return;
+    const ts = formatNow();
+    const fromProj = state.projects.find((p) => p.id === fromProjId);
+    const itemToMove = fromProj?.cart.find((c) => c.id === cartId);
+    if (!itemToMove) return;
+
+    setState((prev) => ({
+      ...prev,
+      projects: prev.projects.map((p) => {
+        if (p.id === fromProjId) {
+          return { ...p, cart: p.cart.filter((c) => c.id !== cartId) };
+        }
+        if (p.id === toProjId) {
+          return {
+            ...p,
+            cart: [{ ...itemToMove, lastModified: ts, changeReason: 'Verschoben' }, ...p.cart]
+          };
+        }
+        return p;
+      })
+    }));
+    notify('Artikel in anderes Projekt verschoben.');
+  };
+
+  const handleMoveKnowledge = (fromProjId: string, toProjId: string, itemId: string) => {
+    if (fromProjId === toProjId) return;
+    const ts = formatNow();
+    const fromProj = state.projects.find((p) => p.id === fromProjId);
+    const itemToMove = fromProj?.knowledge?.find((k) => k.id === itemId);
+    if (!itemToMove) return;
+
+    setState((prev) => ({
+      ...prev,
+      projects: prev.projects.map((p) => {
+        if (p.id === fromProjId) {
+          const nextK = (p.knowledge || []).filter((k) => k.id !== itemId);
+          return {
+            ...p,
+            knowledge: nextK,
+            explanations: (p.explanations || []).filter((e) => e.id !== itemId),
+            infos: (p.infos || []).filter((i) => i.id !== itemId)
+          };
+        }
+        if (p.id === toProjId) {
+          const nextK = [{ ...itemToMove, lastModified: ts, changeReason: 'Verschoben' }, ...(p.knowledge || [])];
+          return {
+            ...p,
+            knowledge: nextK,
+            explanations: nextK.filter((k) => k.kind === 'explanation').map((k) => ({
+              id: k.id,
+              title: k.title,
+              stepsText: k.content,
+              lastModified: k.lastModified,
+              changeReason: k.changeReason,
+              source: k.source,
+              aiTouched: k.aiTouched,
+              customMeta: k.customMeta
+            })),
+            infos: nextK.filter((k) => k.kind !== 'explanation').map((k) => ({
+              id: k.id,
+              title: k.title,
+              content: k.content,
+              attachments: k.attachments || [],
+              lastModified: k.lastModified,
+              changeReason: k.changeReason,
+              source: k.source,
+              aiTouched: k.aiTouched,
+              customMeta: k.customMeta
+            }))
+          };
+        }
+        return p;
+      })
+    }));
+    notify('Wissenseintrag in anderes Projekt verschoben.');
+  };
+
+  const handleUpdateProject = (projId: string, patch: Partial<Project>) => {
+    updateProject(projId, (p) => ({
+      ...p,
+      ...patch
+    }));
+    notify('Projektdaten gespeichert.');
   };
 
   const handleAddKnowledge = (
@@ -429,15 +562,20 @@ export default function App() {
   const handleDistributeVoiceCommand = async (
     rawText: string,
     attachment: Attachment | null,
-    requestedMode?: 'flash' | 'research'
+    requestedMode?: 'flash' | 'research',
+    chatHistory?: Array<{ role: 'user' | 'assistant'; text: string }>
   ) => {
+    const activeProjects = state.projects.filter((p) => !p.archived);
     const defaultProjId = BRAND_CONFIG.defaultProjectId;
+    const effectiveDefaultProjId = (!activeProject || activeProject.archived)
+      ? (activeProjects.find((p) => p.id === defaultProjId)?.id || activeProjects[0]?.id || defaultProjId)
+      : activeProject.id;
     const { plan, engine, autoUpscaledToPro } = await routeVoiceCommand(
       rawText,
       state.userApiKey,
-      activeProject?.id || defaultProjId,
-      state.projects,
-      undefined,
+      effectiveDefaultProjId,
+      activeProjects,
+      chatHistory,
       attachment,
       requestedMode
     );
@@ -673,7 +811,7 @@ export default function App() {
       });
 
       const targetProj = state.projects.find((p) => p.id === firstTargetProjectId);
-      if (targetProj) {
+      if (targetProj && !targetProj.archived) {
         setActiveDomain(targetProj.domain);
         setSelectedProjectId(targetProj.id);
         setActiveProjectTab(firstTab);
@@ -908,7 +1046,9 @@ export default function App() {
             highlightedItemId={highlightedItemId}
             onSwitchDomain={(d) => {
               setActiveDomain(d);
-              const firstInDomain = state.projects.find((p) => !p.archived && p.domain === d);
+              const firstInDomain = state.projects.find(
+                (p) => !p.archived && isPrivateDomain(p.domain) === isPrivateDomain(d)
+              );
               if (firstInDomain) setSelectedProjectId(firstInDomain.id);
             }}
             onSelectProject={(id) => setSelectedProjectId(id)}
@@ -976,6 +1116,8 @@ export default function App() {
                 tasks: p.tasks.filter((t) => t.id !== taskId)
               }))
             }
+            onUpdateTask={handleUpdateTask}
+            onMoveTask={handleMoveTask}
             onResetChecklistForDeployment={(projId) => {
               const ts = formatNow();
               updateProject(projId, (p) => ({
@@ -1035,6 +1177,9 @@ export default function App() {
                 cart: p.cart.filter((c) => c.id !== cartId)
               }))
             }
+            onUpdateCartItem={handleUpdateCartItem}
+            onMoveCartItem={handleMoveCartItem}
+            onMoveKnowledge={handleMoveKnowledge}
             onUpdateProjectMeta={(projId, patch) =>
               updateProject(projId, (p) => ({
                 ...p,
@@ -1078,6 +1223,7 @@ export default function App() {
               }));
               notify('Archiv-Status aktualisiert.');
             }}
+            onUpdateProject={handleUpdateProject}
             onAssignDayBlock={(projId, taskId, block) =>
               updateProject(projId, (p) => ({
                 ...p,

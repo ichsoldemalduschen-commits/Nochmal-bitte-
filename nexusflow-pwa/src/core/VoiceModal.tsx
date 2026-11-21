@@ -50,7 +50,8 @@ interface VoiceModalProps {
   onExecuteCommand: (
     rawText: string,
     attachment: Attachment | null,
-    requestedMode?: 'flash' | 'research'
+    requestedMode?: 'flash' | 'research',
+    chatHistory?: Array<{ role: 'user' | 'assistant'; text: string }>
   ) => Promise<{
     replyText: string;
     spokenText: string;
@@ -264,7 +265,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
       const left = Math.max(0, SILENCE_AUTO_SEND_MS - elapsed);
       setRemainingMs(left);
 
-      if (left === 0 && !autoSendTriggeredRef.current) {
+    if (left === 0 && !autoSendTriggeredRef.current) {
         autoSendTriggeredRef.current = true;
         stopMicrophone();
         void triggerProcess(currentText);
@@ -274,9 +275,15 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
     return () => window.clearInterval(interval);
   }, [open, isListening, isProcessing]);
 
+  const isSendingRef = useRef(false);
+
   const triggerProcess = async (textToProcess: string) => {
     const clean = textToProcess.trim();
-    if (!clean || isProcessing) return;
+    // Doppel-Absende-Guard: sauber per Ref sperren, damit Auto-Timer und manueller Klick
+    // sich gegenseitig ausschließen ohne Race-Condition
+    if (!clean || isProcessing || isSendingRef.current) return;
+    isSendingRef.current = true;
+    autoSendTriggeredRef.current = true;
 
     stopMicrophone();
     setIsProcessing(true);
@@ -293,13 +300,20 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
       timestamp: new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }),
       attachmentName: currentAtt?.name
     };
+
+    // Kontext für KI-Amnesie-Fix: Letzte sichtbare Dialoge übergeben
+    const recentHistory = messages.slice(-10).map((m) => ({
+      role: m.role,
+      text: m.text
+    }));
+
     setMessages((prev) => [...prev, userMsg]);
 
     try {
-      const result = await onExecuteCommand(clean, currentAtt, aiMode);
+      const result = await onExecuteCommand(clean, currentAtt, aiMode, recentHistory);
       if (result) {
         if (result.autoUpscaledToPro) {
-          setUpscaleNotice('⚡ Sprech → 🧠 Research (Automatisch für Foto/Analyse auf Pro geschaltet)');
+          setUpscaleNotice('Sprech → Research (Automatisch für Foto/Analyse auf Pro geschaltet)');
           window.setTimeout(() => setUpscaleNotice(null), 4000);
         }
 
@@ -316,18 +330,18 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
           actions: result.actions
         };
         setMessages((prev) => [...prev, assistantMsg]);
-        setIsProcessing(false);
 
         speakText(result.spokenText, () => {
           if (result.needsClarification && open) {
             startMicrophoneImmediately();
           }
         });
-      } else {
-        setIsProcessing(false);
       }
-    } catch {
+    } catch (err) {
+      console.warn('[VoiceModal] Fehler bei Sprachausführung:', err);
+    } finally {
       setIsProcessing(false);
+      isSendingRef.current = false;
     }
   };
 
@@ -401,20 +415,20 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                   }`}
                   title={
                     aiMode === 'flash'
-                      ? 'Aktuell: ⚡ Sprech (Flash) – Tippen für 🧠 Research (Pro)'
-                      : 'Aktuell: 🧠 Research (Pro) – Tippen für ⚡ Sprech (Flash)'
+                      ? 'Aktuell: Sprech (Flash) – Tippen für Research (Pro)'
+                      : 'Aktuell: Research (Pro) – Tippen für Sprech (Flash)'
                   }
                   aria-label="KI-Modus umschalten"
                 >
                   {aiMode === 'flash' ? (
                     <>
                       <Zap className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                      <span>⚡ Sprech</span>
+                      <span>Sprech</span>
                     </>
                   ) : (
                     <>
                       <Brain className="w-3.5 h-3.5 text-purple-300 shrink-0" />
-                      <span>🧠 Research</span>
+                      <span>Research</span>
                     </>
                   )}
                 </button>
@@ -621,20 +635,20 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                 }`}
                 title={
                   aiMode === 'flash'
-                    ? 'Aktuell: ⚡ Sprech (Flash, schnell) – Tippen für 🧠 Research (Pro)'
-                    : 'Aktuell: 🧠 Research (Pro, tiefgründig) – Tippen für ⚡ Sprech (Flash)'
+                    ? 'Aktuell: Sprech (Flash, schnell) – Tippen für Research (Pro)'
+                    : 'Aktuell: Research (Pro, tiefgründig) – Tippen für Sprech (Flash)'
                 }
                 aria-label="KI-Modus umschalten"
               >
                 {aiMode === 'flash' ? (
                   <>
                     <Zap className="w-4 h-4 text-amber-400 shrink-0" />
-                    <span>⚡ Sprech</span>
+                    <span>Sprech</span>
                   </>
                 ) : (
                   <>
                     <Brain className="w-4 h-4 text-purple-300 shrink-0" />
-                    <span>🧠 Research</span>
+                    <span>Research</span>
                   </>
                 )}
               </button>

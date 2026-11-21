@@ -9,6 +9,7 @@ import {
   Compass,
   Copy,
   Download,
+  FolderArchive,
   HeartHandshake,
   Key,
   Loader2,
@@ -36,6 +37,7 @@ import {
 import { PLUGIN_REGISTRY } from '../plugins/registry';
 import {
   STORAGE_KEYS,
+  downloadProjectJson,
   getAzureSpeechKey,
   getAzureSpeechRegion,
   getIdbItemSync,
@@ -79,6 +81,7 @@ interface BackofficeWorkspaceProps {
   onUndoAiAction: (logId: string, actionId: string) => void;
   onMoveAiAction: (logId: string, actionId: string, newProjectId: string) => void;
   onToggleArchiveProject: (projectId: string) => void;
+  onUpdateProject?: (projectId: string, patch: Partial<Project>) => void;
   onAssignDayBlock: (projectId: string, taskId: string, block: DayBlockId | null) => void;
   onAutoStructureDay: () => void;
   onTogglePluginForProject: (projectId: string, pluginId: string) => void;
@@ -112,6 +115,7 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
   userApiKey,
   onCloseBackoffice,
   onToggleArchiveProject,
+  onUpdateProject,
   onAssignDayBlock,
   onAutoStructureDay,
   onTogglePluginForProject,
@@ -129,6 +133,11 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
   const [openSection, setOpenSection] = useState<AccordionSectionId | null>('adhd');
   const [prefs, setPrefs] = useState<BanditUserPreferences>(loadUserPrefs);
   const [newQuickCmd, setNewQuickCmd] = useState('');
+  const [expandedProjectIds, setExpandedProjectIds] = useState<Record<string, boolean>>({});
+
+  const toggleProjectExpand = (id: string) => {
+    setExpandedProjectIds((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
 
   // Update 6 (Erweiterung): Vorlagen-Tresor (Blueprints)
   const [blueprints, setBlueprints] = useState<BlueprintTemplate[]>(() => {
@@ -961,18 +970,26 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
 
         {openSection === 'smarthome_backup' && (
           <div className="px-4 pb-4 pt-2 border-t border-white/5 space-y-3 bg-[#1C2026]/70">
-            {/* MODULARE PROJEKT-MODULE (enabledTabs) */}
-            <div className="p-3.5 rounded-2xl bg-[#242930] border border-white/5 space-y-2.5">
+            {/* PROJEKT- & MODUL-VERWALTUNG (Name, Farbe, lifecycle, domain, enabledTabs, Archivieren, JSON-Export) */}
+            <div className="p-3.5 rounded-2xl bg-[#242930] border border-white/5 space-y-3">
               <div className="flex items-center justify-between">
                 <div className="text-xs font-bold text-white flex items-center gap-2">
                   <Sliders className="w-4 h-4 text-[#14B8A6]" />
-                  <span>Modulare Projekt-Bereiche (Module)</span>
+                  <span>Projekt- &amp; Modul-Verwaltung</span>
                 </div>
-                <span className="text-xs text-[#9CA3AF]">Pro Projekt anpassbar</span>
+                <span className="text-xs text-[#9CA3AF]">{projects.length} Projekte gesamt</span>
               </div>
-              <div className="space-y-2 pt-1">
-                {activeProjects.map((proj) => {
+              <p className="text-xs text-[#9CA3AF] leading-relaxed">
+                Jedes Projekt direkt konfigurieren: Name, Akzentfarbe, Dauer-Begleiter vs. Austausch-Projekt,
+                Business vs. Privat, aktive Module sowie Einzel-Export.
+              </p>
+
+              <div className="space-y-3 pt-1">
+                {projects.map((proj) => {
                   const currentTabs = proj.enabledTabs || ['tasks', 'cart', 'knowledge', 'extras'];
+                  const isExpanded = !!expandedProjectIds[proj.id];
+                  const isPrivate = proj.domain === 'privat' || proj.domain === 'private';
+                  const isPermanent = proj.lifecycle !== 'project';
                   const modules: Array<{ id: 'tasks' | 'cart' | 'knowledge' | 'extras'; label: string }> = [
                     { id: 'tasks', label: 'Tasks' },
                     { id: 'cart', label: 'Einkauf' },
@@ -983,35 +1000,254 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
                   return (
                     <div
                       key={proj.id}
-                      className="p-3 rounded-xl bg-[#1C2026] border border-white/5 space-y-2"
+                      className={`p-3.5 rounded-2xl border transition-all space-y-3 ${
+                        proj.archived ? 'bg-[#181A1B]/70 border-white/5 opacity-85' : 'bg-[#1C2026] border-white/10'
+                      }`}
                     >
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-white truncate max-w-[200px]">
-                          {proj.name}
-                        </span>
-                        <span className="text-xs text-[#9CA3AF]">
-                          {currentTabs.length} / 4 aktiv
-                        </span>
+                      {/* Projekt Kopfzeile */}
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <div
+                          onClick={() => toggleProjectExpand(proj.id)}
+                          className="flex items-center gap-2.5 min-w-0 cursor-pointer flex-1"
+                        >
+                          <span
+                            className="w-3.5 h-3.5 rounded-full shrink-0 border border-white/20"
+                            style={{ backgroundColor: proj.accentColor || '#14B8A6' }}
+                          />
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-sm font-bold text-white truncate max-w-[200px]">
+                                {proj.name}
+                              </span>
+                              {proj.archived && (
+                                <span className="text-xs px-2 py-0.5 rounded-full bg-red-500/20 text-red-300 font-semibold border border-red-500/30">
+                                  Archiviert
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1.5 mt-0.5 text-xs text-[#9CA3AF]">
+                              <span
+                                className={`px-2 py-0.5 rounded font-semibold ${
+                                  isPermanent
+                                    ? 'bg-emerald-500/15 text-emerald-300'
+                                    : 'bg-amber-500/15 text-amber-300'
+                                }`}
+                              >
+                                {isPermanent ? 'Dauer-Begleiter' : 'Projekt'}
+                              </span>
+                              <span>•</span>
+                              <span
+                                className={`px-2 py-0.5 rounded font-semibold ${
+                                  isPrivate
+                                    ? 'bg-purple-500/15 text-purple-300'
+                                    : 'bg-teal-500/15 text-teal-300'
+                                }`}
+                              >
+                                {isPrivate ? 'Privat' : 'Business'}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {/* Einzel-Export Button */}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              downloadProjectJson(proj);
+                              onNotify(`Projekt "${proj.name}" als JSON heruntergeladen.`);
+                            }}
+                            className="min-h-[44px] min-w-[44px] px-3 py-2 rounded-xl text-xs font-semibold bg-[#242930] hover:bg-[#2A3038] text-white border border-white/10 flex items-center gap-1.5 active:scale-95 transition"
+                            title="Einzelnes Projekt als JSON sichern"
+                          >
+                            <Download className="w-3.5 h-3.5 text-[#14B8A6]" />
+                            <span>JSON</span>
+                          </button>
+
+                          {/* Archivieren / Wiederherstellen */}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onToggleArchiveProject(proj.id);
+                            }}
+                            className={`min-h-[44px] px-3.5 py-2 rounded-xl text-xs font-bold border active:scale-95 transition ${
+                              proj.archived
+                                ? 'bg-[#0A9396] text-white border-[#14B8A6]'
+                                : 'bg-[#242930] text-[#9CA3AF] hover:text-white border-white/10'
+                            }`}
+                          >
+                            {proj.archived ? 'Reaktivieren' : 'Archivieren'}
+                          </button>
+
+                          {/* Aufklappen */}
+                          <button
+                            type="button"
+                            onClick={() => toggleProjectExpand(proj.id)}
+                            className="w-11 h-11 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl text-[#9CA3AF] hover:text-white bg-[#242930] border border-white/5 active:scale-95 transition"
+                            aria-label="Projektdetails bearbeiten"
+                          >
+                            {isExpanded ? (
+                              <ChevronUp className="w-4 h-4" />
+                            ) : (
+                              <ChevronDown className="w-4 h-4" />
+                            )}
+                          </button>
+                        </div>
                       </div>
-                      <div className="grid grid-cols-4 gap-1.5">
-                        {modules.map((m) => {
-                          const isEnabled = currentTabs.includes(m.id);
-                          return (
-                            <button
-                              type="button"
-                              key={m.id}
-                              onClick={() => onToggleTabForProject?.(proj.id, m.id)}
-                              className={`min-h-[44px] px-2 py-1.5 rounded-xl text-xs font-bold border flex items-center justify-center transition active:scale-95 ${
-                                isEnabled
-                                  ? 'bg-[#0A9396] text-white border-[#14B8A6]'
-                                  : 'bg-[#181A1B] text-[#9CA3AF] border-white/10 hover:text-white'
-                              }`}
-                            >
-                              {m.label}
-                            </button>
-                          );
-                        })}
-                      </div>
+
+                      {/* Aufgeklappter Bearbeitungsbereich */}
+                      {isExpanded && (
+                        <div className="pt-3 border-t border-white/5 space-y-3 text-xs animate-fadeIn">
+                          {/* Name bearbeiten */}
+                          <div className="space-y-1">
+                            <label className="text-[#9CA3AF] font-medium block">Projekt-Name:</label>
+                            <input
+                              type="text"
+                              value={proj.name}
+                              onChange={(e) => onUpdateProject?.(proj.id, { name: e.target.value })}
+                              className="w-full min-h-[44px] px-3.5 py-2 rounded-xl text-xs font-semibold bg-[#181A1B] text-white border border-white/10 focus:outline-none focus:border-[#14B8A6]"
+                            />
+                          </div>
+
+                          {/* Farbe bearbeiten */}
+                          <div className="space-y-1">
+                            <label className="text-[#9CA3AF] font-medium block">Akzentfarbe:</label>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="text"
+                                value={proj.accentColor || '#14B8A6'}
+                                onChange={(e) =>
+                                  onUpdateProject?.(proj.id, { accentColor: e.target.value })
+                                }
+                                className="flex-1 min-h-[44px] px-3.5 py-2 rounded-xl text-xs font-mono bg-[#181A1B] text-white border border-white/10 focus:outline-none focus:border-[#14B8A6]"
+                              />
+                              <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
+                                {['#0A9396', '#D97706', '#4F46E5', '#10B981', '#8B5CF6', '#DC2626'].map(
+                                  (c) => (
+                                    <button
+                                      type="button"
+                                      key={c}
+                                      onClick={() => onUpdateProject?.(proj.id, { accentColor: c })}
+                                      className="w-11 h-11 min-w-[44px] min-h-[44px] rounded-xl flex items-center justify-center bg-[#181A1B] border border-white/10 active:scale-95 transition"
+                                      title={`Farbe ${c} wählen`}
+                                      aria-label={`Farbe ${c} wählen`}
+                                    >
+                                      <span
+                                        className="w-5 h-5 rounded-full border border-white/30"
+                                        style={{ backgroundColor: c }}
+                                      />
+                                    </button>
+                                  )
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Lifecycle-Wahl: Dauer-Begleiter vs. Austausch-Projekt */}
+                          <div className="space-y-1">
+                            <label className="text-[#9CA3AF] font-medium block">
+                              Lebenszyklus (Dauer-Begleiter vs. Projekt):
+                            </label>
+                            <div className="grid grid-cols-2 gap-2">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  onUpdateProject?.(proj.id, { lifecycle: 'permanent' })
+                                }
+                                className={`min-h-[44px] px-3 py-2 rounded-xl text-xs font-bold border transition active:scale-95 ${
+                                  isPermanent
+                                    ? 'bg-[#0A9396] text-white border-[#14B8A6]'
+                                    : 'bg-[#181A1B] text-[#9CA3AF] border-white/10 hover:text-white'
+                                }`}
+                              >
+                                Dauer-Begleiter (permanent)
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  onUpdateProject?.(proj.id, { lifecycle: 'project' })
+                                }
+                                className={`min-h-[44px] px-3 py-2 rounded-xl text-xs font-bold border transition active:scale-95 ${
+                                  !isPermanent
+                                    ? 'bg-[#D97706] text-white border-[#F59E0B]'
+                                    : 'bg-[#181A1B] text-[#9CA3AF] border-white/10 hover:text-white'
+                                }`}
+                              >
+                                Austausch-Projekt (project)
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Domain-Wahl: Business vs. Private */}
+                          <div className="space-y-1">
+                            <label className="text-[#9CA3AF] font-medium block">
+                              Bereich (Geschäftlich vs. Privat):
+                            </label>
+                            <div className="grid grid-cols-2 gap-2">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  onUpdateProject?.(proj.id, {
+                                    domain: 'business',
+                                    businessDomain: 'business'
+                                  })
+                                }
+                                className={`min-h-[44px] px-3 py-2 rounded-xl text-xs font-bold border transition active:scale-95 ${
+                                  !isPrivate
+                                    ? 'bg-[#0A9396] text-white border-[#14B8A6]'
+                                    : 'bg-[#181A1B] text-[#9CA3AF] border-white/10 hover:text-white'
+                                }`}
+                              >
+                                Business (Gewerblich)
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  onUpdateProject?.(proj.id, {
+                                    domain: 'private',
+                                    businessDomain: 'private'
+                                  })
+                                }
+                                className={`min-h-[44px] px-3 py-2 rounded-xl text-xs font-bold border transition active:scale-95 ${
+                                  isPrivate
+                                    ? 'bg-[#4F46E5] text-white border-[#818CF8]'
+                                    : 'bg-[#181A1B] text-[#9CA3AF] border-white/10 hover:text-white'
+                                }`}
+                              >
+                                Privat (Persönlich)
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Aktive Module (enabledTabs) */}
+                          <div className="space-y-1">
+                            <label className="text-[#9CA3AF] font-medium block">
+                              Aktive Modul-Bereiche ({currentTabs.length} / 4 aktiv):
+                            </label>
+                            <div className="grid grid-cols-4 gap-1.5">
+                              {modules.map((m) => {
+                                const isEnabled = currentTabs.includes(m.id);
+                                return (
+                                  <button
+                                    type="button"
+                                    key={m.id}
+                                    onClick={() => onToggleTabForProject?.(proj.id, m.id)}
+                                    className={`min-h-[44px] px-2 py-1.5 rounded-xl text-xs font-bold border flex items-center justify-center transition active:scale-95 ${
+                                      isEnabled
+                                        ? 'bg-[#0A9396] text-white border-[#14B8A6]'
+                                        : 'bg-[#181A1B] text-[#9CA3AF] border-white/10 hover:text-white'
+                                    }`}
+                                  >
+                                    {m.label}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   );
                 })}

@@ -41,6 +41,7 @@ import {
   PriorityType,
   Project,
   ProjectTabId,
+  TaskItem,
   THEME
 } from '../types';
 import { BRAND_CONFIG } from '../config/brandConfig';
@@ -87,6 +88,8 @@ interface FrontWorkspaceProps {
     estimatedMinutes?: number
   ) => void;
   onDeleteTask: (projectId: string, taskId: string) => void;
+  onUpdateTask?: (projectId: string, taskId: string, patch: Partial<TaskItem>) => void;
+  onMoveTask?: (fromProjectId: string, toProjectId: string, taskId: string) => void;
   onSendTaskToCart?: (projectId: string, title: string) => void;
   onAddKnowledge?: (
     projectId: string,
@@ -117,6 +120,9 @@ interface FrontWorkspaceProps {
   ) => void;
   onToggleCartItem: (projectId: string, cartId: string) => void;
   onDeleteCartItem: (projectId: string, cartId: string) => void;
+  onUpdateCartItem?: (projectId: string, cartId: string, patch: Partial<CartItem>) => void;
+  onMoveCartItem?: (fromProjectId: string, toProjectId: string, cartId: string) => void;
+  onMoveKnowledge?: (fromProjectId: string, toProjectId: string, itemId: string) => void;
   onUpdateProjectMeta: (projectId: string, patch: CustomMeta) => void;
   onRecordEventSale: (entry: EventSalesLog) => void;
   onOpenAddonsBackoffice: () => void;
@@ -143,6 +149,8 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
   onToggleTask,
   onAddTask,
   onDeleteTask,
+  onUpdateTask,
+  onMoveTask,
   onSendTaskToCart,
   onAddKnowledge,
   onUpdateKnowledge,
@@ -155,6 +163,9 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
   onAddCartItems,
   onToggleCartItem,
   onDeleteCartItem,
+  onUpdateCartItem,
+  onMoveCartItem,
+  onMoveKnowledge,
   onUpdateProjectMeta,
   onRecordEventSale,
   onOpenAddonsBackoffice,
@@ -181,6 +192,16 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
   const [newCartTitle, setNewCartTitle] = useState('');
   const [newCartQty, setNewCartQty] = useState('1x');
   const [newCartPrice, setNewCartPrice] = useState('');
+
+  // Inline-Bearbeitung für Tasks & Einkauf
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const [editTaskTitle, setEditTaskTitle] = useState('');
+  const [editTaskGroup, setEditTaskGroup] = useState('');
+
+  const [editingCartId, setEditingCartId] = useState<string | null>(null);
+  const [editCartTitle, setEditCartTitle] = useState('');
+  const [editCartQty, setEditCartQty] = useState('');
+  const [editCartPrice, setEditCartPrice] = useState('');
 
   // Unified Knowledge State (Abläufe + Infos)
   const [knowledgeFilter, setKnowledgeFilter] = useState<'ALL' | 'explanation' | 'info'>('ALL');
@@ -274,12 +295,15 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
         label: brandProj.domainLabel
       };
     }
-    return BRAND_CONFIG.domainColors[activeDomain] || BRAND_CONFIG.domainColors.arbeit;
+    return (activeDomain === 'privat' || activeDomain === 'private')
+      ? BRAND_CONFIG.domainColors.private
+      : BRAND_CONFIG.domainColors.business;
   }, [activeDomain, activeProject]);
 
+  const isPrivDomain = (d?: string) => d === 'privat' || d === 'private';
   const projectsSource = allProjects.length > 0 ? allProjects : domainProjects;
-  const workProjects = projectsSource.filter((p) => !p.archived && p.domain === 'arbeit');
-  const privateProjects = projectsSource.filter((p) => !p.archived && p.domain === 'privat');
+  const workProjects = projectsSource.filter((p) => !p.archived && !isPrivDomain(p.domain));
+  const privateProjects = projectsSource.filter((p) => !p.archived && isPrivDomain(p.domain));
 
   const activePlugins = PLUGIN_REGISTRY.filter((pl) =>
     (activeProject?.enabledPlugins || []).includes(pl.id)
@@ -1259,7 +1283,55 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
 
                       {/* Ausklappbare Aktionsleiste (Kontextbezogen, >= 44px Buttons) */}
                       {isTrayOpen && (
-                        <div className="px-4 pb-4 pt-3 border-t border-white/5 space-y-2 bg-[#1C2026]/80 animate-fadeIn">
+                        <div className="px-4 pb-4 pt-3 border-t border-white/5 space-y-2.5 bg-[#1C2026]/80 animate-fadeIn">
+                          {/* Inline-Bearbeitung für die Aufgabe */}
+                          {editingTaskId === task.id ? (
+                            <div className="p-3 rounded-2xl bg-[#242930] border border-white/10 space-y-2.5">
+                              <div className="text-xs font-bold text-white">Aufgabe bearbeiten</div>
+                              <input
+                                type="text"
+                                value={editTaskTitle}
+                                onChange={(e) => setEditTaskTitle(e.target.value)}
+                                className="w-full min-h-[44px] px-3.5 py-2 rounded-xl text-sm bg-[#1C2026] text-white border border-white/10 focus:outline-none focus:border-[#14B8A6]"
+                              />
+                              <input
+                                type="text"
+                                value={editTaskGroup}
+                                onChange={(e) => setEditTaskGroup(e.target.value)}
+                                placeholder="Baugruppe (optional)"
+                                className="w-full min-h-[44px] px-3.5 py-2 rounded-xl text-xs bg-[#1C2026] text-white border border-white/10 focus:outline-none focus:border-[#14B8A6]"
+                              />
+                              <div className="flex justify-end gap-2 pt-1">
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingTaskId(null)}
+                                  className="min-h-[44px] px-4 rounded-xl text-xs font-semibold text-[#9CA3AF] hover:text-white"
+                                >
+                                  Abbrechen
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (!editTaskTitle.trim()) return;
+                                    const finalTitle = editTaskGroup.trim()
+                                      ? `[${editTaskGroup.trim()}] ${editTaskTitle.trim()}`
+                                      : editTaskTitle.trim();
+                                    onUpdateTask?.(activeProject.id, task.id, {
+                                      title: finalTitle,
+                                      assemblyGroup: editTaskGroup.trim() || undefined
+                                    });
+                                    setEditingTaskId(null);
+                                    onNotify('Aufgabe aktualisiert.');
+                                  }}
+                                  className="min-h-[44px] px-4 rounded-xl text-xs font-bold text-white shadow-md active:scale-95 transition"
+                                  style={{ backgroundColor: themeColors.primary }}
+                                >
+                                  Speichern
+                                </button>
+                              </div>
+                            </div>
+                          ) : null}
+
                           {/* KI-Bestätigung nur falls aiTouched */}
                           {task.aiTouched && (
                             <button
@@ -1276,6 +1348,21 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
                           )}
 
                           <div className="grid grid-cols-2 gap-2">
+                            {/* Aufgabe bearbeiten */}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const m = task.title.match(/^\[(.*?)\]\s*(.*)$/);
+                                setEditTaskTitle(m ? m[2] : task.title);
+                                setEditTaskGroup(task.assemblyGroup || (m ? m[1] : ''));
+                                setEditingTaskId(task.id);
+                              }}
+                              className="min-h-[44px] px-3.5 rounded-xl text-xs font-semibold bg-[#242930] hover:bg-[#2A3038] text-white hover:text-[#14B8A6] border border-white/5 flex items-center justify-center gap-2 active:scale-95 transition"
+                            >
+                              <Edit3 className="w-4 h-4 text-[#14B8A6]" />
+                              <span>Bearbeiten</span>
+                            </button>
+
                             {/* In Google Kalender eintragen */}
                             <button
                               type="button"
@@ -1353,12 +1440,39 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
                                 onDeleteTask(activeProject.id, task.id);
                                 onNotify('Aufgabe gelöscht.');
                               }}
-                              className="min-h-[44px] px-3.5 rounded-xl text-xs font-semibold bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 flex items-center justify-center gap-2 active:scale-95 transition"
+                              className="col-span-2 min-h-[44px] px-3.5 rounded-xl text-xs font-semibold bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 flex items-center justify-center gap-2 active:scale-95 transition"
                             >
                               <Trash2 className="w-4 h-4" />
                               <span>Löschen</span>
                             </button>
                           </div>
+
+                          {/* In anderes Projekt verschieben */}
+                          {allProjects.filter((p) => !p.archived && p.id !== activeProject.id).length > 0 && (
+                            <div className="pt-1.5 border-t border-white/5">
+                              <select
+                                defaultValue=""
+                                onChange={(e) => {
+                                  if (e.target.value) {
+                                    onMoveTask?.(activeProject.id, e.target.value, task.id);
+                                    toggleActionCard(task.id);
+                                  }
+                                }}
+                                className="w-full min-h-[44px] px-3.5 py-2 rounded-xl text-xs bg-[#181A1B] text-white border border-white/10 focus:outline-none focus:border-[#14B8A6] cursor-pointer"
+                              >
+                                <option value="" disabled>
+                                  In anderes Projekt verschieben...
+                                </option>
+                                {allProjects
+                                  .filter((p) => !p.archived && p.id !== activeProject.id)
+                                  .map((p) => (
+                                    <option key={p.id} value={p.id}>
+                                      Verschieben nach: {p.name}
+                                    </option>
+                                  ))}
+                              </select>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
@@ -1685,7 +1799,62 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
 
                       {/* Ausklappbare Aktionsleiste */}
                       {isTrayOpen && (
-                        <div className="px-4 pb-4 pt-3 border-t border-white/5 space-y-2 bg-[#1C2026]/80 animate-fadeIn">
+                        <div className="px-4 pb-4 pt-3 border-t border-white/5 space-y-2.5 bg-[#1C2026]/80 animate-fadeIn">
+                          {/* Inline-Bearbeitung für den Artikel */}
+                          {editingCartId === item.id ? (
+                            <div className="p-3 rounded-2xl bg-[#242930] border border-white/10 space-y-2.5">
+                              <div className="text-xs font-bold text-white">Artikel bearbeiten</div>
+                              <input
+                                type="text"
+                                value={editCartTitle}
+                                onChange={(e) => setEditCartTitle(e.target.value)}
+                                className="w-full min-h-[44px] px-3.5 py-2 rounded-xl text-sm bg-[#1C2026] text-white border border-white/10 focus:outline-none focus:border-[#14B8A6]"
+                              />
+                              <div className="flex gap-2">
+                                <input
+                                  type="text"
+                                  value={editCartQty}
+                                  onChange={(e) => setEditCartQty(e.target.value)}
+                                  placeholder="Menge (z. B. 2x)"
+                                  className="w-36 min-h-[44px] px-3.5 py-2 rounded-xl text-xs bg-[#1C2026] text-white border border-white/10 focus:outline-none focus:border-[#14B8A6]"
+                                />
+                                <input
+                                  type="text"
+                                  value={editCartPrice}
+                                  onChange={(e) => setEditCartPrice(e.target.value)}
+                                  placeholder="Preis (opt., z. B. 25 €)"
+                                  className="flex-1 min-h-[44px] px-3.5 py-2 rounded-xl text-xs bg-[#1C2026] text-white border border-white/10 focus:outline-none focus:border-[#14B8A6]"
+                                />
+                              </div>
+                              <div className="flex justify-end gap-2 pt-1">
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingCartId(null)}
+                                  className="min-h-[44px] px-4 rounded-xl text-xs font-semibold text-[#9CA3AF] hover:text-white"
+                                >
+                                  Abbrechen
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (!editCartTitle.trim()) return;
+                                    onUpdateCartItem?.(item.originProjectId, item.id, {
+                                      title: editCartTitle.trim(),
+                                      quantity: editCartQty.trim() || '1x',
+                                      price: editCartPrice.trim()
+                                    });
+                                    setEditingCartId(null);
+                                    onNotify('Artikel aktualisiert.');
+                                  }}
+                                  className="min-h-[44px] px-4 rounded-xl text-xs font-bold text-white shadow-md active:scale-95 transition"
+                                  style={{ backgroundColor: themeColors.primary }}
+                                >
+                                  Speichern
+                                </button>
+                              </div>
+                            </div>
+                          ) : null}
+
                           {item.aiTouched && (
                             <button
                               type="button"
@@ -1700,7 +1869,22 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
                             </button>
                           )}
 
-                          <div className="flex items-center gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            {/* Artikel bearbeiten */}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingCartId(item.id);
+                                setEditCartTitle(item.title);
+                                setEditCartQty(item.quantity || '1x');
+                                setEditCartPrice(item.price || '');
+                              }}
+                              className="min-h-[44px] px-3.5 rounded-xl text-xs font-semibold bg-[#242930] hover:bg-[#2A3038] text-white hover:text-[#14B8A6] border border-white/5 flex items-center justify-center gap-2 active:scale-95 transition"
+                            >
+                              <Edit3 className="w-4 h-4 text-[#14B8A6]" />
+                              <span>Bearbeiten</span>
+                            </button>
+
                             {/* Beschaffungs-Check / Preisvergleich: Nur wenn unvollständig */}
                             {!item.completed && (
                               <button
@@ -1738,6 +1922,33 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
                               <span>Löschen</span>
                             </button>
                           </div>
+
+                          {/* In anderes Projekt verschieben */}
+                          {allProjects.filter((p) => !p.archived && p.id !== item.originProjectId).length > 0 && (
+                            <div className="pt-1.5 border-t border-white/5">
+                              <select
+                                defaultValue=""
+                                onChange={(e) => {
+                                  if (e.target.value) {
+                                    onMoveCartItem?.(item.originProjectId, e.target.value, item.id);
+                                    toggleActionCard(item.id);
+                                  }
+                                }}
+                                className="w-full min-h-[44px] px-3.5 py-2 rounded-xl text-xs bg-[#181A1B] text-white border border-white/10 focus:outline-none focus:border-[#14B8A6] cursor-pointer"
+                              >
+                                <option value="" disabled>
+                                  In anderes Projekt verschieben...
+                                </option>
+                                {allProjects
+                                  .filter((p) => !p.archived && p.id !== item.originProjectId)
+                                  .map((p) => (
+                                    <option key={p.id} value={p.id}>
+                                      Verschieben nach: {p.name}
+                                    </option>
+                                  ))}
+                              </select>
+                            </div>
+                          )}
                         </div>
                       )}
 
@@ -2204,6 +2415,32 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
                                   />
                                 </label>
                               </div>
+
+                              {/* In anderes Projekt verschieben */}
+                              {allProjects.filter((p) => !p.archived && p.id !== activeProject.id).length > 0 && (
+                                <div className="pt-2 border-t border-white/5">
+                                  <select
+                                    defaultValue=""
+                                    onChange={(e) => {
+                                      if (e.target.value) {
+                                        onMoveKnowledge?.(activeProject.id, e.target.value, item.id);
+                                      }
+                                    }}
+                                    className="w-full min-h-[44px] px-3.5 py-2 rounded-xl text-xs bg-[#181A1B] text-white border border-white/10 focus:outline-none focus:border-[#14B8A6] cursor-pointer"
+                                  >
+                                    <option value="" disabled>
+                                      In anderes Projekt verschieben...
+                                    </option>
+                                    {allProjects
+                                      .filter((p) => !p.archived && p.id !== activeProject.id)
+                                      .map((p) => (
+                                        <option key={p.id} value={p.id}>
+                                          Verschieben nach: {p.name}
+                                        </option>
+                                      ))}
+                                  </select>
+                                </div>
+                              )}
 
                               {/* Anhänge-Liste */}
                               {item.attachments &&

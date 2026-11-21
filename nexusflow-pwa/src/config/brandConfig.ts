@@ -1,10 +1,12 @@
-import { DomainType } from '../types';
+import { DomainType, LifecycleType, BusinessDomain } from '../types';
 
 export interface BrandProjectConfig {
   id: string;
   name: string;
   subtitle: string;
   domain: DomainType;
+  lifecycle: LifecycleType;
+  businessDomain: BusinessDomain;
   accentColor: string;
   highlightColor: string;
   domainLabel: string;
@@ -23,6 +25,8 @@ export interface BrandConfig {
   domainColors: {
     arbeit: { primary: string; highlight: string; label: string };
     privat: { primary: string; highlight: string; label: string };
+    business: { primary: string; highlight: string; label: string };
+    private: { primary: string; highlight: string; label: string };
   };
   projects: Record<string, BrandProjectConfig>;
   criticalAuditKeywords: RegExp;
@@ -46,6 +50,16 @@ export const BRAND_CONFIG: BrandConfig = {
   defaultAccentColor: '#0A9396',
   defaultHighlightColor: '#14B8A6',
   domainColors: {
+    business: {
+      primary: '#0A9396',
+      highlight: '#14B8A6',
+      label: 'ARBEIT / BETRIEB'
+    },
+    private: {
+      primary: '#4F46E5',
+      highlight: '#818CF8',
+      label: 'PRIVAT'
+    },
     arbeit: {
       primary: '#0A9396',
       highlight: '#14B8A6',
@@ -62,7 +76,9 @@ export const BRAND_CONFIG: BrandConfig = {
       id: 'proj-foodtruck',
       name: 'Pizza Bandit (Foodtruck)',
       subtitle: 'DDR-TSA Anhänger & Event-Betrieb',
-      domain: 'arbeit',
+      domain: 'business',
+      lifecycle: 'permanent',
+      businessDomain: 'business',
       accentColor: '#0A9396',
       highlightColor: '#14B8A6',
       domainLabel: 'ARBEIT / BETRIEB',
@@ -76,7 +92,9 @@ export const BRAND_CONFIG: BrandConfig = {
       id: 'proj-baeckerei',
       name: 'Baustelle Bäckerei (Umbau)',
       subtitle: 'Reine Baustelle & Renovierung (150 m² Backstube)',
-      domain: 'arbeit',
+      domain: 'business',
+      lifecycle: 'project',
+      businessDomain: 'business',
       accentColor: '#D97706',
       highlightColor: '#F59E0B',
       domainLabel: 'ARBEIT / BAUSTELLE',
@@ -89,7 +107,9 @@ export const BRAND_CONFIG: BrandConfig = {
       id: 'proj-smarthome',
       name: 'Smart Home & Server',
       subtitle: 'Proxmox, Zigbee & Home Assistant',
-      domain: 'privat',
+      domain: 'private',
+      lifecycle: 'permanent',
+      businessDomain: 'private',
       accentColor: '#4F46E5',
       highlightColor: '#818CF8',
       domainLabel: 'PRIVAT',
@@ -100,7 +120,9 @@ export const BRAND_CONFIG: BrandConfig = {
       id: 'proj-gewohnheiten',
       name: 'Körper & Routinen',
       subtitle: 'Mobilität, Training & Gesundheit',
-      domain: 'privat',
+      domain: 'private',
+      lifecycle: 'permanent',
+      businessDomain: 'private',
       accentColor: '#10B981',
       highlightColor: '#34D399',
       domainLabel: 'PRIVAT',
@@ -111,7 +133,9 @@ export const BRAND_CONFIG: BrandConfig = {
       id: 'proj-alltag',
       name: 'Privat & Alltag',
       subtitle: 'Haushalt, Steuern & Familie',
-      domain: 'privat',
+      domain: 'private',
+      lifecycle: 'permanent',
+      businessDomain: 'private',
       accentColor: '#8B5CF6',
       highlightColor: '#A78BFA',
       domainLabel: 'PRIVAT',

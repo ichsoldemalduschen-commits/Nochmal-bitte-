@@ -100,7 +100,7 @@ export function normalizeProjectKnowledge(project: any): KnowledgeItem[] {
 }
 
 /**
- * Normalisiert ein ganzes Projekt (inkl. knowledge & enabledTabs)
+ * Normalisiert ein ganzes Projekt (inkl. knowledge & enabledTabs & neue lifecycle/businessDomain-Felder)
  */
 export function normalizeProject(project: Project): Project {
   const knowledge = normalizeProjectKnowledge(project);
@@ -108,8 +108,19 @@ export function normalizeProject(project: Project): Project {
     ? project.enabledTabs
     : (['tasks', 'cart', 'knowledge', 'extras'] as ('tasks' | 'cart' | 'knowledge' | 'extras')[]);
 
+  // Abwärtskompatible Defaults für neue Felder
+  const rawDomain = (project as any).domain;
+  const domain = (rawDomain === 'privat' || rawDomain === 'private') ? 'private' : 'business';
+  const lifecycle = (project as any).lifecycle ?? (project.id === 'proj-baeckerei' ? 'project' : 'permanent');
+  const businessDomain = (project as any).businessDomain ?? (domain === 'private' ? 'private' : 'business');
+  const archived = typeof project.archived === 'boolean' ? project.archived : false;
+
   return {
     ...project,
+    domain,
+    lifecycle,
+    businessDomain,
+    archived,
     enabledTabs,
     knowledge,
     // Alte Arrays für eventuelle Abwärtskompatibilität als gespiegelte Kopien beibehalten
@@ -340,6 +351,22 @@ export function downloadStateBackupJson(snapshot: AppStateSnapshot): void {
 }
 
 export const migrateLocalStorageToIDB = migrateLocalStorageToIndexedDB;
+
+/**
+ * Exportiert ein einzelnes Projekt als JSON-Download
+ */
+export function downloadProjectJson(project: Project): void {
+  const blob = new Blob([JSON.stringify(project, null, 2)], {
+    type: 'application/json;charset=utf-8'
+  });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const safeName = project.name.replace(/[^a-z0-9]/gi, '-').toLowerCase();
+  a.download = `projekt-${safeName}-${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 export function getTtsEnabled(): boolean {
   return getIdbItemSync<boolean>(STORAGE_KEYS.TTS_ENABLED, true);

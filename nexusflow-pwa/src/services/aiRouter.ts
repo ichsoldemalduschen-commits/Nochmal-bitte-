@@ -423,7 +423,8 @@ function buildWorkspaceContextSummary(projects: Project[]): string {
 
 export function buildLocalFallbackPlan(
   rawText: string,
-  defaultProjectId: string
+  defaultProjectId: string,
+  allProjects?: Project[]
 ): StructuredAiResponse {
   const prefs = loadUserPrefs();
   const trimmed = rawText.trim();
@@ -475,8 +476,11 @@ export function buildLocalFallbackPlan(
 
     for (const pConfig of Object.values(BRAND_CONFIG.projects)) {
       if (pConfig.routingKeywords && pConfig.routingKeywords.test(lower)) {
-        targetProjectId = pConfig.id;
-        break;
+        const isArchived = allProjects?.find((p) => p.id === pConfig.id)?.archived;
+        if (!isArchived) {
+          targetProjectId = pConfig.id;
+          break;
+        }
       }
     }
 
@@ -626,7 +630,7 @@ REGELN:
       );
 
       if (!result.ok) {
-        const fallback = buildLocalFallbackPlan(rawText, defaultProjectId);
+        const fallback = buildLocalFallbackPlan(rawText, defaultProjectId, allProjects);
         return {
           plan: {
             ...fallback,
@@ -686,7 +690,7 @@ REGELN:
   }
 
   return {
-    plan: buildLocalFallbackPlan(rawText, defaultProjectId),
+    plan: buildLocalFallbackPlan(rawText, defaultProjectId, allProjects),
     engine: cleanKey ? 'Fallback (Verbindungsfehler)' : 'Lokaler Modus (Kein API-Key)',
     autoUpscaledToPro
   };
