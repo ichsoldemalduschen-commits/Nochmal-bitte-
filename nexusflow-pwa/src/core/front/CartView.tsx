@@ -2,10 +2,10 @@ import React, { useMemo, useState } from 'react';
 import {
   Check,
   Edit3,
-  Layers,
   MoreHorizontal,
   Plus,
   Scale,
+  Settings,
   ShoppingCart,
   Trash2
 } from 'lucide-react';
@@ -34,6 +34,7 @@ interface CartViewProps {
     section: 'tasks' | 'explanations' | 'infos' | 'cart' | 'knowledge',
     itemId: string
   ) => void;
+  onOpenSettings?: () => void;
   onNotify: (msg: string) => void;
 }
 
@@ -49,6 +50,7 @@ export const CartView: React.FC<CartViewProps> = ({
   onUpdateCartItem,
   onMoveCartItem,
   onConfirmRedDot,
+  onOpenSettings,
   onNotify
 }) => {
   const [isAddingCart, setIsAddingCart] = useState(false);
@@ -127,48 +129,30 @@ export const CartView: React.FC<CartViewProps> = ({
           </span>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap min-w-0">
-          <button
-            type="button"
-            onClick={() => setIsAddingCart((v) => !v)}
-            className={`min-h-[44px] min-w-[44px] px-3.5 rounded-xl text-xs font-bold border flex items-center justify-center gap-1.5 transition active:scale-95 ${
-              isAddingCart
-                ? 'text-white border-white/30'
-                : 'bg-[#242930] hover:bg-[#2A3038] text-white border-white/5'
-            }`}
-            style={isAddingCart ? { backgroundColor: themeColors.primary } : {}}
-            aria-label="Artikel hinzufügen"
-            title="Artikel hinzufügen"
-          >
-            <Plus className="w-4 h-4 text-[#14B8A6]" />
-            <span className="hidden sm:inline">Artikel</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setGlobalCartMode((g) => !g)}
-            className={`min-h-[44px] px-3.5 rounded-xl text-xs font-bold border flex items-center gap-1.5 transition active:scale-95 ${
-              globalCartMode
-                ? 'text-white border-white/30 shadow-sm'
-                : 'bg-[#242930] text-[#9CA3AF] border-white/5'
-            }`}
-            style={globalCartMode ? { backgroundColor: themeColors.primary } : {}}
-            title="Projektübergreifenden Modus umschalten"
-          >
-            <Layers className="w-3.5 h-3.5" />
-            <span>{globalCartMode ? 'Alle Projekte' : 'Nur Projekt'}</span>
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={() => setIsAddingCart((v) => !v)}
+          className={`w-11 h-11 min-h-[44px] min-w-[44px] rounded-2xl border flex items-center justify-center transition active:scale-95 ${
+            isAddingCart
+              ? 'text-white border-white/30'
+              : 'bg-[#242930] hover:bg-[#2A3038] text-white border-white/5'
+          }`}
+          style={isAddingCart ? { backgroundColor: themeColors.primary } : {}}
+          aria-label="Artikel hinzufügen"
+          title="Artikel hinzufügen"
+        >
+          <Plus className="w-5 h-5 text-[#14B8A6]" />
+        </button>
       </div>
 
-      {/* ANGEPINNTE FILTER-LEISTE MIT PROJEKT-CHIPS & KATEGORIE-FILTER */}
+      {/* EINZIGE KLARE ANGEPINNTE FILTER-LEISTE */}
       <div className="sticky top-0 z-20 py-2.5 -mx-2 px-2 bg-[#1C2026]/95 backdrop-blur-md rounded-2xl border border-white/5 space-y-2">
         {/* Projekt-Filter-Chips */}
         <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-0.5">
           <button
             type="button"
             onClick={() => setCartProjectFilter('ALL')}
-            className={`min-h-[44px] px-3.5 rounded-xl text-xs font-bold border shrink-0 transition active:scale-95 ${
+            className={`min-h-[44px] px-3.5 rounded-xl text-xs font-bold border shrink-0 transition active:scale-95 cursor-pointer ${
               cartProjectFilter === 'ALL'
                 ? 'bg-[#0A9396] text-white border-[#14B8A6] shadow-sm'
                 : 'bg-[#242930] text-[#9CA3AF] border-white/5 hover:text-white'
@@ -201,7 +185,7 @@ export const CartView: React.FC<CartViewProps> = ({
                   onClick={() =>
                     setCartProjectFilter((prev) => (prev === proj.id ? 'ALL' : proj.id))
                   }
-                  className={`min-h-[44px] px-3.5 rounded-xl text-xs font-bold border shrink-0 flex items-center gap-1.5 transition active:scale-95 ${
+                  className={`min-h-[44px] px-3.5 rounded-xl text-xs font-bold border shrink-0 flex items-center gap-1.5 transition active:scale-95 cursor-pointer ${
                     isActive
                       ? 'text-white border-white/30 shadow-sm'
                       : 'bg-[#242930] text-[#9CA3AF] border-white/5 hover:text-white'
@@ -217,21 +201,22 @@ export const CartView: React.FC<CartViewProps> = ({
             })}
         </div>
 
-        {/* Optionaler Status-/Kategorie-Filter */}
+        {/* Status-Umschalter: sauber und kompakt ohne doppelte Labels */}
         <div className="flex items-center gap-2 pt-1 border-t border-white/5">
-          <span className="text-xs font-semibold text-[#9CA3AF] pl-1">Status:</span>
           {(['ALL', 'open', 'completed'] as const).map((status) => {
             const isSelected = cartCategoryFilter === status;
             const label =
-              status === 'ALL' ? 'Alle' : status === 'open' ? 'Offen' : 'Erledigt';
+              status === 'ALL'
+                ? `Alle (${displayedCart.length})`
+                : status === 'open'
+                ? `Offen (${displayedCart.filter((c) => !c.completed).length})`
+                : `Erledigt (${displayedCart.filter((c) => c.completed).length})`;
             return (
               <button
                 key={status}
                 type="button"
-                onClick={() =>
-                  setCartCategoryFilter((prev) => (prev === status ? 'ALL' : status))
-                }
-                className={`min-h-[44px] px-3 rounded-lg text-xs font-semibold transition active:scale-95 ${
+                onClick={() => setCartCategoryFilter(status)}
+                className={`min-h-[44px] px-3.5 rounded-xl text-xs font-semibold transition active:scale-95 cursor-pointer ${
                   isSelected
                     ? 'bg-white/10 text-white border border-white/20'
                     : 'text-[#9CA3AF] hover:text-white'
@@ -321,17 +306,29 @@ export const CartView: React.FC<CartViewProps> = ({
         {displayedCart.map((item) => {
           const isProcOpen = !!openProcurements[item.id];
           const isTrayOpen = !!expandedActionCards[item.id];
+          const originProject = allProjects.find((p) => p.id === item.originProjectId) || activeProject;
+          const projColor =
+            (originProject?.customMeta?.customAccentColor as string) ||
+            originProject?.accentColor ||
+            BRAND_CONFIG.projects[item.originProjectId]?.accentColor ||
+            themeColors.primary;
+          const formattedPrice = item.price
+            ? item.price.includes('€')
+              ? item.price
+              : `${item.price} €`
+            : null;
 
           return (
             <div
               key={`${item.originProjectId}-${item.id}`}
               id={`item-card-${item.id}`}
               className={`rounded-2xl border transition-all duration-200 overflow-hidden shadow-sm ${
-                item.completed ? 'opacity-75' : ''
+                item.completed ? 'opacity-70' : ''
               }`}
               style={{
                 backgroundColor: '#242930',
-                borderColor: 'rgba(255,255,255,0.05)'
+                borderColor: 'rgba(255,255,255,0.05)',
+                borderLeft: `3px solid ${projColor}`
               }}
             >
               {/* Karten-Ruhezustand */}
@@ -348,38 +345,33 @@ export const CartView: React.FC<CartViewProps> = ({
                     aria-label={item.completed ? 'Als offen markieren' : 'Als besorgt markieren'}
                   >
                     <div
-                      className="w-6 h-6 rounded-lg flex items-center justify-center border transition-all active:scale-90"
+                      className="w-5 h-5 rounded-md flex items-center justify-center border transition-all active:scale-90"
                       style={{
                         backgroundColor: item.completed
-                          ? themeColors.primary
+                          ? `${themeColors.primary}33`
                           : 'rgba(28,32,38,0.8)',
                         borderColor: item.completed ? themeColors.highlight : '#6B7280'
                       }}
                     >
                       {item.completed && (
-                        <Check className="w-4 h-4 text-white stroke-[3]" />
+                        <Check className="w-3.5 h-3.5 text-white stroke-[2.5]" />
                       )}
                     </div>
                   </button>
 
-                  {/* Titel & Metadaten (Kein Durchstreichen!) */}
+                  {/* Titel & Metadaten (Kein Durchstreichen für Maße/Mengen!) */}
                   <div
                     onClick={() => toggleActionCard(item.id)}
                     className="flex-1 min-w-0 cursor-pointer select-none"
                   >
                     <span
-                      className={`text-base font-semibold leading-snug block truncate ${
-                        item.completed ? 'text-white/80' : 'text-white'
+                      className={`text-base font-semibold leading-snug block break-words ${
+                        item.completed ? 'text-white/70' : 'text-white'
                       }`}
                     >
                       {item.title}
                     </span>
                     <div className="flex items-center gap-2 mt-1 flex-wrap">
-                      {globalCartMode && item.originProjectName && (
-                        <span className="text-xs font-semibold text-[#14B8A6] bg-[#14B8A6]/10 px-2 py-0.5 rounded-md truncate max-w-[130px]">
-                          {item.originProjectName}
-                        </span>
-                      )}
                       <span
                         className="text-xs font-semibold"
                         style={{ color: themeColors.highlight }}
@@ -387,15 +379,9 @@ export const CartView: React.FC<CartViewProps> = ({
                         Menge: {item.quantity}
                       </span>
 
-                      {item.price && (
-                        <span className="text-xs font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md">
-                          {item.price}
-                        </span>
-                      )}
-
-                      {globalCartMode && (
-                        <span className="text-xs px-2 py-0.5 rounded-md bg-[#1C2026] text-[#9CA3AF]">
-                          {item.originProjectName}
+                      {formattedPrice && (
+                        <span className="text-xs font-mono font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md">
+                          {formattedPrice}
                         </span>
                       )}
 
@@ -587,6 +573,18 @@ export const CartView: React.FC<CartViewProps> = ({
             </div>
           );
         })}
+      </div>
+
+      {/* BEREICHS-EINSTELLUNGEN */}
+      <div className="pt-2 border-t border-white/5">
+        <button
+          type="button"
+          onClick={() => onOpenSettings?.()}
+          className="w-full min-h-[44px] py-2.5 px-4 rounded-xl text-xs font-semibold text-[#9CA3AF] hover:text-white bg-[#242930]/60 hover:bg-[#242930] border border-white/5 flex items-center justify-center gap-2 active:scale-95 transition cursor-pointer"
+        >
+          <Settings className="w-4 h-4 text-[#14B8A6]" />
+          <span>Einkauf-Einstellungen &amp; Beschaffung</span>
+        </button>
       </div>
     </section>
   );

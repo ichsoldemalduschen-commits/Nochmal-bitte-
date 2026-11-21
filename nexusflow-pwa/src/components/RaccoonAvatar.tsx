@@ -120,7 +120,13 @@ export const ProjectAvatar: React.FC<{ project?: Project; sizeClass?: string }> 
       />
     );
   }
-  if (project?.icon === 'RaccoonBandit' || imgError) {
+  if (
+    project?.icon === 'RaccoonBandit' ||
+    project?.id === 'proj-foodtruck' ||
+    project?.name?.toLowerCase().includes('pizza bandit') ||
+    project?.name?.toLowerCase().includes('foodtruck') ||
+    imgError
+  ) {
     return <PizzaBanditRaccoonSvg className={sizeClass} />;
   }
   const IconComp = (project && ICON_MAP[project.icon]) || FolderKanban;

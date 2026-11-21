@@ -6,6 +6,7 @@ import {
   Puzzle,
   Scale,
   Settings,
+  ShoppingCart,
   X
 } from 'lucide-react';
 import { DomainType, Project, ProjectTabId } from '../../types';
@@ -114,27 +115,6 @@ export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({
                   </span>
                 </button>
               )}
-              {isTabEnabled(proj, 'cart') && (
-                <button
-                  type="button"
-                  onClick={() => onSelectProjectAndSection(proj, 'cart')}
-                  className={`min-h-[44px] px-3 py-2 rounded-xl text-xs font-semibold text-left flex items-center justify-between ${
-                    !viewAllSections && activeTab === 'cart'
-                      ? 'text-white'
-                      : 'bg-[#242930] text-[#9CA3AF] hover:text-white'
-                  }`}
-                  style={
-                    !viewAllSections && activeTab === 'cart'
-                      ? { backgroundColor: pColor }
-                      : {}
-                  }
-                >
-                  <span>Einkauf</span>
-                  <span className="font-mono text-xs px-1.5 py-0.5 rounded-md bg-black/30">
-                    {proj.cart.filter((c) => !c.completed).length}
-                  </span>
-                </button>
-              )}
               {isTabEnabled(proj, 'knowledge') && (
                 <button
                   type="button"
@@ -188,6 +168,10 @@ export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({
     });
   };
 
+  const totalOpenCartCount = [...workProjects, ...privateProjects]
+    .flatMap((p) => p.cart || [])
+    .filter((c) => !c.completed).length;
+
   return (
     <div
       className={`fixed inset-0 z-[55] flex transition-opacity duration-300 ${
@@ -228,6 +212,40 @@ export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({
               <X className="w-5 h-5" />
             </button>
           </div>
+
+          {/* ZENTRALER GLOBALER EINKAUFSWAGEN */}
+          <button
+            type="button"
+            onClick={() => {
+              const target = activeProject || workProjects[0] || privateProjects[0];
+              if (target) {
+                onSelectProjectAndSection(target, 'cart');
+              }
+              onClose();
+            }}
+            className={`w-full min-h-[48px] p-3.5 rounded-2xl border flex items-center justify-between transition-all shadow-sm active:scale-95 cursor-pointer ${
+              !viewAllSections && activeTab === 'cart'
+                ? 'bg-[#14B8A6]/20 border-[#14B8A6] text-white'
+                : 'bg-[#242930] hover:bg-[#2A3038] text-white border-white/10'
+            }`}
+          >
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-9 h-9 rounded-xl bg-[#14B8A6]/20 border border-[#14B8A6]/40 flex items-center justify-center text-[#14B8A6] shrink-0">
+                <ShoppingCart className="w-4 h-4" />
+              </div>
+              <div className="text-left min-w-0">
+                <div className="text-sm font-bold text-white leading-tight">
+                  Zentraler Einkaufswagen
+                </div>
+                <div className="text-xs text-[#9CA3AF] truncate">
+                  Projektübergreifender Materialpool
+                </div>
+              </div>
+            </div>
+            <span className="font-mono text-xs px-2 py-1 rounded-lg bg-black/40 text-[#14B8A6] font-bold shrink-0 ml-2">
+              {totalOpenCartCount} offen
+            </span>
+          </button>
 
           {/* ARBEIT */}
           <div className="space-y-3">

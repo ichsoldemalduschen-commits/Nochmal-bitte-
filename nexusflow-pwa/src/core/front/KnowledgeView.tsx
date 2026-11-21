@@ -3,8 +3,11 @@ import {
   BookOpen,
   ChevronDown,
   ChevronUp,
+  Copy,
   Edit3,
   Plus,
+  Settings,
+  Sparkles,
   Upload,
   Volume2,
   VolumeX
@@ -55,6 +58,8 @@ interface KnowledgeViewProps {
   ) => void;
   onMoveKnowledge?: (fromProjectId: string, toProjectId: string, itemId: string) => void;
   onSetActiveAudioGuideExp: (exp: any) => void;
+  onOpenSettings?: () => void;
+  onAskAi?: (prompt: string) => void;
   onNotify: (msg: string) => void;
 }
 
@@ -75,6 +80,8 @@ export const KnowledgeView: React.FC<KnowledgeViewProps> = ({
   onConfirmRedDot,
   onMoveKnowledge,
   onSetActiveAudioGuideExp,
+  onOpenSettings,
+  onAskAi,
   onNotify
 }) => {
   const [knowledgeFilter, setKnowledgeFilter] = useState<'ALL' | 'explanation' | 'info'>('ALL');
@@ -342,86 +349,45 @@ export const KnowledgeView: React.FC<KnowledgeViewProps> = ({
               className="rounded-2xl border border-white/5 overflow-hidden transition-all shadow-sm"
               style={{ backgroundColor: '#242930' }}
             >
-              {/* Karten-Ruhezustand */}
+              {/* Karten-Ruhezustand: nur voller mehrzeiliger Titel, dezenter Typ-Indikator, Chevron */}
               <div
                 onClick={() =>
                   setOpenKnowledge((p) => ({ ...p, [item.id]: !p[item.id] }))
                 }
                 className="p-4 flex items-center justify-between gap-3 cursor-pointer select-none"
               >
-                <div className="min-w-0 flex-1 flex items-center gap-2.5">
+                <div className="min-w-0 flex-1 flex items-start gap-2.5">
                   {/* Roter KI-Punkt */}
                   {item.aiTouched && (
                     <span
-                      className="w-2.5 h-2.5 rounded-full shrink-0"
+                      className="w-2.5 h-2.5 rounded-full shrink-0 mt-1.5"
                       style={{ backgroundColor: THEME.aiRedDot }}
                       title="Automatisch von KI bearbeitet"
                     />
                   )}
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={`text-xs font-bold uppercase tracking-wider px-2 py-0.5 rounded ${
-                          item.kind === 'explanation'
-                            ? 'bg-[#14B8A6]/20 text-[#14B8A6]'
-                            : 'bg-indigo-500/20 text-indigo-300'
-                        }`}
-                      >
-                        {item.kind === 'explanation' ? 'Ablauf' : 'Info'}
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xs font-semibold text-[#9CA3AF] uppercase tracking-wider">
+                        {item.kind === 'explanation' ? '• Ablauf' : '• Info'}
                       </span>
-                      <span className="text-base font-semibold text-white truncate">
-                        {item.title}
-                      </span>
+                      {item.attachments && item.attachments.length > 0 && (
+                        <span className="text-xs text-[#14B8A6] font-medium">
+                          ({item.attachments.length} Anhang{item.attachments.length > 1 ? 'e' : ''})
+                        </span>
+                      )}
                     </div>
-                    {item.attachments && item.attachments.length > 0 && (
-                      <span className="text-xs font-medium text-[#14B8A6] mt-0.5 inline-block">
-                        {item.attachments.length} Anhang
-                        {item.attachments.length > 1 ? 'änge' : ''}
-                      </span>
-                    )}
+                    <h4 className="text-base font-bold text-white leading-snug break-words">
+                      {item.title}
+                    </h4>
                   </div>
                 </div>
 
-                {/* EINHEITLICHER VORLESE-BUTTON AN EXAKT DERSELBEN STELLE */}
-                <div className="flex items-center gap-1 shrink-0">
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (item.kind === 'explanation') {
-                        onSetActiveAudioGuideExp(item);
-                      } else {
-                        handleSpeakKnowledge(item);
-                      }
-                    }}
-                    className={`min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl border transition active:scale-95 ${
-                      isSpeaking
-                        ? 'bg-[#0A9396] text-white border-[#14B8A6] animate-pulse'
-                        : 'bg-[#1C2026] text-[#14B8A6] border-white/10 hover:border-[#14B8A6]/40 hover:text-white'
-                    }`}
-                    title={
-                      item.kind === 'explanation'
-                        ? 'Freihändigen Audio-Guide starten'
-                        : isSpeaking
-                        ? 'Vorlesen anhalten'
-                        : 'Text flüssig vorlesen'
-                    }
-                    aria-label="Vorlesen"
-                  >
-                    {isSpeaking ? (
-                      <VolumeX className="w-5 h-5" />
-                    ) : (
-                      <Volume2 className="w-5 h-5" />
-                    )}
-                  </button>
-
-                  <div className="min-w-[44px] min-h-[44px] flex items-center justify-center text-[#9CA3AF]">
-                    {isOpen ? (
-                      <ChevronUp className="w-5 h-5" />
-                    ) : (
-                      <ChevronDown className="w-5 h-5" />
-                    )}
-                  </div>
+                <div className="min-w-[44px] min-h-[44px] flex items-center justify-center text-[#9CA3AF] shrink-0">
+                  {isOpen ? (
+                    <ChevronUp className="w-5 h-5" />
+                  ) : (
+                    <ChevronDown className="w-5 h-5" />
+                  )}
                 </div>
               </div>
 
@@ -524,7 +490,7 @@ export const KnowledgeView: React.FC<KnowledgeViewProps> = ({
                                 handleSpeakKnowledge(item);
                               }
                             }}
-                            className={`min-h-[44px] px-4 rounded-xl text-xs font-semibold flex items-center gap-2 border border-white/5 active:scale-95 transition ${
+                            className={`min-h-[44px] px-3.5 rounded-xl text-xs font-semibold flex items-center gap-2 border border-white/5 active:scale-95 transition ${
                               isSpeaking
                                 ? 'bg-[#0A9396] text-white border-[#14B8A6] animate-pulse'
                                 : 'bg-[#242930] hover:bg-[#2A3038] text-[#14B8A6] hover:text-white'
@@ -554,14 +520,47 @@ export const KnowledgeView: React.FC<KnowledgeViewProps> = ({
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
+                              navigator.clipboard.writeText(`${item.title}\n\n${item.content}`);
+                              triggerHapticFeedback(10);
+                              onNotify('Wissenseintrag in die Zwischenablage kopiert.');
+                            }}
+                            className="min-h-[44px] px-3.5 rounded-xl bg-[#242930] hover:bg-[#2A3038] text-white hover:text-[#14B8A6] text-xs font-semibold flex items-center gap-2 border border-white/5 active:scale-95 transition"
+                          >
+                            <Copy className="w-4 h-4 text-[#14B8A6]" />
+                            <span>Kopieren</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
                               setEditingKnowledgeId(item.id);
                               setEditKnowledgeTitle(item.title);
                               setEditKnowledgeContent(item.content);
                             }}
-                            className="min-h-[44px] px-4 rounded-xl bg-[#242930] hover:bg-[#2A3038] text-[#9CA3AF] hover:text-white text-xs font-semibold flex items-center gap-2 border border-white/5 active:scale-95 transition"
+                            className="min-h-[44px] px-3.5 rounded-xl bg-[#242930] hover:bg-[#2A3038] text-[#9CA3AF] hover:text-white text-xs font-semibold flex items-center gap-2 border border-white/5 active:scale-95 transition"
                           >
                             <Edit3 className="w-4 h-4" />
                             <span>Bearbeiten</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const prompt = `Wissenseintrag "${item.title}":\n${item.content}`;
+                              if (onAskAi) {
+                                onAskAi(prompt);
+                              } else {
+                                navigator.clipboard.writeText(prompt);
+                                onNotify('Wissen für KI-Assistenten kopiert.');
+                              }
+                            }}
+                            className="min-h-[44px] px-3.5 rounded-xl bg-[#242930] hover:bg-[#2A3038] text-[#14B8A6] hover:text-white text-xs font-semibold flex items-center gap-2 border border-white/5 active:scale-95 transition"
+                            title="Diesen Eintrag direkt an die KI übergeben"
+                          >
+                            <Sparkles className="w-4 h-4" />
+                            <span>KI fragen</span>
                           </button>
                         </div>
 
@@ -639,6 +638,18 @@ export const KnowledgeView: React.FC<KnowledgeViewProps> = ({
             </div>
           );
         })}
+      </div>
+
+      {/* BEREICHS-EINSTELLUNGEN */}
+      <div className="pt-2 border-t border-white/5">
+        <button
+          type="button"
+          onClick={() => onOpenSettings?.()}
+          className="w-full min-h-[44px] py-2.5 px-4 rounded-xl text-xs font-semibold text-[#9CA3AF] hover:text-white bg-[#242930]/60 hover:bg-[#242930] border border-white/5 flex items-center justify-center gap-2 active:scale-95 transition cursor-pointer"
+        >
+          <Settings className="w-4 h-4 text-[#14B8A6]" />
+          <span>Wissen-Einstellungen &amp; Sprachausgabe</span>
+        </button>
       </div>
     </section>
   );

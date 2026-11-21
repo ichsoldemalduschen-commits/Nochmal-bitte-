@@ -3,12 +3,14 @@ import {
   Calendar,
   Check,
   CheckSquare,
+  Copy,
   Crosshair,
   Edit3,
   Eye,
   MoreHorizontal,
   Plus,
   RotateCcw,
+  Settings,
   ShoppingCart,
   Trash2
 } from 'lucide-react';
@@ -39,6 +41,7 @@ interface TasksViewProps {
   onResetChecklist?: (projectId: string) => void;
   onResetChecklistForDeployment?: (projectId: string) => void;
   onUpdatePrefs: (patch: Partial<BanditUserPreferences>) => void;
+  onOpenSettings?: () => void;
   onNotify: (msg: string) => void;
 }
 
@@ -60,6 +63,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
   onResetChecklist,
   onResetChecklistForDeployment,
   onUpdatePrefs,
+  onOpenSettings,
   onNotify
 }) => {
   const [isAddingTask, setIsAddingTask] = useState(false);
@@ -134,7 +138,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
           <button
             type="button"
             onClick={() => setIsAddingTask((v) => !v)}
-            className={`min-h-[44px] min-w-[44px] px-3.5 rounded-xl text-xs font-bold border flex items-center justify-center gap-1.5 transition active:scale-95 ${
+            className={`w-11 h-11 min-h-[44px] min-w-[44px] rounded-2xl border flex items-center justify-center transition active:scale-95 ${
               isAddingTask
                 ? 'text-white border-white/30'
                 : 'bg-[#242930] hover:bg-[#2A3038] text-white border-white/5'
@@ -143,8 +147,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
             aria-label="Aufgabe hinzufügen"
             title="Aufgabe hinzufügen"
           >
-            <Plus className="w-4 h-4 text-[#14B8A6]" />
-            <span className="hidden sm:inline">Aufgabe</span>
+            <Plus className="w-5 h-5 text-[#14B8A6]" />
           </button>
 
           {prefs.adhdMasterEnabled && prefs.adhdSingleTaskMode && (
@@ -279,16 +282,16 @@ export const TasksView: React.FC<TasksViewProps> = ({
                     aria-label={task.completed ? 'Als unerledigt markieren' : 'Als erledigt markieren'}
                   >
                     <div
-                      className="w-6 h-6 rounded-lg flex items-center justify-center border transition-all active:scale-90"
+                      className="w-5 h-5 rounded-md flex items-center justify-center border transition-all active:scale-90"
                       style={{
                         backgroundColor: task.completed
-                          ? themeColors.primary
+                          ? `${themeColors.primary}33`
                           : 'rgba(28,32,38,0.8)',
                         borderColor: task.completed ? themeColors.highlight : '#6B7280'
                       }}
                     >
                       {task.completed && (
-                        <Check className="w-4 h-4 text-white stroke-[3]" />
+                        <Check className="w-3.5 h-3.5 text-white stroke-[2.5]" />
                       )}
                     </div>
                   </button>
@@ -298,8 +301,10 @@ export const TasksView: React.FC<TasksViewProps> = ({
                     className="flex-1 min-w-0 cursor-pointer select-none"
                   >
                     <span
-                      className={`text-base font-semibold leading-snug block break-words ${
-                        task.completed ? 'text-white/80' : 'text-white'
+                      className={`text-base font-semibold leading-snug block break-words transition-colors ${
+                        task.completed
+                          ? 'line-through text-white/50 decoration-white/30'
+                          : 'text-white'
                       }`}
                     >
                       {displayTitle}
@@ -323,7 +328,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
                         prefs.adhdTimeBufferAndHaptics &&
                         task.estimatedMinutes && (
                           <span className="text-xs font-mono text-[#9CA3AF]">
-                            {Math.round(task.estimatedMinutes * 1.25)} Min. (inkl. Puffer)
+                            {Math.round(task.estimatedMinutes * 1.25)} Min.
                           </span>
                         )}
                     </div>
@@ -405,6 +410,21 @@ export const TasksView: React.FC<TasksViewProps> = ({
                   )}
 
                   <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const m = task.title.match(/^\[(.*?)\]\s*(.*)$/);
+                        const textToCopy = m ? m[2] : task.title;
+                        navigator.clipboard.writeText(textToCopy);
+                        triggerHapticFeedback(10);
+                        onNotify('Aufgabe in die Zwischenablage kopiert.');
+                      }}
+                      className="min-h-[44px] px-3.5 rounded-xl text-xs font-semibold bg-[#242930] hover:bg-[#2A3038] text-white hover:text-[#14B8A6] border border-white/5 flex items-center justify-center gap-2 active:scale-95 transition"
+                    >
+                      <Copy className="w-4 h-4 text-[#14B8A6]" />
+                      <span>Kopieren</span>
+                    </button>
+
                     <button
                       type="button"
                       onClick={() => {
@@ -529,6 +549,18 @@ export const TasksView: React.FC<TasksViewProps> = ({
             </div>
           );
         })}
+      </div>
+
+      {/* BEREICHS-EINSTELLUNGEN */}
+      <div className="pt-2 border-t border-white/5">
+        <button
+          type="button"
+          onClick={() => onOpenSettings?.()}
+          className="w-full min-h-[44px] py-2.5 px-4 rounded-xl text-xs font-semibold text-[#9CA3AF] hover:text-white bg-[#242930]/60 hover:bg-[#242930] border border-white/5 flex items-center justify-center gap-2 active:scale-95 transition cursor-pointer"
+        >
+          <Settings className="w-4 h-4 text-[#14B8A6]" />
+          <span>Aufgaben-Einstellungen &amp; ADHS</span>
+        </button>
       </div>
     </section>
   );

@@ -18,12 +18,12 @@ export interface ThemeColors {
 interface FrontHeaderProps {
   activeProject: Project;
   themeColors: ThemeColors;
-  viewAllSections: boolean;
-  showSearch: boolean;
-  searchQuery: string;
-  onToggleViewAll: () => void;
-  onToggleSearch: () => void;
-  onSetSearchQuery: (q: string) => void;
+  viewAllSections?: boolean;
+  showSearch?: boolean;
+  searchQuery?: string;
+  onToggleViewAll?: () => void;
+  onToggleSearch?: () => void;
+  onSetSearchQuery?: (q: string) => void;
   onOpenDrawer: () => void;
   onUploadProjectLogo: (projectId: string, file: File) => void;
 }
@@ -31,11 +31,11 @@ interface FrontHeaderProps {
 export const FrontHeader: React.FC<FrontHeaderProps> = ({
   activeProject,
   themeColors,
-  viewAllSections,
-  showSearch,
-  searchQuery,
-  onToggleViewAll,
-  onToggleSearch,
+  viewAllSections: _viewAllSections,
+  showSearch = false,
+  searchQuery = '',
+  onToggleViewAll: _onToggleViewAll,
+  onToggleSearch: _onToggleSearch,
   onSetSearchQuery,
   onOpenDrawer,
   onUploadProjectLogo
@@ -50,11 +50,11 @@ export const FrontHeader: React.FC<FrontHeaderProps> = ({
           borderColor: `${themeColors.primary}55`
         }}
       >
-        <div className="flex items-center gap-3 min-w-0">
+        <div className="flex items-center gap-3 min-w-0 flex-1">
           <button
             type="button"
             onClick={onOpenDrawer}
-            className="w-11 h-11 rounded-2xl text-white shrink-0 flex items-center justify-center active:scale-95 transition shadow-sm"
+            className="w-11 h-11 min-h-[44px] min-w-[44px] rounded-2xl text-white shrink-0 flex items-center justify-center active:scale-95 transition shadow-sm cursor-pointer"
             style={{ backgroundColor: themeColors.primary }}
             aria-label="Navigation öffnen"
           >
@@ -82,38 +82,16 @@ export const FrontHeader: React.FC<FrontHeaderProps> = ({
             </label>
           </div>
 
-          <div className="min-w-0 cursor-pointer" onClick={onOpenDrawer}>
-            <h1 className="text-lg font-extrabold text-white truncate leading-tight">
+          <div className="min-w-0 flex-1 cursor-pointer" onClick={onOpenDrawer}>
+            <h1 className="text-base sm:text-lg font-extrabold text-white leading-snug break-words">
               {activeProject.name}
             </h1>
           </div>
         </div>
-
-        <div className="flex items-center gap-2 shrink-0">
-          <button
-            type="button"
-            onClick={onToggleViewAll}
-            className="min-h-[44px] px-3.5 rounded-xl text-xs font-bold border border-white/5 text-white transition active:scale-95 shadow-sm"
-            style={{
-              backgroundColor: viewAllSections ? themeColors.primary : '#242930'
-            }}
-          >
-            {viewAllSections ? 'Gesamt' : 'Einzeln'}
-          </button>
-
-          <button
-            type="button"
-            onClick={onToggleSearch}
-            className="w-11 h-11 rounded-xl bg-[#242930] text-[#9CA3AF] hover:text-white border border-white/5 flex items-center justify-center active:scale-95 transition"
-            aria-label="Suche umschalten"
-          >
-            <Search className="w-4 h-4" />
-          </button>
-        </div>
       </div>
 
-      {/* SUCHE */}
-      {showSearch && (
+      {/* SUCHE (falls aktiv) */}
+      {showSearch && onSetSearchQuery && (
         <div className="px-4 py-3 rounded-2xl border border-white/10 bg-[#1C2026] flex items-center gap-2.5 shadow-md">
           <Search className="w-4 h-4 text-[#9CA3AF] shrink-0" />
           <input
@@ -128,7 +106,7 @@ export const FrontHeader: React.FC<FrontHeaderProps> = ({
             <button
               type="button"
               onClick={() => onSetSearchQuery('')}
-              className="min-h-[36px] min-w-[36px] flex items-center justify-center text-[#9CA3AF] hover:text-white"
+              className="min-h-[44px] min-w-[44px] flex items-center justify-center text-[#9CA3AF] hover:text-white"
             >
               <X className="w-4 h-4" />
             </button>

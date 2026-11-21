@@ -272,12 +272,12 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
   const currentSectionLabel = viewAllSections
     ? 'Gesamtübersicht'
     : activeTab === 'tasks'
-    ? 'Tasks'
-    : activeTab === 'cart'
-    ? 'Einkaufswagen'
-    : activeTab === 'knowledge' || activeTab === 'explanations' || activeTab === 'infos'
-    ? 'Wissen'
-    : 'Werkzeuge';
+      ? 'Tasks'
+      : activeTab === 'cart'
+        ? 'Einkaufswagen'
+        : activeTab === 'knowledge' || activeTab === 'explanations' || activeTab === 'infos'
+          ? 'Wissen'
+          : 'Werkzeuge';
 
   return (
     <div
@@ -417,6 +417,7 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
               onResetChecklist={onResetChecklist}
               onResetChecklistForDeployment={onResetChecklistForDeployment}
               onUpdatePrefs={updatePrefs}
+              onOpenSettings={onOpenAddonsBackoffice}
               onNotify={onNotify}
             />
           )}
@@ -435,6 +436,7 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
               onUpdateCartItem={onUpdateCartItem}
               onMoveCartItem={onMoveCartItem}
               onConfirmRedDot={onConfirmRedDot}
+              onOpenSettings={onOpenAddonsBackoffice}
               onNotify={onNotify}
             />
           )}
@@ -458,6 +460,12 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
               onConfirmRedDot={onConfirmRedDot}
               onMoveKnowledge={onMoveKnowledge}
               onSetActiveAudioGuideExp={setActiveAudioGuideExp}
+              onOpenSettings={onOpenAddonsBackoffice}
+              onAskAi={(prompt) => {
+                navigator.clipboard?.writeText(prompt);
+                onNotify('In Zwischenablage kopiert & Deep Research geöffnet.');
+                onOpenDeepResearchModal?.();
+              }}
               onNotify={onNotify}
             />
           )}
