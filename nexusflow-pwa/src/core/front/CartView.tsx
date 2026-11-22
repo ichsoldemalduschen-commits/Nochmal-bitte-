@@ -197,7 +197,7 @@ export const CartView: React.FC<CartViewProps> = ({
       </div>
 
       {/* EINZIGE KLARE ANGEPINNTE FILTER-LEISTE (direkt auf Canvas mit sanftem Blur) */}
-      <div className="sticky top-0 z-20 py-2.5 -mx-1 px-1 bg-[#111317]/90 backdrop-blur-md space-y-2">
+      <div className="sticky top-0 z-20 py-2.5 bg-[#111317]/90 backdrop-blur-md space-y-2">
         {/* Projekt-Filter-Chips */}
         <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-0.5">
           <button

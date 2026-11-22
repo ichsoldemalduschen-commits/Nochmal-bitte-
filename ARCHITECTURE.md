@@ -152,3 +152,16 @@ Die gesamte Einstellungs-Ansicht heißt für den Nutzer **„Zentrale"** (intern
 **Fußzeile (immer sichtbar):** Build-Stempel in `font-mono` + „Neu laden"-Button.
 
 **Deep-Link via `initialSection`:** Honig-Gold-Toasts und View-Settings-Buttons springen direkt zum passenden Bereich (`TasksView` → `focus`, `CartView`/`KnowledgeView` → `projects`, API-Key fehlt → `ai`).
+
+---
+
+## 12  Automatisches Schutznetz & Pflicht-Gate (`npm run verify`)
+
+Für jede künftige Änderung gilt ein verbindliches E2E-Qualitätsgate auf mobilem Viewport (**390×844 px**):
+
+- **Befehl:** `npm run verify` im Verzeichnis `nexusflow-pwa` (führt `npm run build && npm run test:guard` aus).
+- **Pflicht vor jedem Git-Push:**
+  1. `npm run build` muss fehlerfrei durchlaufen.
+  2. Playwright Mobile-Guard (`tests/mobile-guard.spec.ts`) muss alle Stationen (Start & Kopfleiste, NavigationDrawer, TasksView, CartView, KnowledgeView, AiBottomBar & VoiceModal, Zentrale mit allen 4 Überbereichen, Deep-Links) zu 100 % grün durchlaufen.
+  3. Strikte Wächter: 0 ungefangene `pageerror`-Exceptions, 0 unberechtigte `console.error`-Meldungen, 0 horizontale Viewport-Überläufe (`document.documentElement.scrollWidth <= window.innerWidth + 1`).
+

@@ -156,10 +156,10 @@ export const TasksView: React.FC<TasksViewProps> = ({
   return (
     <section className="space-y-3.5">
       {/* Sektions-Kopf ohne äußeren Kasten */}
-      <div className="flex items-center justify-between gap-3 px-1">
-        <div className="flex items-center gap-2.5">
+      <div className="flex items-center justify-between gap-2 px-1 flex-wrap">
+        <div className="flex items-center gap-2.5 min-w-0">
           <CheckSquare
-            className="w-5 h-5"
+            className="w-5 h-5 shrink-0"
             style={{ color: themeColors.highlight }}
           />
           <h3 className="text-base font-bold text-[#F1F5F9] tracking-wide">
@@ -170,11 +170,11 @@ export const TasksView: React.FC<TasksViewProps> = ({
           </span>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 flex-wrap justify-end">
           <button
             type="button"
             onClick={() => setIsAddingTask((v) => !v)}
-            className={`w-11 h-11 min-h-[44px] min-w-[44px] rounded-2xl border flex items-center justify-center transition active:scale-95 cursor-pointer ${
+            className={`w-11 h-11 min-h-[44px] min-w-[44px] rounded-2xl border flex items-center justify-center transition active:scale-95 cursor-pointer shrink-0 ${
               isAddingTask
                 ? 'text-white border-white/30'
                 : 'bg-[#191C22] hover:bg-[#22262F] text-white border-white/5'
@@ -190,7 +190,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
             <button
               type="button"
               onClick={() => setSingleFocusActive((s) => !s)}
-              className={`min-h-[44px] px-3.5 rounded-xl text-xs font-bold border flex items-center gap-1.5 transition active:scale-95 cursor-pointer ${
+              className={`min-h-[44px] px-3 rounded-xl text-xs font-bold border flex items-center gap-1.5 transition active:scale-95 cursor-pointer shrink-0 ${
                 singleFocusActive
                   ? 'text-white border-white/30'
                   : 'bg-[#191C22] text-[#94A3B8] border-white/5'
@@ -211,7 +211,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
                 else if (onResetChecklistForDeployment)
                   onResetChecklistForDeployment(activeProject.id);
               }}
-              className="min-h-[44px] px-3.5 rounded-xl bg-[#191C22] text-xs font-semibold text-[#94A3B8] hover:text-white border border-white/5 flex items-center gap-1.5 active:scale-95 transition cursor-pointer"
+              className="min-h-[44px] px-3 rounded-xl bg-[#191C22] text-xs font-semibold text-[#94A3B8] hover:text-white border border-white/5 flex items-center gap-1.5 active:scale-95 transition cursor-pointer shrink-0"
               title="Erledigte Aufgaben zurücksetzen"
             >
               <RotateCcw className="w-3.5 h-3.5" />
@@ -458,10 +458,10 @@ export const TasksView: React.FC<TasksViewProps> = ({
                         triggerHapticFeedback(10);
                         onNotify('Aufgabe in die Zwischenablage kopiert.');
                       }}
-                      className="min-h-[44px] px-3.5 rounded-xl text-xs font-semibold bg-[#191C22] hover:bg-[#22262F] text-[#F1F5F9] hover:text-[#14B8A6] border border-white/5 flex items-center justify-center gap-2 active:scale-95 transition cursor-pointer"
+                      className="min-w-0 min-h-[44px] px-3 rounded-xl text-xs font-semibold bg-[#191C22] hover:bg-[#22262F] text-[#F1F5F9] hover:text-[#14B8A6] border border-white/5 flex items-center justify-center gap-1.5 active:scale-95 transition cursor-pointer"
                     >
-                      <Copy className="w-4 h-4 text-[#14B8A6]" />
-                      <span>Kopieren</span>
+                      <Copy className="w-4 h-4 text-[#14B8A6] shrink-0" />
+                      <span className="truncate">Kopieren</span>
                     </button>
 
                     <button
@@ -472,10 +472,10 @@ export const TasksView: React.FC<TasksViewProps> = ({
                         setEditTaskGroup(task.assemblyGroup || (m ? m[1] : ''));
                         setEditingTaskId(task.id);
                       }}
-                      className="min-h-[44px] px-3.5 rounded-xl text-xs font-semibold bg-[#191C22] hover:bg-[#22262F] text-[#F1F5F9] hover:text-[#14B8A6] border border-white/5 flex items-center justify-center gap-2 active:scale-95 transition cursor-pointer"
+                      className="min-w-0 min-h-[44px] px-3 rounded-xl text-xs font-semibold bg-[#191C22] hover:bg-[#22262F] text-[#F1F5F9] hover:text-[#14B8A6] border border-white/5 flex items-center justify-center gap-1.5 active:scale-95 transition cursor-pointer"
                     >
-                      <Edit3 className="w-4 h-4 text-[#14B8A6]" />
-                      <span>Bearbeiten</span>
+                      <Edit3 className="w-4 h-4 text-[#14B8A6] shrink-0" />
+                      <span className="truncate">Bearbeiten</span>
                     </button>
 
                     <button
@@ -486,10 +486,10 @@ export const TasksView: React.FC<TasksViewProps> = ({
                           '_blank'
                         );
                       }}
-                      className="min-h-[44px] px-3.5 rounded-xl text-xs font-semibold bg-[#191C22] hover:bg-[#22262F] text-[#F1F5F9] hover:text-[#14B8A6] border border-white/5 flex items-center justify-center gap-2 active:scale-95 transition cursor-pointer"
+                      className="min-w-0 min-h-[44px] px-3 rounded-xl text-xs font-semibold bg-[#191C22] hover:bg-[#22262F] text-[#F1F5F9] hover:text-[#14B8A6] border border-white/5 flex items-center justify-center gap-1.5 active:scale-95 transition cursor-pointer"
                     >
-                      <Calendar className="w-4 h-4 text-[#14B8A6]" />
-                      <span>Google Kalender</span>
+                      <Calendar className="w-4 h-4 text-[#14B8A6] shrink-0" />
+                      <span className="truncate">Google Kalender</span>
                     </button>
 
                     {!task.completed ? (
@@ -511,10 +511,10 @@ export const TasksView: React.FC<TasksViewProps> = ({
                           toggleActionCard(task.id);
                           onNotify('In Einkaufswagen übernommen.');
                         }}
-                        className="min-h-[44px] px-3.5 rounded-xl text-xs font-semibold bg-[#191C22] hover:bg-[#22262F] text-[#F1F5F9] border border-white/5 flex items-center justify-center gap-2 active:scale-95 transition cursor-pointer"
+                        className="min-w-0 min-h-[44px] px-3 rounded-xl text-xs font-semibold bg-[#191C22] hover:bg-[#22262F] text-[#F1F5F9] border border-white/5 flex items-center justify-center gap-1.5 active:scale-95 transition cursor-pointer"
                       >
-                        <ShoppingCart className="w-4 h-4 text-[#14B8A6]" />
-                        <span>In Einkaufswagen</span>
+                        <ShoppingCart className="w-4 h-4 text-[#14B8A6] shrink-0" />
+                        <span className="truncate">In Einkaufswagen</span>
                       </button>
                     ) : (
                       <div />
@@ -531,25 +531,25 @@ export const TasksView: React.FC<TasksViewProps> = ({
                           });
                           toggleActionCard(task.id);
                         }}
-                        className={`min-h-[44px] px-3.5 rounded-xl text-xs font-semibold border flex items-center justify-center gap-2 active:scale-95 transition cursor-pointer ${
+                        className={`min-w-0 min-h-[44px] px-3 rounded-xl text-xs font-semibold border flex items-center justify-center gap-1.5 active:scale-95 transition cursor-pointer ${
                           isAnchored
                             ? 'text-white border-white/20'
                             : 'bg-[#191C22] text-[#94A3B8] hover:text-white border-white/5'
                         }`}
                         style={isAnchored ? { backgroundColor: themeColors.primary } : {}}
                       >
-                        <Crosshair className="w-4 h-4" />
-                        <span>{isAnchored ? 'Fokus lösen' : 'Als Fokus anpinnen'}</span>
+                        <Crosshair className="w-4 h-4 shrink-0" />
+                        <span className="truncate">{isAnchored ? 'Fokus lösen' : 'Als Fokus anpinnen'}</span>
                       </button>
                     )}
 
                     <button
                       type="button"
                       onClick={() => handleDeleteWithUndo(task)}
-                      className="col-span-2 min-h-[44px] px-3.5 rounded-xl text-xs font-semibold bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 flex items-center justify-center gap-2 active:scale-95 transition cursor-pointer"
+                      className="col-span-2 min-w-0 min-h-[44px] px-3.5 rounded-xl text-xs font-semibold bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 flex items-center justify-center gap-1.5 active:scale-95 transition cursor-pointer"
                     >
-                      <Trash2 className="w-4 h-4" />
-                      <span>Löschen</span>
+                      <Trash2 className="w-4 h-4 shrink-0" />
+                      <span className="truncate">Löschen</span>
                     </button>
                   </div>
 

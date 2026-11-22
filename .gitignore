@@ -57,6 +57,12 @@ dist-ssr/
 # Local runner script
 powershell.cmd
 
+# Playwright test artifacts
+test-results/
+playwright-report/
+blob-report/
+
+
 # Windows system files
 desktop.ini
 Thumbs.db
