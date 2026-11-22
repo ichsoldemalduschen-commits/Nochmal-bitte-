@@ -1,5 +1,5 @@
 import { get, set } from 'idb-keyval';
-import { AmbientLightMode, AppStateSnapshot, KnowledgeItem, Project } from '../types';
+import { AmbientLightMode, AppStateSnapshot, KnowledgeItem, Project, PizzaCatalogItem, PosPizzaSlot, DoughCalcDefaults } from '../types';
 
 export const IDB_STATE_KEY = 'nexusflow_pwa_v1_state';
 export const LS_FALLBACK_KEY = 'nexusflow_pwa_v1_fallback';
@@ -493,4 +493,111 @@ export function loadSavedDossiers(): SavedDossierItem[] {
 
 export function saveSavedDossiers(dossiers: SavedDossierItem[]): void {
   saveIdbItem(STORAGE_KEYS.SAVED_DOSSIERS, dossiers);
+}
+
+// ── Pizza-Katalog & POS-Slots (Paket 3) ─────────────────────────────────────
+
+export const PIZZA_CATALOG_KEY = 'banditos_pizza_catalog_v1';
+export const POS_SLOTS_KEY = 'banditos_pos_slots_v1';
+export const DOUGH_CALC_DEFAULTS_KEY = 'banditos_dough_calc_defaults_v1';
+
+/** Standard-Stammdaten für den Erststart */
+export const DEFAULT_PIZZA_CATALOG: PizzaCatalogItem[] = [
+  {
+    id: 'cat-marg',
+    title: 'Margherita Klassik',
+    price: 11.5,
+    portionScope: 'Ø 30 cm · 250g Teig',
+    doughWeightGrams: 250,
+    unitCost: 2.65
+  },
+  {
+    id: 'cat-salami',
+    title: 'Salami Bandit',
+    price: 13.0,
+    portionScope: 'Ø 30 cm · 265g Teig',
+    doughWeightGrams: 265,
+    unitCost: 3.1
+  },
+  {
+    id: 'cat-truffel',
+    title: 'Spezial / Trüffel',
+    price: 16.5,
+    portionScope: 'Ø 32 cm · 280g Teig',
+    doughWeightGrams: 280,
+    unitCost: 4.2
+  },
+  {
+    id: 'cat-mini',
+    title: 'Mini / Kids',
+    price: 7.5,
+    portionScope: 'Ø 24 cm · 180g Teig',
+    doughWeightGrams: 180,
+    unitCost: 1.9
+  },
+  {
+    id: 'cat-diav',
+    title: 'Diavola Piccante',
+    price: 13.5,
+    portionScope: 'Ø 30 cm · 265g Teig',
+    doughWeightGrams: 265,
+    unitCost: 3.35
+  }
+];
+
+/** Standard-Slots für den POS-Clicker (3 Slots) */
+export function buildDefaultPosSlots(catalog: PizzaCatalogItem[]): PosPizzaSlot[] {
+  const sources = [catalog[0], catalog[1], catalog[2]].filter(Boolean);
+  return sources.map((item, idx) => ({
+    slotId: `slot-${idx + 1}`,
+    catalogId: item.id,
+    title: item.title,
+    price: item.price,
+    portionScope: item.portionScope,
+    unitCost: item.unitCost ?? 2.5,
+    count: 0,
+    isLocallyOverridden: false
+  }));
+}
+
+export async function loadPizzaCatalog(): Promise<PizzaCatalogItem[]> {
+  return loadIdbItem<PizzaCatalogItem[]>(PIZZA_CATALOG_KEY, DEFAULT_PIZZA_CATALOG);
+}
+
+export async function savePizzaCatalog(catalog: PizzaCatalogItem[]): Promise<void> {
+  return saveIdbItem(PIZZA_CATALOG_KEY, catalog);
+}
+
+export async function loadPosSlots(catalog: PizzaCatalogItem[]): Promise<PosPizzaSlot[]> {
+  const stored = await loadIdbItem<PosPizzaSlot[] | null>(POS_SLOTS_KEY, null);
+  if (stored && Array.isArray(stored) && stored.length > 0) {
+    // Fehlende Felder mit Defaults auffüllen
+    return stored.map((s) => ({
+      ...s,
+      count: s.count ?? 0,
+      unitCost: s.unitCost ?? 2.5,
+      isLocallyOverridden: s.isLocallyOverridden ?? false
+    }));
+  }
+  return buildDefaultPosSlots(catalog);
+}
+
+export async function savePosSlots(slots: PosPizzaSlot[]): Promise<void> {
+  // Zählerstände NICHT persistieren (Reset auf 0 beim nächsten Start ist gewollt)
+  const toSave = slots.map((s) => ({ ...s, count: 0 }));
+  return saveIdbItem(POS_SLOTS_KEY, toSave);
+}
+
+export const DEFAULT_DOUGH_CALC_DEFAULTS: DoughCalcDefaults = {
+  defaultBallWeightGrams: 265,
+  defaultHydrationPercent: 68,
+  defaultBallsPerBox: 12
+};
+
+export async function loadDoughCalcDefaults(): Promise<DoughCalcDefaults> {
+  return loadIdbItem<DoughCalcDefaults>(DOUGH_CALC_DEFAULTS_KEY, DEFAULT_DOUGH_CALC_DEFAULTS);
+}
+
+export async function saveDoughCalcDefaults(defaults: DoughCalcDefaults): Promise<void> {
+  return saveIdbItem(DOUGH_CALC_DEFAULTS_KEY, defaults);
 }

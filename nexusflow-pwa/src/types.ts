@@ -205,6 +205,37 @@ export interface EventSalesLog {
   items: PosSoldVariety[];
 }
 
+// ── Pizza-Katalog & POS-Slot-Datenmodell (Paket 3) ──────────────────────────
+
+/** Stammdaten-Eintrag für eine Pizza-Sorte im IndexedDB-Katalog */
+export interface PizzaCatalogItem {
+  id: string;
+  title: string;
+  price: number;
+  portionScope: string;
+  doughWeightGrams?: number;
+  unitCost?: number;
+}
+
+/** Aktiver Zähler-Slot im POS-Clicker – kann lokal überschrieben sein */
+export interface PosPizzaSlot {
+  slotId: string;
+  catalogId: string | null;
+  title: string;
+  price: number;
+  portionScope: string;
+  unitCost: number;
+  count: number;
+  isLocallyOverridden: boolean;
+}
+
+/** Persistente Vorgaben für den Teigballen-Kalkulator */
+export interface DoughCalcDefaults {
+  defaultBallWeightGrams: number;
+  defaultHydrationPercent: number;
+  defaultBallsPerBox: number;
+}
+
 export interface AppStateSnapshot {
   projects: Project[];
   aiLogs: AiLogEntry[];

@@ -648,4 +648,122 @@ test.describe('Block C: Mobile-Guard 390×844 px Gesamt-Schutznetz', () => {
     // Drawer wieder schließen
     await page.locator('button:has(svg.lucide-x)').first().click();
   });
+
+  test('Station 9 – Werkzeuge / ExtrasView: 3 POS-Slots, touch-sichere Buttons, ⚙-Einstellungen, Katalog-Dropdown, lokale Überschreibung & Teigrechner-Einstellungen', async ({ page }) => {
+    await page.goto('./');
+    await page.waitForLoadState('domcontentloaded');
+
+    // In Extras navigieren (über Drawer -> Werkzeuge oder direkt Tab)
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    // Suche nach Werkzeuge-Button im Drawer
+    const extrasBtn = page.locator('button:has-text("Werkzeuge"), button:has-text("Extras")').first();
+    await expect(extrasBtn).toBeVisible({ timeout: 5000 });
+    await extrasBtn.click();
+
+    // ExtrasView muss sichtbar sein (POS-Clicker oder Teigrechner vorhanden)
+    await assertNoHorizontalOverflow(page, 'Station 9 – ExtrasView geöffnet');
+
+    // ── 1. Genau 3 aktive Pizza-Slots mit touch-sicheren Minus-Buttons prüfen ──
+    const posSection = page.locator('[aria-label="POS Pizza-Slots"]');
+    await expect(posSection).toBeVisible({ timeout: 8000 });
+
+    const slots = posSection.locator('[data-testid^="pos-slot-"]');
+    await expect(slots).toHaveCount(3);
+
+    // Minus-Buttons müssen >= 44px sein
+    const firstSlot = slots.first();
+    const minusBtn = firstSlot.locator('button[aria-label$="minus"]');
+    await expect(minusBtn).toBeVisible();
+    const minusBtnBox = await minusBtn.boundingBox();
+    expect(minusBtnBox?.width ?? 0).toBeGreaterThanOrEqual(44);
+    expect(minusBtnBox?.height ?? 0).toBeGreaterThanOrEqual(44);
+
+    // Plus-Button ebenfalls touch-sicher
+    const plusBtn = firstSlot.locator('button[aria-label$="plus"]');
+    await expect(plusBtn).toBeVisible();
+    const plusBtnBox = await plusBtn.boundingBox();
+    expect(plusBtnBox?.width ?? 0).toBeGreaterThanOrEqual(44);
+    expect(plusBtnBox?.height ?? 0).toBeGreaterThanOrEqual(44);
+
+    await assertNoHorizontalOverflow(page, 'Station 9 – 3 POS-Slots sichtbar');
+
+    // ── 2. ⚙-Einstellungsmenü öffnen ──
+    const settingsBtn = page.locator('button[aria-label="Einstellungen öffnen"]').first();
+    await expect(settingsBtn).toBeVisible();
+    await settingsBtn.click();
+
+    // Einstellungen-Panel muss sichtbar sein
+    const slotsPanel = page.locator('[aria-label="Aktive Zähler-Slots Einstellungen"]');
+    await expect(slotsPanel).toBeVisible({ timeout: 3000 });
+    await assertNoHorizontalOverflow(page, 'Station 9 – ⚙ Einstellungen geöffnet');
+
+    // ── 3. Katalog-Dropdown im ersten Slot ansteuern und andere Sorte wählen ──
+    const firstDropdown = slotsPanel.locator('select[aria-label="Sorte aus Katalog wählen"]').first();
+    await expect(firstDropdown).toBeVisible();
+
+    // Optionen laden und zweite Option wählen
+    const options = await firstDropdown.locator('option').all();
+    expect(options.length).toBeGreaterThan(1);
+    const secondOptionValue = await options[1].getAttribute('value') ?? '';
+    if (secondOptionValue) {
+      await firstDropdown.selectOption(secondOptionValue);
+    }
+
+    // ── 4. Titel lokal bearbeiten ──
+    const titleInput = slotsPanel.locator('input[aria-label="Slot-Titel lokal bearbeiten"]').first();
+    await expect(titleInput).toBeVisible();
+    await titleInput.fill('Event-Spezial 🍕');
+
+    // Event-Anpassung-Indikator muss in Haupt-Slot erscheinen
+    // (isLocallyOverridden = true nach Titeländerung)
+    // Einstellungen schließen und Bühne prüfen
+    const closeSettingsBtn = page.locator('button[aria-label="Einstellungen schließen"]').first();
+    await closeSettingsBtn.click();
+
+    // Im Slot: Event-Anpassung-Badge muss sichtbar sein
+    const overrideIndicator = firstSlot.locator('[aria-label="Event-Anpassung aktiv"]');
+    await expect(overrideIndicator).toBeVisible({ timeout: 3000 });
+    await assertNoHorizontalOverflow(page, 'Station 9 – Lokale Überschreibung angezeigt');
+
+    // ── 5. Katalog-Tab prüfen: Original-Stammdaten unverändert ──
+    // Einstellungen erneut öffnen
+    await settingsBtn.click();
+    // Zum Katalog-Tab wechseln
+    const catalogTabBtn = page.locator('button[aria-label="Pizza-Katalog"]');
+    await expect(catalogTabBtn).toBeVisible();
+    await catalogTabBtn.click();
+
+    const catalogSection = page.locator('[aria-label="Pizza-Katalog Stammdaten"]');
+    await expect(catalogSection).toBeVisible({ timeout: 3000 });
+
+    // Mindestens 3 Catalog-Einträge vorhanden (Stammdaten unverändert)
+    const catalogEntries = catalogSection.locator('span.text-xs.font-semibold.text-white');
+    const entryCount = await catalogEntries.count();
+    expect(entryCount).toBeGreaterThanOrEqual(3);
+
+    // Originaltitel aus Katalog noch vorhanden (nicht überschrieben)
+    // "Margherita Klassik" ist der Standard-Erststart-Eintrag
+    await expect(catalogSection.locator('span:has-text("Margherita Klassik")')).toBeVisible();
+
+    await assertNoHorizontalOverflow(page, 'Station 9 – Katalog-Stammdaten unverändert');
+
+    // ── 6. Einstellungen schließen ──
+    await closeSettingsBtn.click();
+    await expect(slotsPanel).toBeHidden({ timeout: 3000 });
+
+    // ── 7. Teigrechner-⚙-Button prüfen: auf- und zuklappen, 0px Überlauf ──
+    const doughSettingsBtn = page.locator('button[aria-label="Teigrechner-Einstellungen öffnen"]');
+    await expect(doughSettingsBtn).toBeVisible({ timeout: 5000 });
+    await doughSettingsBtn.click();
+
+    const doughSettingsPanel = page.locator('[aria-label="Teigrechner Standard-Vorgaben"]');
+    await expect(doughSettingsPanel).toBeVisible({ timeout: 3000 });
+    await assertNoHorizontalOverflow(page, 'Station 9 – Teigrechner-Einstellungen geöffnet');
+
+    // Zuklappen – den X-Button INNERHALB des Panels verwenden
+    const doughClosePanelXBtn = doughSettingsPanel.locator('button[aria-label="Teigrechner-Einstellungen schließen"]');
+    await doughClosePanelXBtn.click();
+    await expect(doughSettingsPanel).toBeHidden({ timeout: 3000 });
+    await assertNoHorizontalOverflow(page, 'Station 9 – Teigrechner-Einstellungen geschlossen');
+  });
 });

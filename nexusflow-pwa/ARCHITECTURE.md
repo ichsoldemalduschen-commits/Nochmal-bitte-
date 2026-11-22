@@ -209,3 +209,34 @@ Für jede künftige Änderung gilt ein verbindliches E2E-Qualitätsgate auf mobi
 
 
 
+
+---
+
+## 14  Werkzeug-Einstellungen & IndexedDB-Pizza-Katalog (Paket 3)
+
+### ⚙ Progressive-Disclosure-Einstellungen in `src/plugins/`
+
+Beide Werkzeuge besitzen oben rechts einen ruhigen `⚙`-Button (`min-h-[44px] min-w-[44px]`), der **standardmäßig zugeklappt** ist:
+
+| Werkzeug | Datei | Einstellungs-Inhalt |
+|---|---|---|
+| Live-Verkaufs-Clicker (POS) | `posTapClicker.tsx` | Tab „Aktive Slots": Katalog-Dropdown, lokale Überschreibung pro Slot; Tab „Pizza-Katalog": CRUD der Stammdaten |
+| Teigballen-Kalkulator | `eventQuantityCalc.tsx` | Standard-Teigballen-Gewicht (g), Hydration (%), Ballen/Eurobox → persistent in IDB |
+
+### IndexedDB-Pizza-Katalog & POS-Slots
+
+| IDB-Schlüssel | Typ | Beschreibung |
+|---|---|---|
+| `banditos_pizza_catalog_v1` | `PizzaCatalogItem[]` | Stammdaten-Katalog (5 Beispiel-Pizzen als Default) |
+| `banditos_pos_slots_v1` | `PosPizzaSlot[]` | 3 aktive Standard-Slots (erweiterbar), **Zählerstände werden nicht persistiert** |
+| `banditos_dough_calc_defaults_v1` | `DoughCalcDefaults` | Vorgaben für Teigrechner |
+
+### Lokale Slot-Überschreibung (isLocallyOverridden)
+
+- Auswahl einer Sorte im Katalog-Dropdown → `isLocallyOverridden = false`, Werte werden aus Stammdaten übernommen.
+- Direkte Eingabe von Titel/Preis/Umfang im Slot → `isLocallyOverridden = true`, **Stammdaten in IDB bleiben 100 % unverändert.**
+- „In Katalog speichern": schreibt erst nach bewusstem Klick in die Stammdatenbank zurück.
+- „Zurücksetzen": holt Originalwerte aus dem verknüpften Katalog-Eintrag.
+- Löschen eines Katalog-Eintrags: betroffene Slots behalten ihre aktuellen Werte, `catalogId` wird auf `null` gesetzt.
+
+> **Regel:** Neue `PosPizzaSlot`-Daten gehören in `banditos_pos_slots_v1` (IDB), keine losen `localStorage`-Keys.
