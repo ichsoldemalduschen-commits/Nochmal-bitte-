@@ -299,55 +299,118 @@ test.describe('Block C: Mobile-Guard 390×844 px Gesamt-Schutznetz', () => {
     await assertNoHorizontalOverflow(page, 'Station 5 – Wissen (KnowledgeView)');
   });
 
-  test('Station 6 – Block D Daumen-Steuerung & Sprach-KI: Sechskant-Button, Daumen-Fächer, 1-Fokus-Overlay & Umschalten auf klassische Leiste', async ({ page }) => {
+  test('Station 6 – Block D Daumen-Steuerung & Sprach-KI: 3-Stufen-Morph, Schnellauswahl-Menü, Schwebender Einkaufswagen & Umschalten auf klassische Leiste', async ({ page }) => {
     await page.goto('./');
     await page.waitForLoadState('domcontentloaded');
 
-    // 1. Sechskant-Button ist standardmäßig sichtbar (thumbHubEnabled = true)
+    // 1. Stufe 0: Präsenter Sechskant-Button (~72×72 px) sichtbar
     const hexBtn = page.locator('button[aria-label="Daumen-Steuerung"]');
     await expect(hexBtn).toBeVisible();
-    await assertNoHorizontalOverflow(page, 'Station 6 – Sechskant-Button sichtbar');
+    await assertNoHorizontalOverflow(page, 'Station 6 – Stufe 0 Sechskant-Button sichtbar');
 
-    // 2. Kurzer Tipp öffnet den Daumen-Fächer
+    // 2. Stufe 0 -> Stufe 1: 1× Tipp auf Sechseck weckt kompakten Begleiter auf
     await hexBtn.click();
+    const stage1Region = page.locator('div[role="region"][aria-label="KI-Begleiter Kompakt"]');
+    await expect(stage1Region).toBeVisible();
+
+    // Mini-Sechseck, Quittungs-/Text-Bereich und genau 3 Icons (⌨, ⊞, ⤢) prüfen
+    const miniHex = stage1Region.locator('button[aria-label="Begleiter Status & Mikrofon"]');
+    await expect(miniHex).toBeVisible();
+    const keyboardBtn = stage1Region.locator('button[aria-label="Textfeld öffnen"]');
+    const fanFromStage1Btn = stage1Region.locator('button[aria-label="Schnellauswahl öffnen"]');
+    const expandToStage2Btn = stage1Region.locator('button[aria-label="Vergrößern zu Vollbild"]');
+    await expect(keyboardBtn).toBeVisible();
+    await expect(fanFromStage1Btn).toBeVisible();
+    await expect(expandToStage2Btn).toBeVisible();
+    await assertNoHorizontalOverflow(page, 'Station 6 – Stufe 1 Kompakter Begleiter');
+
+    // 3. Stufe 1 -> Stufe 2: Klick auf ⤢ vergrößert auf volles Gesprächs-Modal
+    await expandToStage2Btn.click();
+    const modalHeader = page.locator('text=KI-Kontext & Dialog');
+    await expect(modalHeader).toBeVisible();
+    await expect(stage1Region).toBeHidden();
+
+    // Stufe 2 Kontrollen: ⤡ (Verkleinern) und ✕ (Schließen)
+    const shrinkBtn = page.locator('button[aria-label="Verkleinern zu Stufe 1"]');
+    const closeStage2Btn = page.locator('button[aria-label="Schließen"]').first();
+    await expect(shrinkBtn).toBeVisible();
+    await expect(closeStage2Btn).toBeVisible();
+    await assertNoHorizontalOverflow(page, 'Station 6 – Stufe 2 Volles Gesprächs-Modal');
+
+    // 4. Stufe 2 -> Stufe 1: Klick auf ⤡ verkleinert zurück zu Stufe 1
+    await shrinkBtn.click();
+    await expect(stage1Region).toBeVisible();
+    await expect(modalHeader).toBeHidden();
+
+    // 5. Schnellauswahl-Menü über ⊞ öffnen
+    await fanFromStage1Btn.click();
     const fanRegion = page.locator('div[role="region"][aria-label="Daumen-Fächer"]');
     await expect(fanRegion).toBeVisible();
 
-    // Fächer-Inhalte prüfen: Projekt-Chips, Bereichs-Chips, Werkzeuge, „Kurz tippen…“
+    // Schnellauswahl-Inhalte prüfen: Projekte, Bereiche, Werkzeuge (1-Fokus, Einkauf Schwebend, Wächter)
     await expect(fanRegion.locator('text=Projekte')).toBeVisible();
     await expect(fanRegion.locator('button:has-text("Aufgaben")')).toBeVisible();
-    await expect(fanRegion.locator('button:has-text("Einkauf")')).toBeVisible();
+    await expect(fanRegion.locator('button:has-text("Einkauf")').first()).toBeVisible();
     await expect(fanRegion.locator('button:has-text("Wissen")')).toBeVisible();
     await expect(fanRegion.locator('button:has-text("1-Fokus")')).toBeVisible();
+    await expect(fanRegion.locator('button:has-text("Einkauf (Schwebend)")')).toBeVisible();
     await expect(fanRegion.locator('button:has-text("Wächter ⚖️")')).toBeVisible();
     await expect(fanRegion.locator('input[placeholder*="Kurz tippen"]')).toBeVisible();
+    await assertNoHorizontalOverflow(page, 'Station 6 – Schnellauswahl geöffnet');
 
-    // Überlauf im geöffneten Fächer prüfen
-    await assertNoHorizontalOverflow(page, 'Station 6 – Daumen-Fächer geöffnet');
+    // 6. Test des Schwebenden Einkaufswagens (FloatingCartOverlay)
+    const floatingCartBtn = fanRegion.locator('button:has-text("Einkauf (Schwebend)")');
+    await floatingCartBtn.click();
+    await expect(fanRegion).toBeHidden();
 
-    // 3. 1-Fokus-Overlay über Fächer öffnen
+    const floatingCart = page.locator('div[role="dialog"][aria-label="Schwebender Einkaufswagen"]');
+    await expect(floatingCart).toBeVisible();
+
+    // 3 Kopfzeilen-Knöpfe im FloatingCart: —, ⤢, ✕
+    const parkPillBtn = floatingCart.locator('button[aria-label="Einkaufswagen minimieren"]');
+    const fullScreenCartBtn = floatingCart.locator('button[aria-label="Einkaufswagen Vollbild"]');
+    const closeCartBtn = floatingCart.locator('button[aria-label="Einkaufswagen schließen"]');
+    await expect(parkPillBtn).toBeVisible();
+    await expect(fullScreenCartBtn).toBeVisible();
+    await expect(closeCartBtn).toBeVisible();
+    await assertNoHorizontalOverflow(page, 'Station 6 – Schwebender Einkaufswagen geöffnet');
+
+    // Pill-Minimierung testen: Klick auf —
+    await parkPillBtn.click();
+    await expect(floatingCart).toBeHidden();
+    const restoredPill = page.locator('button[aria-label="Einkaufswagen Pill wiederherstellen"]');
+    await expect(restoredPill).toBeVisible();
+    await expect(restoredPill).toContainText('offen');
+
+    // Pill antippen -> stellt schwebenden Einkaufswagen wieder her
+    await restoredPill.click();
+    await expect(floatingCart).toBeVisible();
+
+    // Schließen testen: Klick auf ✕
+    await closeCartBtn.click();
+    await expect(floatingCart).toBeHidden();
+
+    // 7. 1-Fokus-Overlay testen
+    await hexBtn.click();
+    await stage1Region.locator('button[aria-label="Schnellauswahl öffnen"]').click();
+    await expect(fanRegion).toBeVisible();
     const focusBtn = fanRegion.locator('button:has-text("1-Fokus")');
     await focusBtn.click();
 
     const focusOverlay = page.locator('div[role="dialog"][aria-label="1-Fokus-Modus"]');
     await expect(focusOverlay).toBeVisible();
-
-    // 1-Fokus Elemente: Große Knöpfe „Erstmal parken“ und „Erledigt ✓“, Schalter 5-Min-Start
     const parkBtn = focusOverlay.locator('button:has-text("Erstmal parken")');
     const doneBtn = focusOverlay.locator('button:has-text("Erledigt ✓")');
     await expect(parkBtn).toBeVisible();
     await expect(doneBtn).toBeVisible();
     await expect(focusOverlay.locator('button:has-text("5-Min-Start")')).toBeVisible();
-
-    // Überlauf im 1-Fokus-Overlay prüfen
     await assertNoHorizontalOverflow(page, 'Station 6 – 1-Fokus-Overlay geöffnet');
 
-    // 1-Fokus-Overlay schließen
-    const closeFocusBtn = focusOverlay.locator('button[aria-label="Schließen"]');
-    await closeFocusBtn.click();
+    // 1-Fokus schließen
+    await focusOverlay.locator('button[aria-label="Schließen"]').click();
     await expect(focusOverlay).toBeHidden();
 
-    // 4. Umschalten in der Zentrale auf die klassische Leiste
+    // 8. Umschalten in der Zentrale auf die klassische Leiste
     await page.locator('button[aria-label="Navigation öffnen"]').click();
     await page.getByRole('button', { name: 'Zentrale', exact: true }).click();
 
@@ -373,8 +436,8 @@ test.describe('Block C: Mobile-Guard 390×844 px Gesamt-Schutznetz', () => {
 
     // VoiceModal über klassische Leiste öffnen
     await voiceBtn.click();
-    const modalHeader = page.locator('text=KI-Kontext & Dialog');
-    await expect(modalHeader).toBeVisible();
+    const classicModalHeader = page.locator('text=KI-Kontext & Dialog');
+    await expect(classicModalHeader).toBeVisible();
     await assertNoHorizontalOverflow(page, 'Station 6 – VoiceModal geöffnet');
 
     // Modus-Schalter prüfen (kein Doppel-Blitz)
@@ -385,9 +448,9 @@ test.describe('Block C: Mobile-Guard 390×844 px Gesamt-Schutznetz', () => {
 
     // VoiceModal schließen
     await page.locator('button[aria-label="Schließen"]').first().click();
-    await expect(modalHeader).toBeHidden();
+    await expect(classicModalHeader).toBeHidden();
 
-    // 5. Zurück zur Zentrale und Sechskant wieder aktivieren
+    // 9. Zurück zur Zentrale und Sechskant wieder aktivieren
     await page.locator('button[aria-label="Navigation öffnen"]').click();
     await page.getByRole('button', { name: 'Zentrale', exact: true }).click();
     await section2Btn.click();

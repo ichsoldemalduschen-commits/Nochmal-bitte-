@@ -76,10 +76,64 @@ code, kbd, samp, pre, .font-mono {
   will-change: transform, opacity;
 }
 
+/* Sechseck-Begleiter: Sanft atmender Projektfarben-Lichtsaum (reine GPU-Animation) */
+@keyframes hex-ambient-glow {
+  0%, 100% {
+    filter: drop-shadow(0 0 6px var(--hex-glow, rgba(13, 148, 136, 0.35)))
+            drop-shadow(0 6px 16px rgba(0, 0, 0, 0.6));
+  }
+  50% {
+    filter: drop-shadow(0 0 16px var(--hex-glow, rgba(13, 148, 136, 0.65)))
+            drop-shadow(0 8px 24px rgba(0, 0, 0, 0.8));
+  }
+}
+
+.hex-companion-breathing {
+  animation: hex-ambient-glow 3.4s ease-in-out infinite;
+  will-change: filter;
+}
+
+/* Konzentrische Klick-Puls-Lichtringe */
+@keyframes hex-pulse-ring {
+  0% {
+    transform: scale(0.9);
+    opacity: 0.95;
+  }
+  100% {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+}
+
+.hex-pulse-ring-anim {
+  animation: hex-pulse-ring 0.45s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  will-change: transform, opacity;
+}
+
+/* Mini-Sechseck: Rhythmisches Sprech-Leuchten */
+@keyframes hex-speak-pulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.9;
+  }
+  50% {
+    transform: scale(1.08);
+    opacity: 1;
+  }
+}
+
+.hex-speak-anim {
+  animation: hex-speak-pulse 1.2s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .ambient-shimmer-blob-1,
   .ambient-shimmer-blob-2,
-  .ambient-shimmer-blob-3 {
+  .ambient-shimmer-blob-3,
+  .hex-companion-breathing,
+  .hex-pulse-ring-anim,
+  .hex-speak-anim {
     animation: none !important;
   }
 }

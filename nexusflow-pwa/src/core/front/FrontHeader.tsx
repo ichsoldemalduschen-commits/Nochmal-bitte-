@@ -11,6 +11,7 @@ export interface ThemeColors {
   primary: string;
   highlight: string;
   label: string;
+  glow?: string;
 }
 
 interface FrontHeaderProps {

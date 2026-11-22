@@ -31,6 +31,7 @@ interface NavigationDrawerProps {
   onOpenNewProjectModal: () => void;
   onOpenDeepResearchModal?: () => void;
   onOpenAddonsBackoffice: (section?: ZentraleSectionId) => void;
+  onOpenFloatingCart?: () => void;
   isTabEnabled: (proj: Project | undefined, tab: 'tasks' | 'cart' | 'knowledge' | 'extras') => boolean;
 }
 
@@ -48,6 +49,7 @@ export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({
   onOpenNewProjectModal,
   onOpenDeepResearchModal,
   onOpenAddonsBackoffice,
+  onOpenFloatingCart,
   isTabEnabled
 }) => {
   const renderProjectList = (projects: Project[], domainColorKey: 'arbeit' | 'privat') => {
@@ -102,11 +104,10 @@ export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({
                 <button
                   type="button"
                   onClick={() => onSelectProjectAndSection(proj, 'ALL')}
-                  className={`min-h-[44px] px-3 py-2 rounded-xl text-xs font-semibold text-left flex items-center justify-between ${
-                    viewAllSections
-                      ? 'text-white'
-                      : 'bg-[#242930] text-[#9CA3AF] hover:text-white'
-                  }`}
+                  className={`min-h-[44px] px-3 py-2 rounded-xl text-xs font-semibold text-left flex items-center justify-between ${viewAllSections
+                    ? 'text-white'
+                    : 'bg-[#242930] text-[#9CA3AF] hover:text-white'
+                    }`}
                   style={viewAllSections ? { backgroundColor: pColor } : {}}
                 >
                   <span>Gesamt</span>
@@ -117,11 +118,10 @@ export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({
                 <button
                   type="button"
                   onClick={() => onSelectProjectAndSection(proj, 'tasks')}
-                  className={`min-h-[44px] px-3 py-2 rounded-xl text-xs font-semibold text-left flex items-center justify-between ${
-                    !viewAllSections && activeTab === 'tasks'
-                      ? 'text-white'
-                      : 'bg-[#242930] text-[#9CA3AF] hover:text-white'
-                  }`}
+                  className={`min-h-[44px] px-3 py-2 rounded-xl text-xs font-semibold text-left flex items-center justify-between ${!viewAllSections && activeTab === 'tasks'
+                    ? 'text-white'
+                    : 'bg-[#242930] text-[#9CA3AF] hover:text-white'
+                    }`}
                   style={
                     !viewAllSections && activeTab === 'tasks'
                       ? { backgroundColor: pColor }
@@ -138,19 +138,18 @@ export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({
                 <button
                   type="button"
                   onClick={() => onSelectProjectAndSection(proj, 'knowledge')}
-                  className={`min-h-[44px] px-3 py-2 rounded-xl text-xs font-semibold text-left flex items-center justify-between ${
-                    !viewAllSections &&
+                  className={`min-h-[44px] px-3 py-2 rounded-xl text-xs font-semibold text-left flex items-center justify-between ${!viewAllSections &&
                     (activeTab === 'knowledge' ||
                       activeTab === 'explanations' ||
                       activeTab === 'infos')
-                      ? 'text-white'
-                      : 'bg-[#242930] text-[#9CA3AF] hover:text-white'
-                  }`}
+                    ? 'text-white'
+                    : 'bg-[#242930] text-[#9CA3AF] hover:text-white'
+                    }`}
                   style={
                     !viewAllSections &&
-                    (activeTab === 'knowledge' ||
-                      activeTab === 'explanations' ||
-                      activeTab === 'infos')
+                      (activeTab === 'knowledge' ||
+                        activeTab === 'explanations' ||
+                        activeTab === 'infos')
                       ? { backgroundColor: pColor }
                       : {}
                   }
@@ -165,11 +164,10 @@ export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({
                 <button
                   type="button"
                   onClick={() => onSelectProjectAndSection(proj, 'extras')}
-                  className={`min-h-[44px] px-3 py-2 rounded-xl text-xs font-semibold flex items-center justify-between ${
-                    !viewAllSections && activeTab === 'extras'
-                      ? 'text-white'
-                      : 'bg-[#242930] text-[#9CA3AF] hover:text-white'
-                  }`}
+                  className={`min-h-[44px] px-3 py-2 rounded-xl text-xs font-semibold flex items-center justify-between ${!viewAllSections && activeTab === 'extras'
+                    ? 'text-white'
+                    : 'bg-[#242930] text-[#9CA3AF] hover:text-white'
+                    }`}
                   style={
                     !viewAllSections && activeTab === 'extras'
                       ? { backgroundColor: pColor }
@@ -193,15 +191,13 @@ export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({
 
   return (
     <div
-      className={`fixed inset-0 z-[55] flex transition-opacity duration-300 ${
-        drawerOpen ? 'opacity-100 pointer-events-auto' : drawerDragX > 0 ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
-      }`}
+      className={`fixed inset-0 z-[55] flex transition-opacity duration-300 ${drawerOpen ? 'opacity-100 pointer-events-auto' : drawerDragX > 0 ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+        }`}
       style={drawerDragX > 0 ? { opacity: drawerDragX / (window.innerWidth * 0.85) } : undefined}
     >
       <div
-        className={`w-[85vw] max-w-sm h-full border-r border-white/10 flex flex-col justify-between overflow-y-auto shadow-2xl ${
-          drawerDragX === 0 ? 'transition-transform duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]' : ''
-        }`}
+        className={`w-[85vw] max-w-sm h-full border-r border-white/10 flex flex-col justify-between overflow-y-auto shadow-2xl ${drawerDragX === 0 ? 'transition-transform duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]' : ''
+          }`}
         style={{
           backgroundColor: '#111317',
           transform: drawerOpen
@@ -209,8 +205,8 @@ export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({
               ? `translateX(${drawerDragX}px)`
               : 'translateX(0)'
             : drawerDragX > 0
-            ? `translateX(calc(-100% + ${drawerDragX}px))`
-            : 'translateX(-100%)'
+              ? `translateX(calc(-100% + ${drawerDragX}px))`
+              : 'translateX(-100%)'
         }}
       >
         <div className="p-4 space-y-5">
@@ -238,17 +234,20 @@ export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({
             <button
               type="button"
               onClick={() => {
-                const target = activeProject || workProjects[0] || privateProjects[0];
-                if (target) {
-                  onSelectProjectAndSection(target, 'cart');
+                if (onOpenFloatingCart) {
+                  onOpenFloatingCart();
+                } else {
+                  const target = activeProject || workProjects[0] || privateProjects[0];
+                  if (target) {
+                    onSelectProjectAndSection(target, 'cart');
+                  }
                 }
                 onClose();
               }}
-              className={`min-h-[56px] p-2 rounded-2xl border flex flex-col items-center justify-center gap-1 active:scale-95 transition cursor-pointer ${
-                !viewAllSections && activeTab === 'cart'
-                  ? 'bg-[#0D9488]/20 border-[#0D9488] text-white shadow-sm'
-                  : 'bg-[#191C22] hover:bg-[#22262F] text-[#94A3B8] hover:text-white border-white/5'
-              }`}
+              className={`min-h-[56px] p-2 rounded-2xl border flex flex-col items-center justify-center gap-1 active:scale-95 transition cursor-pointer ${!viewAllSections && activeTab === 'cart'
+                ? 'bg-[#0D9488]/20 border-[#0D9488] text-white shadow-sm'
+                : 'bg-[#191C22] hover:bg-[#22262F] text-[#94A3B8] hover:text-white border-white/5'
+                }`}
             >
               <ShoppingCart className="w-5 h-5 text-[#14B8A6]" />
               <span className="text-xs font-semibold leading-none truncate">Einkauf</span>
@@ -263,11 +262,10 @@ export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({
                 }
                 onClose();
               }}
-              className={`min-h-[56px] p-2 rounded-2xl border flex flex-col items-center justify-center gap-1 active:scale-95 transition cursor-pointer ${
-                !viewAllSections && activeTab === 'receipt'
-                  ? 'bg-[#0D9488]/20 border-[#0D9488] text-white shadow-sm'
-                  : 'bg-[#191C22] hover:bg-[#22262F] text-[#94A3B8] hover:text-white border-white/5'
-              }`}
+              className={`min-h-[56px] p-2 rounded-2xl border flex flex-col items-center justify-center gap-1 active:scale-95 transition cursor-pointer ${!viewAllSections && activeTab === 'receipt'
+                ? 'bg-[#0D9488]/20 border-[#0D9488] text-white shadow-sm'
+                : 'bg-[#191C22] hover:bg-[#22262F] text-[#94A3B8] hover:text-white border-white/5'
+                }`}
             >
               <Camera className="w-5 h-5 text-[#14B8A6]" />
               <span className="text-xs font-semibold leading-none truncate">Beleg-Scan</span>
@@ -282,11 +280,10 @@ export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({
                 }
                 onClose();
               }}
-              className={`min-h-[56px] p-2 rounded-2xl border flex flex-col items-center justify-center gap-1 active:scale-95 transition cursor-pointer ${
-                !viewAllSections && activeTab === 'research'
-                  ? 'bg-[#0D9488]/20 border-[#0D9488] text-white shadow-sm'
-                  : 'bg-[#191C22] hover:bg-[#22262F] text-[#94A3B8] hover:text-white border-white/5'
-              }`}
+              className={`min-h-[56px] p-2 rounded-2xl border flex flex-col items-center justify-center gap-1 active:scale-95 transition cursor-pointer ${!viewAllSections && activeTab === 'research'
+                ? 'bg-[#0D9488]/20 border-[#0D9488] text-white shadow-sm'
+                : 'bg-[#191C22] hover:bg-[#22262F] text-[#94A3B8] hover:text-white border-white/5'
+                }`}
             >
               <Sparkles className="w-5 h-5 text-[#14B8A6]" />
               <span className="text-xs font-semibold leading-none truncate">Deep Research</span>

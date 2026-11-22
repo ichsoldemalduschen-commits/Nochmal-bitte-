@@ -2,7 +2,9 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   ArrowUpRight,
   Brain,
-  ChevronDown,
+  Check,
+  Keyboard,
+  LayoutGrid,
   Loader2,
   Maximize2,
   Mic,
@@ -40,17 +42,26 @@ export interface ConversationMessage {
   attachmentName?: string;
 }
 
-interface VoiceModalProps {
+export interface VoiceModalProps {
   open: boolean;
+  stage?: 1 | 2;
   autoStartMic?: boolean;
   activeProjectName: string;
   projects?: Project[];
   aiLogs?: AiLogEntry[];
+  themeColors?: {
+    primary: string;
+    highlight: string;
+    glow: string;
+  };
   onClose: () => void;
+  onStageChange?: (newStage: 1 | 2 | 0) => void;
+  onOpenQuickFan?: () => void;
   onExecuteCommand: (
     rawText: string,
     attachment: Attachment | null,
-    requestedMode?: 'flash' | 'research'
+    requestedMode?: 'flash' | 'research',
+    chatHistory?: Array<{ role: 'user' | 'assistant'; text: string }>
   ) => Promise<{
     replyText: string;
     spokenText: string;
@@ -68,7 +79,6 @@ interface VoiceModalProps {
 }
 
 const SILENCE_AUTO_SEND_MS = 5000;
-const CHAT_STORAGE_KEY = 'banditos_persistent_ai_chat_v3';
 
 function buildCleanTranscriptFromResults(results: any): string {
   const segments: string[] = [];
@@ -114,10 +124,14 @@ function buildCleanTranscriptFromResults(results: any): string {
 
 export const VoiceModal: React.FC<VoiceModalProps> = ({
   open,
+  stage = 1,
   autoStartMic = true,
   activeProjectName,
   projects = [],
+  themeColors,
   onClose,
+  onStageChange,
+  onOpenQuickFan,
   onExecuteCommand,
   onSaveAnswerToInfos,
   onJumpToAction,
@@ -130,6 +144,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
   const [transcript, setTranscript] = useState('');
   const [isListening, setIsListening] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
   const [speechNotice, setSpeechNotice] = useState('');
   const [attachment, setAttachment] = useState<Attachment | null>(null);
   const [remainingMs, setRemainingMs] = useState<number>(SILENCE_AUTO_SEND_MS);
@@ -137,8 +152,26 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
   const [aiMode, setAiMode] = useState<'flash' | 'research'>(() => getActiveAiMode());
   const [upscaleNotice, setUpscaleNotice] = useState<string | null>(null);
 
-  const [isMinimized, setIsMinimized] = useState(false);
-  const headerTouchYRef = useRef<number | null>(null);
+  // 3-Stufen-Morphing: Stufe 1 (Kompakter Begleiter) vs. Stufe 2 (Volles Gespräch)
+  const [currentStage, setCurrentStage] = useState<1 | 2>(stage);
+  const [showStage1TextInput, setShowStage1TextInput] = useState(false);
+
+  useEffect(() => {
+    if (stage) setCurrentStage(stage);
+  }, [stage]);
+
+  const updateStage = (newStage: 1 | 2 | 0) => {
+    if (newStage === 0) {
+      stopSpeaking();
+      setIsSpeaking(false);
+      stopMicrophone();
+      onClose();
+      onStageChange?.(0);
+    } else {
+      setCurrentStage(newStage);
+      onStageChange?.(newStage);
+    }
+  };
 
   const prefs = loadUserPrefs();
   const recognitionRef = useRef<any>(null);
@@ -147,6 +180,8 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
   const autoSendTriggeredRef = useRef(false);
   const isListeningRef = useRef(false);
   const scrollEndRef = useRef<HTMLDivElement | null>(null);
+  const headerTouchYRef = useRef<number | null>(null);
+  const stage1TouchYRef = useRef<number | null>(null);
 
   useEffect(() => {
     transcriptRef.current = transcript;
@@ -175,6 +210,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
     setSpeechNotice('');
     autoSendTriggeredRef.current = false;
     stopSpeaking();
+    setIsSpeaking(false);
 
     const SpeechRec =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -232,7 +268,6 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
 
   useEffect(() => {
     if (open) {
-      setIsMinimized(false);
       setRemainingMs(SILENCE_AUTO_SEND_MS);
       autoSendTriggeredRef.current = false;
       if (autoStartMic) {
@@ -246,6 +281,8 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
       }
     } else {
       stopMicrophone();
+      stopSpeaking();
+      setIsSpeaking(false);
     }
   }, [open, autoStartMic]);
 
@@ -274,9 +311,13 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
     return () => window.clearInterval(interval);
   }, [open, isListening, isProcessing]);
 
+  const isSendingRef = useRef(false);
+
   const triggerProcess = async (textToProcess: string) => {
     const clean = textToProcess.trim();
-    if (!clean || isProcessing) return;
+    if (!clean || isProcessing || isSendingRef.current) return;
+    isSendingRef.current = true;
+    autoSendTriggeredRef.current = true;
 
     stopMicrophone();
     setIsProcessing(true);
@@ -285,6 +326,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
     setTranscript('');
     transcriptRef.current = '';
     setAttachment(null);
+    setShowStage1TextInput(false);
 
     const userMsg: ConversationMessage = {
       id: `msg-u-${Date.now()}`,
@@ -293,13 +335,19 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
       timestamp: new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }),
       attachmentName: currentAtt?.name
     };
+
+    const recentHistory = messages.slice(-10).map((m) => ({
+      role: m.role,
+      text: m.text
+    }));
+
     setMessages((prev) => [...prev, userMsg]);
 
     try {
-      const result = await onExecuteCommand(clean, currentAtt, aiMode);
+      const result = await onExecuteCommand(clean, currentAtt, aiMode, recentHistory);
       if (result) {
         if (result.autoUpscaledToPro) {
-          setUpscaleNotice('⚡ Sprech → 🧠 Research (Automatisch für Foto/Analyse auf Pro geschaltet)');
+          setUpscaleNotice('Sprech → Research (Automatisch für Foto/Analyse auf Pro geschaltet)');
           window.setTimeout(() => setUpscaleNotice(null), 4000);
         }
 
@@ -316,18 +364,25 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
           actions: result.actions
         };
         setMessages((prev) => [...prev, assistantMsg]);
-        setIsProcessing(false);
 
+        // Smart Auto-Expand von Stufe 1 nach Stufe 2 bei Klärungsbedarf oder langer Antwort (>120 Zeichen)
+        if (currentStage === 1 && (result.needsClarification || result.replyText.length > 120)) {
+          updateStage(2);
+        }
+
+        setIsSpeaking(true);
         speakText(result.spokenText, () => {
+          setIsSpeaking(false);
           if (result.needsClarification && open) {
             startMicrophoneImmediately();
           }
         });
-      } else {
-        setIsProcessing(false);
       }
-    } catch {
+    } catch (err) {
+      console.warn('[VoiceModal] Fehler bei Sprachausführung:', err);
+    } finally {
       setIsProcessing(false);
+      isSendingRef.current = false;
     }
   };
 
@@ -357,213 +412,318 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
   const countdownSeconds = (remainingMs / 1000).toFixed(1);
   const progressPercent = Math.min(100, Math.max(0, (remainingMs / SILENCE_AUTO_SEND_MS) * 100));
   const activeProjects = projects.filter((p) => !p.archived);
+  const accentColor = themeColors?.highlight || themeColors?.primary || '#14B8A6';
+  const glowColor = themeColors?.glow || 'rgba(20, 184, 166, 0.35)';
 
-  if (isMinimized) {
+  // Letzte Quittung für Stufe 1 ableiten
+  const lastAssistantMsg = [...messages].reverse().find((m) => m.role === 'assistant');
+  const lastAction = lastAssistantMsg?.actions?.[0];
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // STUFE 1 – KOMPAKTER, WACHER BEGLEITER (SEMI-INTEGRATION OHNE FULLSCREEN BLUR)
+  // ═════════════════════════════════════════════════════════════════════════
+  if (currentStage === 1) {
     return (
-      <div className="fixed bottom-3 inset-x-0 z-50 pointer-events-none">
-        <div className="w-full max-w-[440px] mx-auto px-3">
-          <div className="pointer-events-auto rounded-3xl border border-white/15 p-2.5 shadow-2xl space-y-2 bg-[#1C2026] transition-all duration-300">
-            {/* Grab handle & Header: Tap to pull back up */}
-            <div
-              onClick={() => setIsMinimized(false)}
-              className="flex items-center justify-between cursor-pointer px-1.5 select-none"
-            >
-              <div className="flex items-center gap-2 min-w-0">
-                <span
-                  className={`w-2.5 h-2.5 rounded-full shrink-0 ${
-                    isListening ? 'bg-red-500 animate-ping' : isProcessing ? 'bg-amber-400 animate-pulse' : 'bg-[#14B8A6]'
-                  }`}
-                />
-                <span className="text-xs font-bold text-white truncate">
-                  {isListening
-                    ? `Höre zu... (${countdownSeconds}s)`
-                    : isProcessing
-                    ? 'KI verarbeitet...'
-                    : activeProjectName}
-                </span>
-              </div>
+      <div
+        role="region"
+        aria-label="KI-Begleiter Kompakt"
+        className="fixed inset-x-0 bottom-0 z-40 pointer-events-none pb-[max(0.75rem,env(safe-area-inset-bottom))] px-3"
+      >
+        <div
+          className="max-w-[440px] mx-auto pointer-events-auto rounded-[26px] border shadow-2xl p-3 space-y-2.5 transition-all duration-300 relative overflow-hidden"
+          style={{
+            backgroundColor: 'rgba(25, 28, 34, 0.94)',
+            borderColor: `${accentColor}55`,
+            backdropFilter: 'blur(16px)',
+            WebkitBackdropFilter: 'blur(16px)',
+            boxShadow: `0 16px 45px rgba(0,0,0,0.7), 0 0 20px ${glowColor}`
+          }}
+          onTouchStart={(e) => {
+            stage1TouchYRef.current = e.touches[0].clientY;
+          }}
+          onTouchEnd={(e) => {
+            if (stage1TouchYRef.current !== null) {
+              const deltaY = e.changedTouches[0].clientY - stage1TouchYRef.current;
+              if (deltaY < -40) {
+                // Hochziehen -> Stufe 2
+                updateStage(2);
+              } else if (deltaY > 40) {
+                // Runterziehen -> Stufe 0
+                updateStage(0);
+              }
+            }
+            stage1TouchYRef.current = null;
+          }}
+        >
+          {/* Oberer Zieh-Griff */}
+          <div
+            onClick={() => updateStage(2)}
+            className="w-12 h-1 rounded-full bg-white/20 mx-auto cursor-pointer hover:bg-white/40 transition"
+            title="Nach oben ziehen für volles Gespräch"
+            aria-label="Nach oben ziehen für volles Gespräch"
+          />
 
-              <div className="flex items-center gap-1.5 shrink-0">
-                {/* 1-Tipp-Umschalter auch im minimierten Zustand */}
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    const next = aiMode === 'flash' ? 'research' : 'flash';
-                    setAiMode(next);
-                    saveActiveAiMode(next);
-                    triggerHapticFeedback(12);
-                  }}
-                  className={`min-h-[44px] px-2.5 rounded-xl text-xs font-bold border flex items-center gap-1 active:scale-95 transition ${
-                    aiMode === 'flash'
-                      ? 'bg-[#0A9396]/20 border-[#14B8A6] text-[#14B8A6]'
-                      : 'bg-purple-950/40 border-purple-500 text-purple-300'
-                  }`}
-                  title={
-                    aiMode === 'flash'
-                      ? 'Aktuell: ⚡ Sprech (Flash) – Tippen für 🧠 Research (Pro)'
-                      : 'Aktuell: 🧠 Research (Pro) – Tippen für ⚡ Sprech (Flash)'
-                  }
-                  aria-label="KI-Modus umschalten"
-                >
-                  {aiMode === 'flash' ? (
-                    <>
-                      <Zap className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                      <span>⚡ Sprech</span>
-                    </>
-                  ) : (
-                    <>
-                      <Brain className="w-3.5 h-3.5 text-purple-300 shrink-0" />
-                      <span>🧠 Research</span>
-                    </>
-                  )}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setIsMinimized(false);
-                  }}
-                  className="w-11 h-11 min-w-[44px] min-h-[44px] rounded-xl bg-[#242930] hover:bg-[#2A3038] text-white border border-white/5 flex items-center justify-center active:scale-95 transition"
-                  title="Vergrößern / Hochziehen"
-                  aria-label="Vergrößern"
-                >
-                  <Maximize2 className="w-4 h-4 text-[#14B8A6]" />
-                </button>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    stopSpeaking();
+          {/* Hauptzeile: Mini-Sechseck + 2-Zeilen-Textbereich + 3 Kontroll-Icons */}
+          <div className="flex items-center justify-between gap-2.5">
+            {/* Links: Lebendes Mini-Sechseck (min-h-[44px] min-w-[44px]) */}
+            <button
+              type="button"
+              onClick={() => {
+                if (isSpeaking) {
+                  stopSpeaking();
+                  setIsSpeaking(false);
+                } else if (isListening) {
+                  if (hasSpokenText) {
+                    autoSendTriggeredRef.current = true;
+                    void triggerProcess(transcript);
+                  } else {
                     stopMicrophone();
-                    onClose();
-                  }}
-                  className="w-11 h-11 min-w-[44px] min-h-[44px] rounded-xl bg-[#242930] hover:bg-[#2A3038] text-[#9CA3AF] hover:text-white border border-white/5 flex items-center justify-center active:scale-95 transition"
-                  title="Schließen"
-                  aria-label="Schließen"
-                >
-                  <X className="w-4 h-4" />
-                </button>
+                  }
+                } else {
+                  startMicrophoneImmediately();
+                }
+              }}
+              className="w-11 h-11 min-w-[44px] min-h-[44px] rounded-xl flex items-center justify-center relative cursor-pointer active:scale-95 transition shrink-0"
+              title={
+                isSpeaking
+                  ? 'Gisela spricht – Antippen zum Stoppen'
+                  : isProcessing
+                  ? 'KI denkt...'
+                  : isListening
+                  ? 'Zuhören aktiv – Antippen zum Beenden/Senden'
+                  : 'Mikrofon aktivieren'
+              }
+              aria-label="Begleiter Status & Mikrofon"
+            >
+              {/* Mini-Hexagon SVG */}
+              <svg width="44" height="44" viewBox="0 0 44 44" className="absolute inset-0 pointer-events-none">
+                <path
+                  d="M22 3 L39 12.8 L39 31.2 L22 41 L5 31.2 L5 12.8 Z"
+                  fill="#14171D"
+                  stroke={
+                    isProcessing
+                      ? '#E5A93C'
+                      : isListening
+                      ? '#EF4444'
+                      : isSpeaking
+                      ? accentColor
+                      : `${accentColor}88`
+                  }
+                  strokeWidth="2"
+                  strokeLinejoin="round"
+                />
+              </svg>
+
+              {/* Status-Icon im Zentrum */}
+              <div className="relative z-10 flex items-center justify-center">
+                {isProcessing ? (
+                  <Loader2 className="w-5 h-5 animate-spin text-[#E5A93C]" />
+                ) : isListening ? (
+                  <Mic className="w-5 h-5 text-red-500 animate-pulse" />
+                ) : isSpeaking ? (
+                  <Volume2 className="w-5 h-5 text-[#14B8A6] hex-speak-anim" />
+                ) : (
+                  <Mic className="w-5 h-5" style={{ color: accentColor }} />
+                )}
               </div>
+            </button>
+
+            {/* Mitte: Textbereich (2 Zeilen) */}
+            <div
+              className="flex-1 min-w-0 cursor-pointer select-none"
+              onClick={() => updateStage(2)}
+              title="Antippen für volles Gespräch"
+            >
+              {isListening ? (
+                <div>
+                  <div className="flex items-center justify-between text-[11px] font-bold text-red-400">
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-red-500 animate-ping shrink-0" />
+                      <span>Höre zu...</span>
+                    </span>
+                    <span className="font-mono text-[#14B8A6]">{countdownSeconds}s</span>
+                  </div>
+                  <div className="text-xs text-white truncate mt-0.5">
+                    {transcript || 'Sprechen oder aufhören zum Absenden...'}
+                  </div>
+                </div>
+              ) : isProcessing ? (
+                <div>
+                  <div className="text-[11px] font-bold text-[#E5A93C] flex items-center gap-1.5">
+                    <Loader2 className="w-3 h-3 animate-spin shrink-0" />
+                    <span>Denken &amp; Zuordnen...</span>
+                  </div>
+                  <div className="text-xs text-[#9CA3AF] truncate mt-0.5">
+                    Eingabe wird verarbeitet
+                  </div>
+                </div>
+              ) : isSpeaking ? (
+                <div>
+                  <div className="text-[11px] font-bold text-[#14B8A6] flex items-center gap-1.5">
+                    <Volume2 className="w-3 h-3 animate-pulse shrink-0" />
+                    <span>Gisela antwortet:</span>
+                  </div>
+                  <div className="text-xs text-white line-clamp-1 mt-0.5">
+                    {lastAssistantMsg?.text || 'Sprachausgabe läuft...'}
+                  </div>
+                </div>
+              ) : lastAction ? (
+                <div className="flex items-center justify-between gap-1">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[11px] font-bold text-[#14B8A6] truncate flex items-center gap-1">
+                      <Check className="w-3 h-3 shrink-0" />
+                      <span className="truncate">{lastAction.shortCheckableTitle}</span>
+                    </div>
+                    <div className="text-xs text-[#9CA3AF] truncate mt-0.5">
+                      {lastAction.targetProjectName} / {lastAction.targetSubTab}
+                    </div>
+                  </div>
+                  {!lastAction.undone && lastAssistantMsg?.logId && onUndoAiAction && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onUndoAiAction(lastAssistantMsg.logId!, lastAction.actionId);
+                        setMessages((prev) =>
+                          prev.map((m) =>
+                            m.id !== lastAssistantMsg.id
+                              ? m
+                              : {
+                                  ...m,
+                                  actions: m.actions?.map((a) =>
+                                    a.actionId === lastAction.actionId
+                                      ? { ...a, undone: true }
+                                      : a
+                                  )
+                                }
+                          )
+                        );
+                      }}
+                      className="min-h-[36px] px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-red-500/15 text-red-300 border border-red-500/30 shrink-0 active:scale-95 transition"
+                      aria-label="Rückgängig"
+                    >
+                      Rückgängig
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div>
+                  <div className="text-[11px] font-extrabold uppercase tracking-wider text-[#94A3B8] truncate">
+                    {activeProjectName}
+                  </div>
+                  <div className="text-xs text-white truncate mt-0.5">
+                    Begleiter bereit – tippen oder sprechen
+                  </div>
+                </div>
+              )}
             </div>
 
-            {/* Automatische Hochschaltung Hinweis */}
-            {upscaleNotice && (
-              <div className="px-3 py-1.5 rounded-xl bg-purple-950/70 border border-purple-500/40 text-purple-200 text-xs flex items-center gap-2">
-                <Brain className="w-3.5 h-3.5 text-purple-400 shrink-0" />
-                <span className="truncate">{upscaleNotice}</span>
-              </div>
-            )}
-
-            {/* Letzte Antwort / Nachricht Preview */}
-            {messages.length > 0 && !isListening && (
-              <div
-                onClick={() => setIsMinimized(false)}
-                className="px-3 py-1.5 rounded-xl bg-[#242930] text-xs text-[#F8F9FA]/90 truncate cursor-pointer hover:bg-[#2A3038] transition"
+            {/* Rechts: Genau 3 Kontroll-Icons (je 44×44 px) */}
+            <div className="flex items-center gap-1 shrink-0">
+              {/* 1. ⌨ (Kurz tippen): Schmale Eingabezeile ein-/ausklappen */}
+              <button
+                type="button"
+                onClick={() => setShowStage1TextInput((v) => !v)}
+                className={`w-11 h-11 min-w-[44px] min-h-[44px] rounded-xl flex items-center justify-center border transition active:scale-95 cursor-pointer ${
+                  showStage1TextInput
+                    ? 'bg-[#14B8A6]/20 border-[#14B8A6] text-[#14B8A6]'
+                    : 'bg-[#242930] hover:bg-[#2A3038] text-[#9CA3AF] hover:text-white border-white/5'
+                }`}
+                title="Tastatur einblenden"
+                aria-label="Textfeld öffnen"
               >
-                <span className="font-semibold text-[#14B8A6] mr-1.5">
-                  {messages[messages.length - 1].role === 'user' ? 'Du:' : 'KI:'}
-                </span>
-                {messages[messages.length - 1].text}
-              </div>
-            )}
+                <Keyboard className="w-4 h-4" />
+              </button>
 
-            {/* Kompakte Einhand-Eingabezeile */}
-            <div className="flex items-center gap-2">
-              <label
-                className="w-11 h-11 min-w-[44px] min-h-[44px] rounded-xl bg-[#242930] border border-white/10 text-[#9CA3AF] hover:text-white cursor-pointer shrink-0 flex items-center justify-center active:scale-95 transition"
-                title="Foto oder Datei anhängen"
+              {/* 2. ⊞ (Schnellauswahl): Notausgang-Wechsel ins Schnellauswahl-Menü */}
+              <button
+                type="button"
+                onClick={() => {
+                  updateStage(0);
+                  onOpenQuickFan?.();
+                }}
+                className="w-11 h-11 min-w-[44px] min-h-[44px] rounded-xl bg-[#242930] hover:bg-[#2A3038] text-[#9CA3AF] hover:text-white border border-white/5 flex items-center justify-center active:scale-95 transition cursor-pointer"
+                title="Schnellauswahl öffnen"
+                aria-label="Schnellauswahl öffnen"
               >
-                <Paperclip className="w-4 h-4" />
-                <input type="file" className="hidden" onChange={handleFileUpload} />
-              </label>
+                <LayoutGrid className="w-4 h-4" />
+              </button>
 
+              {/* 3. ⤢ (Vergrößern): Schaltet auf Stufe 2 */}
+              <button
+                type="button"
+                onClick={() => updateStage(2)}
+                className="w-11 h-11 min-w-[44px] min-h-[44px] rounded-xl bg-[#242930] hover:bg-[#2A3038] text-[#9CA3AF] hover:text-white border border-white/5 flex items-center justify-center active:scale-95 transition cursor-pointer"
+                title="Vergrößern"
+                aria-label="Vergrößern zu Vollbild"
+              >
+                <Maximize2 className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          {/* Ausklappbare schmale Texteingabezeile in Stufe 1 */}
+          {showStage1TextInput && (
+            <div className="pt-2 border-t border-white/5 flex items-center gap-2 animate-fadeIn">
               <input
                 type="text"
                 value={transcript}
                 onChange={(e) => {
                   setTranscript(e.target.value);
                   transcriptRef.current = e.target.value;
-                  lastSpeechTimestampRef.current = Date.now();
                 }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && transcript.trim()) {
-                    autoSendTriggeredRef.current = true;
                     void triggerProcess(transcript);
                   }
                 }}
-                placeholder={
-                  isListening
-                    ? 'Höre zu...'
-                    : 'Tippen oder sprechen...'
-                }
-                className="flex-1 min-h-[44px] px-3.5 py-2.5 rounded-2xl text-xs bg-[#181A1B] text-white border border-white/15 focus:outline-none focus:border-[#14B8A6]"
+                placeholder="Befehl oder Notiz tippen..."
+                className="flex-1 min-h-[44px] px-3.5 py-2 rounded-xl text-xs bg-[#111317] text-white border border-white/10 focus:outline-none focus:border-[#14B8A6]"
+                autoFocus
               />
-
-              {hasSpokenText && (
-                <button
-                  type="button"
-                  disabled={isProcessing}
-                  onClick={() => {
-                    autoSendTriggeredRef.current = true;
-                    void triggerProcess(transcript);
-                  }}
-                  className="w-11 h-11 min-w-[44px] min-h-[44px] rounded-xl text-white shrink-0 flex items-center justify-center active:scale-95 transition"
-                  style={{ backgroundColor: THEME.accentPrimary }}
-                  aria-label="Senden"
-                >
-                  <Send className="w-4 h-4" />
-                </button>
-              )}
-
               <button
                 type="button"
-                disabled={isProcessing}
+                disabled={!transcript.trim() || isProcessing}
                 onClick={() => {
-                  if (isListening && hasSpokenText) {
-                    autoSendTriggeredRef.current = true;
+                  if (transcript.trim()) {
                     void triggerProcess(transcript);
-                  } else if (isListening) {
-                    stopMicrophone();
-                  } else {
-                    startMicrophoneImmediately();
                   }
                 }}
-                className="w-11 h-11 min-w-[44px] min-h-[44px] rounded-2xl flex items-center justify-center text-white shrink-0 active:scale-90 transition"
-                style={{
-                  backgroundColor: isProcessing
-                    ? '#2F363D'
-                    : isListening
-                    ? '#EF4444'
-                    : THEME.accentPrimary
-                }}
-                aria-label="Mikrofon umschalten"
+                className="min-h-[44px] min-w-[44px] px-3 py-2 rounded-xl text-xs font-bold text-white flex items-center justify-center shrink-0 disabled:opacity-35 active:scale-95 transition cursor-pointer shadow-md"
+                style={{ backgroundColor: accentColor }}
+                aria-label="Befehl senden"
               >
-                {isProcessing ? (
-                  <Loader2 className="w-5 h-5 animate-spin text-[#14B8A6]" />
-                ) : isListening ? (
-                  <Mic className="w-5 h-5 animate-pulse" />
-                ) : (
-                  <MicOff className="w-5 h-5" />
-                )}
+                <Send className="w-4 h-4" />
               </button>
             </div>
-          </div>
+          )}
         </div>
       </div>
     );
   }
 
+  // ═════════════════════════════════════════════════════════════════════════
+  // STUFE 2 – VOLLES GESPRÄCH & PROTOKOLL (VOLLBILD-MODAL)
+  // ═════════════════════════════════════════════════════════════════════════
   return (
-    <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex flex-col justify-end transition-opacity duration-300">
-      <div className="flex-1" onClick={() => setIsMinimized(true)} />
+    <div
+      role="dialog"
+      aria-label="KI-Sprachassistent Dialog"
+      className="fixed inset-0 z-50 flex flex-col justify-end transition-opacity duration-300"
+      style={{
+        backgroundColor: 'rgba(11, 13, 17, 0.78)',
+        backdropFilter: 'blur(16px)',
+        WebkitBackdropFilter: 'blur(16px)'
+      }}
+    >
+      {/* Klick außerhalb minimiert zu Stufe 1 */}
+      <div className="flex-1" onClick={() => updateStage(1)} />
 
       <div
         className="w-full max-w-[440px] mx-auto h-[85vh] rounded-t-3xl border-t border-white/15 shadow-2xl flex flex-col overflow-hidden transition-transform duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]"
         style={{ backgroundColor: THEME.bgMain }}
       >
-        {/* Schubladen-Kopfzeile mit Swipe-Down Handler & Drag Pill */}
+        {/* Kopfzeile mit Swipe-Down Handler & Drag Pill */}
         <div
           onTouchStart={(e) => {
             headerTouchYRef.current = e.touches[0].clientY;
@@ -572,7 +732,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
             if (headerTouchYRef.current !== null) {
               const deltaY = e.changedTouches[0].clientY - headerTouchYRef.current;
               if (deltaY > 50) {
-                setIsMinimized(true);
+                updateStage(1);
               }
             }
             headerTouchYRef.current = null;
@@ -582,13 +742,14 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
         >
           {/* Drag Pill */}
           <div
-            onClick={() => setIsMinimized(true)}
+            onClick={() => updateStage(1)}
             className="w-12 h-1 rounded-full bg-white/25 mx-auto mb-2 cursor-pointer hover:bg-white/40 transition"
             title="Nach unten wischen oder klicken zum Minimieren"
+            aria-label="Nach unten wischen zum Verkleinern"
           />
 
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2.5 min-w-0">
+          <div className="flex items-center justify-between gap-2 flex-wrap min-w-0">
+            <div className="flex items-center gap-2.5 min-w-0 flex-1">
               <span
                 className={`w-2.5 h-2.5 rounded-full shrink-0 ${
                   isListening ? 'bg-red-500 animate-ping' : 'bg-[#14B8A6]'
@@ -604,7 +765,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
               </div>
             </div>
 
-            <div className="flex items-center gap-1.5 shrink-0">
+            <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
               {/* 1-Tipp-Umschalter: ⚡ Sprech (Flash) ↔ 🧠 Research (Pro) */}
               <button
                 type="button"
@@ -621,24 +782,25 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                 }`}
                 title={
                   aiMode === 'flash'
-                    ? 'Aktuell: ⚡ Sprech (Flash, schnell) – Tippen für 🧠 Research (Pro)'
-                    : 'Aktuell: 🧠 Research (Pro, tiefgründig) – Tippen für ⚡ Sprech (Flash)'
+                    ? 'Aktuell: Sprech (Flash, schnell) – Tippen für Research (Pro)'
+                    : 'Aktuell: Research (Pro, tiefgründig) – Tippen für Sprech (Flash)'
                 }
                 aria-label="KI-Modus umschalten"
               >
                 {aiMode === 'flash' ? (
                   <>
                     <Zap className="w-4 h-4 text-amber-400 shrink-0" />
-                    <span>⚡ Sprech</span>
+                    <span>Sprech</span>
                   </>
                 ) : (
                   <>
                     <Brain className="w-4 h-4 text-purple-300 shrink-0" />
-                    <span>🧠 Research</span>
+                    <span>Research</span>
                   </>
                 )}
               </button>
 
+              {/* Stimme Umschalter */}
               <button
                 type="button"
                 onClick={() => {
@@ -647,6 +809,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                   setTtsEnabled(next);
                   if (!next) {
                     stopSpeaking();
+                    setIsSpeaking(false);
                   }
                 }}
                 className={`min-h-[44px] px-2.5 py-1.5 rounded-xl text-xs font-bold border flex items-center gap-1 active:scale-95 transition ${
@@ -654,11 +817,13 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                     ? 'bg-[#0A9396]/25 border-[#14B8A6] text-white'
                     : 'bg-[#181A1B] border-white/10 text-[#9CA3AF]'
                 }`}
+                aria-label="Stimme umschalten"
               >
                 {ttsActive ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
                 <span className="hidden sm:inline">{ttsActive ? 'Stimme An' : 'Stumm'}</span>
               </button>
 
+              {/* Verlauf leeren */}
               {messages.length > 0 && (
                 <button
                   type="button"
@@ -674,25 +839,21 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                 </button>
               )}
 
-              {/* Minimieren-Button */}
+              {/* ⤡ Verkleinern zu Stufe 1 */}
               <button
                 type="button"
-                onClick={() => setIsMinimized(true)}
+                onClick={() => updateStage(1)}
                 className="min-w-[44px] min-h-[44px] rounded-xl bg-[#181A1B] text-xs font-bold text-[#9CA3AF] hover:text-white border border-white/10 flex items-center justify-center active:scale-95 transition"
-                title="Minimieren"
-                aria-label="Minimieren"
+                title="Verkleinern"
+                aria-label="Verkleinern zu Stufe 1"
               >
                 <Minimize2 className="w-4 h-4" />
               </button>
 
-              {/* Schließen-Button */}
+              {/* ✕ Schließen zu Stufe 0 */}
               <button
                 type="button"
-                onClick={() => {
-                  stopSpeaking();
-                  stopMicrophone();
-                  onClose();
-                }}
+                onClick={() => updateStage(0)}
                 className="min-w-[44px] min-h-[44px] rounded-xl bg-[#181A1B] text-xs font-bold text-[#9CA3AF] hover:text-white border border-white/10 flex items-center justify-center active:scale-95 transition"
                 title="Schließen"
                 aria-label="Schließen"
@@ -777,16 +938,16 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                             act.undone ? 'opacity-40' : ''
                           }`}
                         >
-                          <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center justify-between gap-2 flex-wrap min-w-0">
                             <button
                               type="button"
                               onClick={() => {
                                 if (onJumpToAction) {
                                   onJumpToAction(act);
-                                  onClose();
+                                  updateStage(0);
                                 }
                               }}
-                              className="text-xs font-bold text-[#14B8A6] hover:underline text-left flex items-center gap-1 truncate"
+                              className="text-xs font-bold text-[#14B8A6] hover:underline text-left flex items-center gap-1 truncate min-w-0"
                             >
                               <span className="truncate">{act.shortCheckableTitle}</span>
                               <ArrowUpRight className="w-3.5 h-3.5 shrink-0" />
@@ -797,7 +958,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                           </div>
 
                           {!act.undone && msg.logId && (
-                            <div className="flex items-center justify-between gap-2 pt-1 border-t border-white/5">
+                            <div className="flex items-center justify-between gap-2 pt-1 border-t border-white/5 flex-wrap min-w-0">
                               {onMoveAiAction && activeProjects.length > 0 && (
                                 <select
                                   value={act.targetProjectId}
@@ -894,7 +1055,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
           <div className="flex items-center gap-2">
             <label
               className="w-11 h-11 min-w-[44px] min-h-[44px] rounded-2xl bg-[#181A1B] border border-white/10 text-[#9CA3AF] hover:text-white cursor-pointer shrink-0 flex items-center justify-center active:scale-95 transition"
-              title="Foto (wird automatisch komprimiert) oder Datei anhängen"
+              title="Foto oder Datei anhängen"
             >
               <Paperclip className="w-4 h-4" />
               <input type="file" className="hidden" onChange={handleFileUpload} />

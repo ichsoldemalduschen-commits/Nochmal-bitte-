@@ -178,19 +178,34 @@ Für jede künftige Änderung gilt ein verbindliches E2E-Qualitätsgate auf mobi
 
 ---
 
-## 13  Block D – Sechskant-Daumenmodul, Daumen-Fächer, 1-Fokus-Overlay & Vorschriften-Wächter
+## 13  Block D – Lebendiger Sechseck-Begleiter (3-Stufen-Morph) & Schnellauswahl-Menü
 
-- **`front/HexThumbHub.tsx`:** Ergonomisches Sechskant-Daumenmodul (~64×64 px, SVG-Hexagon mit weichen Ecken) im unteren Daumenbogen mit feinem Rahmen & Lichtsaum in Projektfarbe.
+- **`front/HexThumbHub.tsx`:** Lebendiger KI-Begleiter im unteren Daumenbogen:
+  - **Stufe 0 – Präsenter Sechseck-Anker (~72×72 px):** SVG-Hexagon mit doppelter Kontur (Projektfarben-Außenrand + feiner weißer Innenrand, dunkler Kern `#14171D`, Tiefenschatten und sanft atmendem äußerem Projektfarben-Lichtsaum via GPU-Animation `.hex-companion-breathing`, respektiert `prefers-reduced-motion`).
   - **Feature-Flag `thumbHubEnabled`:** Steuert Umschaltung zwischen `HexThumbHub` (Standard: `true`) und der klassischen unteren Leiste als Fallback.
-  - **Parkplatz `thumbHubPosition`:** `'left' | 'center' | 'right'` (Standard: `'center'`).
-  - **Android-Schutz:** Sicheres Padding (`bottom-[max(1rem,env(safe-area-inset-bottom))]`), kein Lichtsaum ganz unten am Bildschirmrand. Beim Nach-unten-Scrollen sanftes `scale-90 opacity-80`.
-  - **Zwei werkstatttaugliche Handgriffe:**
-    1. **Kurzer Tipp:** Öffnet Daumen-Fächer (`bg-[#0B0D11]/80 backdrop-blur-md`, Übergang `cubic-bezier(0.22, 1, 0.36, 1)`) mit Sprechen-Direktknopf, Projektwechsel, Bereichswechsel (Aufgaben · Einkauf · Wissen), Werkzeugen (1-Fokus, Vorschriften-Wächter ⚖️, Zentrale) sowie „⌨ Kurz tippen…“ für Lautlos-Eingabe.
-    2. **Drücken & Halten (~350 ms):** Kurzer Impuls (`vibrate(20)`), Sechskant atmet auf und startet direkt das bestehende `VoiceModal` im Einrast-Modus.
+  - **Parkplatz `thumbHubPosition`:** `'left' | 'center' | 'right'` (Standard: `'center'`), sicherer Abstand zur Android-Wischleiste (`pb-[max(1rem,env(safe-area-inset-bottom))]`), `touch-action: none`.
+  - **Gesten-Trennung (0 ms Latenz für die KI):**
+    1. **1× kurzer Tipp:** Sofortiges Aufwachen ohne Wartezeit in **Stufe 1** (Start der Sprachaufnahme/Zuhören-Sitzung, 1–2 konzentrische Sechseck-Lichtringe in Projektfarbe `.hex-pulse-ring-anim`).
+    2. **Kurzer Wisch nach oben (~30 px) ODER ~320 ms gedrückt halten:** Dezente Lade-Kontur in Honig-Gold (`#E5A93C`) + 20-ms-Vibration öffnet das Schnellauswahl-Kontextmenü (Projekte, Bereiche, Werkzeuge mit 1-Fokus, Einkauf (Schwebend), Vorschriften-Wächter ⚖️, Zentrale, „⌨ Kurz tippen…“).
+- **`core/VoiceModal.tsx` – 3-Stufen-Morphing:**
+  - **Stufe 1 – Kompakter, wacher Begleiter:** Schwebt als abgerundete Karte (~170–190 px, `rounded-[26px] bg-[#191C22]/94 backdrop-blur-md`, Projektfarben-Rand) am unteren Bildschirmrand OHNE Vollbild-Backdrop-Blur (Bühne dahinter sichtbar und scrollbar).
+    - Zieh-Griff: Hochziehen -> Stufe 2, Runterziehen -> Stufe 0.
+    - Mini-Sechseck (44×44 px): Status-Visualisierung (Zuhören: Wellen/Pulsieren, Denken: Honig-Gold `#E5A93C` Spinner, Sprechen: rhythmisches Leuchten `.hex-speak-anim`).
+    - Textbereich (2 Zeilen): Live-Transkript bzw. Quittung mit In-Place Rückgängig-Button.
+    - 3 Kontrollen (44×44 px): ⌨ (Textzeile ein-/ausklappen), ⊞ (Schnellauswahl öffnen), ⤢ (Vergrößern zu Stufe 2).
+    - Smart Auto-Expand: Bei `needsClarification: true` oder Antworten > 120 Zeichen automatisches Expandieren zu Stufe 2.
+  - **Stufe 2 – Volles Gespräch & Protokoll:** Vollbild-Backdrop (`bg-[#0B0D11]/78 backdrop-blur-md`), 100 % Erhalt der realen KI- & Sprach-Engine (Web-Speech-API, 5s-Timer, Send-Lock, persistenter Chat, Bestätigungskarten mit Rückgängig, Modus-Schalter ⚡/🧠, Foto-Anhang, Azure Gisela).
+    - Kopfzeile mit ⤡ (Verkleinern zu Stufe 1) und ✕ (Schließen zu Stufe 0).
+- **`front/FloatingCartOverlay.tsx` – Schwebender Einkaufswagen:**
+  - Schwebende Karte (`rounded-[26px] bg-[#191C22]/94 backdrop-blur-md border border-white/10 shadow-2xl`, ca. 75 % Höhe, max-w-[480px], z-[45]) über der aktuellen Ansicht.
+  - Z-Index-Hierarchie: NavigationDrawer (`z-[55]`) > FloatingCartOverlay (`z-[45]`) > Sechseck-Begleiter (`z-[40]`).
+  - Kopfzeile mit 3 Kontrollen: `—` (Minimieren als Pill `🛒 X offen` oben rechts; Klick stellt Overlay wieder her), `⤢` (Umschalten auf Vollbild-Bühne), `✕` (Schließen).
+  - 100 % Konsistenz durch direkte Einbettung von `CartView.tsx` ohne Code-Duplikation.
 - **`front/SingleFocusOverlay.tsx`:** Reines Aufsatz-Overlay (`bg-[#0B0D11]/88 backdrop-blur-md`, z-50).
   - Zeigt genau **eine** große Aufgaben-Karte (`#191C22`, 3px Projektfarbstreifen links, Titel groß in `Inter`, Zeit in `JetBrains Mono`).
-  - Kleiner Schalter **„5-Min-Start“** mit hauchdünner, gleichmäßig schrumpfender Fortschritts-Linie in Projektfarbe (keine hektisch springenden Ziffern).
-  - Genau zwei große wertfreie Daumen-Knöpfe (`min-h-[48px]`): **„Erstmal parken“** (schaltet wertfrei zur nächsten Aufgabe oder schließt) und **„Erledigt ✓“** (hakt ab inkl. 4-Sekunden-Rückgängig-Leiste).
-- **Vorschriften-Wächter-Schalter (`legalWatchEnabled`):** Pro Projekt in der Zentrale konfigurierbar (Standard: `true` für Business, `false` für Privat). Bei Deaktivierung verschwindet das Waage-Icon nach dem Prinzip der geschlossenen Schublade komplett aus der Oberfläche.
+  - Kleiner Schalter **„5-Min-Start“** mit hauchdünner, gleichmäßig schrumpfender Fortschritts-Linie in Projektfarbe.
+  - Genau zwei große wertfreie Daumen-Knöpfe (`min-h-[48px]`): **„Erstmal parken“** und **„Erledigt ✓“** (inkl. 4-Sekunden-Rückgängig-Leiste).
+- **Vorschriften-Wächter-Schalter (`legalWatchEnabled`):** Pro Projekt in der Zentrale konfigurierbar. Bei Deaktivierung verschwindet das Waage-Icon nach dem Prinzip der geschlossenen Schublade komplett aus der Oberfläche.
+
 
 

@@ -122,6 +122,8 @@ interface FrontWorkspaceProps {
   onRecordEventSale: (entry: EventSalesLog) => void;
   onOpenSingleFocus?: (taskId?: string) => void;
   onOpenAddonsBackoffice: (section?: ZentraleSectionId) => void;
+  onOpenFloatingCart?: () => void;
+  isFloatingCartOpen?: boolean;
   onNotify: (msg: string) => void;
 }
 
@@ -167,6 +169,8 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
   onRecordEventSale,
   onOpenSingleFocus,
   onOpenAddonsBackoffice,
+  onOpenFloatingCart,
+  isFloatingCartOpen = false,
   ambientLightMode = 'shimmer',
   onSaveDossierToProject,
   onReconcileReceiptWithCart,
@@ -334,7 +338,7 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
   const showTasksSection =
     (viewAllSections || activeTab === 'tasks') && isTabEnabled(activeProject, 'tasks');
   const showCartSection =
-    (viewAllSections || activeTab === 'cart') && isTabEnabled(activeProject, 'cart');
+    !isFloatingCartOpen && (viewAllSections || activeTab === 'cart') && isTabEnabled(activeProject, 'cart');
   const showKnowledgeSection =
     (viewAllSections ||
       activeTab === 'knowledge' ||
@@ -535,6 +539,7 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
         onOpenNewProjectModal={onOpenNewProjectModal}
         onOpenDeepResearchModal={onOpenDeepResearchModal}
         onOpenAddonsBackoffice={onOpenAddonsBackoffice}
+        onOpenFloatingCart={onOpenFloatingCart}
         isTabEnabled={isTabEnabled}
       />
 

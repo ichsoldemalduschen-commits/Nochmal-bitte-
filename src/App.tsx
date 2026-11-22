@@ -47,6 +47,7 @@ import { VoiceModal } from './core/VoiceModal';
 import { FrontWorkspace } from './core/FrontWorkspace';
 import { HexThumbHub } from './core/front/HexThumbHub';
 import { SingleFocusOverlay } from './core/front/SingleFocusOverlay';
+import { FloatingCartOverlay } from './core/front/FloatingCartOverlay';
 import { DeepResearchAndAuditModal } from './components/DeepResearchAndAuditModal';
 import {
   checkAndFireDueReminders,
@@ -95,6 +96,9 @@ export default function App() {
   const [highlightedItemId, setHighlightedItemId] = useState<string | null>(null);
 
   const [voiceModalOpen, setVoiceModalOpen] = useState(false);
+  const [companionStage, setCompanionStage] = useState<1 | 2>(1);
+  const [floatingCartOpen, setFloatingCartOpen] = useState(false);
+  const [quickFanOpen, setQuickFanOpen] = useState(false);
   const [deepResearchModalOpen, setDeepResearchModalOpen] = useState(false);
   const [autoStartMicOnOpen, setAutoStartMicOnOpen] = useState(true);
   const [realityModalOpen, setRealityModalOpen] = useState(false);
@@ -110,7 +114,8 @@ export default function App() {
   const [singleFocusTaskId, setSingleFocusTaskId] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
-  const handleOpenVoice = (autoStart = true) => {
+  const handleOpenVoice = (stage: 1 | 2 = 1, autoStart = true) => {
+    setCompanionStage(stage);
     setAutoStartMicOnOpen(autoStart);
     setVoiceModalOpen(true);
   };
@@ -134,8 +139,8 @@ export default function App() {
       mode === 'off'
         ? 'Hintergrundbeleuchtung deaktiviert.'
         : mode === 'static'
-        ? 'Statische Hintergrundbeleuchtung aktiviert.'
-        : 'Sanftes Schimmern aktiviert.'
+          ? 'Statische Hintergrundbeleuchtung aktiviert.'
+          : 'Sanftes Schimmern aktiviert.'
     );
   };
 
@@ -344,6 +349,65 @@ export default function App() {
       cart: p.cart.map((c) => (c.id === cartId ? { ...c, ...patch, lastModified: ts } : c))
     }));
     notify('Einkaufs-Artikel aktualisiert.');
+  };
+
+  const handleToggleCartItem = (projId: string, cartId: string) => {
+    const ts = formatNow();
+    updateProject(projId, (p) => ({
+      ...p,
+      cart: p.cart.map((c) =>
+        c.id === cartId ? { ...c, completed: !c.completed, lastModified: ts } : c
+      )
+    }));
+  };
+
+  const handleDeleteCartItem = (projId: string, cartId: string) => {
+    updateProject(projId, (p) => ({
+      ...p,
+      cart: p.cart.filter((c) => c.id !== cartId)
+    }));
+  };
+
+  const handleAddCartItems = (
+    projId: string,
+    items: Array<{ title: string; quantity: string; price?: string; reason?: string }>
+  ) => {
+    const ts = formatNow();
+    updateProject(projId, (p) => ({
+      ...p,
+      cart: [
+        ...items.map((it) => ({
+          id: `cart-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          title: it.title,
+          quantity: it.quantity || '1x',
+          price: it.price || '',
+          completed: false,
+          aiTouched: false,
+          lastModified: ts,
+          changeReason: it.reason || 'Hinzugefügt',
+          source: 'Manuell' as const,
+          procurementCheck: buildProcurementCheck(it.title),
+          customMeta: {}
+        })),
+        ...p.cart
+      ]
+    }));
+  };
+
+  const handleConfirmRedDot = (
+    projId: string,
+    section: 'tasks' | 'explanations' | 'infos' | 'cart' | 'knowledge',
+    itemId: string
+  ) => {
+    const ts = formatNow();
+    updateProject(projId, (p) => ({
+      ...p,
+      [section]: (((p as any)[section] as any[]) || []).map((it) =>
+        it.id === itemId
+          ? { ...it, aiTouched: false, lastModified: ts, changeReason: 'Bestätigt' }
+          : it
+      )
+    }));
   };
 
   const handleMoveCartItem = (fromProjId: string, toProjId: string, cartId: string) => {
@@ -1265,17 +1329,7 @@ export default function App() {
               updateProject(projId, (p) => ({ ...p, customLogoUrl: './raccoon-logo.png' }));
               notify('Standard-Logo gesetzt.');
             }}
-            onConfirmRedDot={(projId, section, itemId) => {
-              const ts = formatNow();
-              updateProject(projId, (p) => ({
-                ...p,
-                [section]: ((p as any)[section] as any[] || []).map((it) =>
-                  it.id === itemId
-                    ? { ...it, aiTouched: false, lastModified: ts, changeReason: 'Bestätigt' }
-                    : it
-                )
-              }));
-            }}
+            onConfirmRedDot={handleConfirmRedDot}
             onAddTask={(projId, title, prio = 'Mittel', mins = 25) => {
               const ts = formatNow();
               updateProject(projId, (p) => ({
@@ -1334,43 +1388,9 @@ export default function App() {
             }}
             onUploadInfoAttachment={handleUploadKnowledgeAttachment}
             onPreviewAttachment={(att) => setPreviewAttachment(att)}
-            onAddCartItems={(projId, items) => {
-              const ts = formatNow();
-              updateProject(projId, (p) => ({
-                ...p,
-                cart: [
-                  ...items.map((it, idx) => ({
-                    id: `c-${Date.now()}-${idx}`,
-                    title: it.title,
-                    quantity: it.quantity || '1x',
-                    price: it.price || '',
-                    completed: false,
-                    aiTouched: false,
-                    lastModified: ts,
-                    changeReason: it.reason || 'Hinzugefügt',
-                    source: 'Manuell' as const,
-                    procurementCheck: buildProcurementCheck(it.title),
-                    customMeta: {}
-                  })),
-                  ...p.cart
-                ]
-              }));
-            }}
-            onToggleCartItem={(projId, cartId) => {
-              const ts = formatNow();
-              updateProject(projId, (p) => ({
-                ...p,
-                cart: p.cart.map((c) =>
-                  c.id === cartId ? { ...c, completed: !c.completed, lastModified: ts } : c
-                )
-              }));
-            }}
-            onDeleteCartItem={(projId, cartId) =>
-              updateProject(projId, (p) => ({
-                ...p,
-                cart: p.cart.filter((c) => c.id !== cartId)
-              }))
-            }
+            onAddCartItems={handleAddCartItems}
+            onToggleCartItem={handleToggleCartItem}
+            onDeleteCartItem={handleDeleteCartItem}
             onUpdateCartItem={handleUpdateCartItem}
             onMoveCartItem={handleMoveCartItem}
             onMoveKnowledge={handleMoveKnowledge}
@@ -1391,6 +1411,8 @@ export default function App() {
               setIsBackoffice(true);
               setBackofficeTab('addons');
             }}
+            onOpenFloatingCart={() => setFloatingCartOpen(true)}
+            isFloatingCartOpen={floatingCartOpen}
             ambientLightMode={state.ambientLightMode || 'shimmer'}
             onSaveDossierToProject={handleSaveDossierToProject}
             onReconcileReceiptWithCart={handleReconcileReceiptWithCart}
@@ -1526,7 +1548,7 @@ export default function App() {
               activeTab={activeProjectTab}
               onSelectProject={(id) => setSelectedProjectId(id)}
               onChangeTab={(tab) => setActiveProjectTab(tab)}
-              onOpenVoice={() => handleOpenVoice(true)}
+              onOpenVoice={(stage) => handleOpenVoice(stage || 1, true)}
               onOpenDeepResearch={() => setDeepResearchModalOpen(true)}
               onOpenSingleFocus={(taskId) => {
                 setSingleFocusTaskId(taskId || null);
@@ -1536,6 +1558,11 @@ export default function App() {
                 setIsBackoffice(true);
                 setBackofficeTab('addons');
               }}
+              onOpenFloatingCart={() => setFloatingCartOpen(true)}
+              isCompanionActive={voiceModalOpen}
+              isFloatingCartOpen={floatingCartOpen}
+              isFanOpen={quickFanOpen}
+              onToggleFan={setQuickFanOpen}
               bottomAiText={bottomAiText}
               onSetBottomAiText={setBottomAiText}
               onSubmitBottomAi={handleBottomAiSubmit}
@@ -1576,8 +1603,7 @@ export default function App() {
                       if (bottomAiText.trim()) {
                         handleBottomAiSubmit();
                       } else {
-                        setAutoStartMicOnOpen(true);
-                        setVoiceModalOpen(true);
+                        handleOpenVoice(2, true);
                       }
                     }}
                     aria-label={bottomAiText.trim() ? 'Befehl senden' : 'Sofort sprechen'}
@@ -1605,25 +1631,73 @@ export default function App() {
           )
         )}
 
-      {/* 1-FOKUS-OVERLAY (Lesebrillen-Modus) */}
-      <SingleFocusOverlay
-        open={singleFocusOpen}
-        onClose={() => setSingleFocusOpen(false)}
-        activeProject={activeProject}
-        initialTaskId={singleFocusTaskId}
-        onToggleTask={handleToggleTask}
-        onRegisterUndo={(action) => {
-          notify(action.message);
+        {/* 1-FOKUS-OVERLAY (Lesebrillen-Modus) */}
+        <SingleFocusOverlay
+          open={singleFocusOpen}
+          onClose={() => setSingleFocusOpen(false)}
+          activeProject={activeProject}
+          initialTaskId={singleFocusTaskId}
+          onToggleTask={handleToggleTask}
+          onRegisterUndo={(action) => {
+            notify(action.message);
+          }}
+          themeColors={{
+            primary: activeVisualTheme.primary,
+            highlight: activeVisualTheme.highlight
+          }}
+        />
+
+        {/* SCHWEBENDER EINKAUFSWAGEN */}
+        <FloatingCartOverlay
+          open={floatingCartOpen}
+          onClose={() => setFloatingCartOpen(false)}
+          onSwitchToFullScreen={() => {
+            setFloatingCartOpen(false);
+            setActiveProjectTab('cart');
+          }}
+          activeProject={activeProject || BRAND_CONFIG.projects['proj-foodtruck'] || state.projects[0]}
+          allProjects={state.projects}
+          themeColors={{
+            primary: activeVisualTheme.primary,
+            highlight: activeVisualTheme.highlight,
+            label: activeDomain.toUpperCase()
+          }}
+          highlightedItemId={highlightedItemId}
+          onToggleCartItem={handleToggleCartItem}
+          onDeleteCartItem={handleDeleteCartItem}
+          onAddCartItems={handleAddCartItems}
+          onUpdateCartItem={handleUpdateCartItem}
+          onMoveCartItem={handleMoveCartItem}
+          onConfirmRedDot={handleConfirmRedDot}
+          onOpenSettings={() => {
+            setIsBackoffice(true);
+            setBackofficeTab('addons');
+          }}
+          onNotify={notify}
+          onRegisterUndo={(action) => notify(action.message)}
+          onConfigMissing={(msg) => notify(msg)}
+        />
+
+      {/* LEBENDIGER SECHSECK-BEGLEITER (3-STUFEN-MORPHING) */}
+      <VoiceModal
+        open={voiceModalOpen}
+        stage={companionStage}
+        onStageChange={(newStage) => {
+          if (newStage === 0) {
+            setVoiceModalOpen(false);
+          } else {
+            setCompanionStage(newStage);
+          }
         }}
         themeColors={{
           primary: activeVisualTheme.primary,
-          highlight: activeVisualTheme.highlight
+          highlight: activeVisualTheme.highlight,
+          glow: activeVisualTheme.glow
         }}
-      />
-
-      {/* KI-KONTEXT-SCHUBLADE */}
-      <VoiceModal
-        open={voiceModalOpen}
+        onOpenQuickFan={() => {
+          setVoiceModalOpen(false);
+          setQuickFanOpen(true);
+        }}
         autoStartMic={autoStartMicOnOpen}
         activeProjectName={activeProject?.name || BRAND_CONFIG.projects['proj-foodtruck']?.name || 'Pizza Bandit'}
         projects={state.projects}
@@ -1678,207 +1752,207 @@ export default function App() {
         onMoveAiAction={handleMoveAiAction}
       />
 
-      <DeepResearchAndAuditModal
-        open={deepResearchModalOpen}
-        projects={state.projects}
-        activeProject={activeProject}
-        userApiKey={state.userApiKey}
-        fullState={state}
-        onClose={() => setDeepResearchModalOpen(false)}
-        onSaveDossierToProject={handleSaveDossierToProject}
-        onReconcileReceiptWithCart={handleReconcileReceiptWithCart}
-        onReplaceFullStateFromCloud={handleReplaceFullStateFromCloud}
-        onNotify={notify}
-      />
+        <DeepResearchAndAuditModal
+          open={deepResearchModalOpen}
+          projects={state.projects}
+          activeProject={activeProject}
+          userApiKey={state.userApiKey}
+          fullState={state}
+          onClose={() => setDeepResearchModalOpen(false)}
+          onSaveDossierToProject={handleSaveDossierToProject}
+          onReconcileReceiptWithCart={handleReconcileReceiptWithCart}
+          onReplaceFullStateFromCloud={handleReplaceFullStateFromCloud}
+          onNotify={notify}
+        />
 
-      <RealityCheckModal open={realityModalOpen} onClose={() => setRealityModalOpen(false)} />
+        <RealityCheckModal open={realityModalOpen} onClose={() => setRealityModalOpen(false)} />
 
-      <SelfCheckModal
-        open={selfCheckModalOpen}
-        onClose={() => setSelfCheckModalOpen(false)}
-        onSave={(entry) => {
-          setState((prev) => ({ ...prev, selfChecks: [entry, ...prev.selfChecks] }));
-          notify('Selbst-Check gespeichert.');
-        }}
-      />
+        <SelfCheckModal
+          open={selfCheckModalOpen}
+          onClose={() => setSelfCheckModalOpen(false)}
+          onSave={(entry) => {
+            setState((prev) => ({ ...prev, selfChecks: [entry, ...prev.selfChecks] }));
+            notify('Selbst-Check gespeichert.');
+          }}
+        />
 
-      {newProjectModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div
-            className="max-w-sm w-full rounded-2xl border border-white/15 p-5 space-y-3"
-            style={{ backgroundColor: THEME.bgCard }}
-          >
-            <h3 className="text-sm font-bold text-white">Neues Projekt ({activeDomain})</h3>
-            <input
-              type="text"
-              value={newProjName}
-              onChange={(e) => setNewProjName(e.target.value)}
-              placeholder="Projektname..."
-              className="w-full px-3 py-2 rounded-lg text-xs bg-[#181A1B] text-white border border-white/10"
-            />
-            <input
-              type="text"
-              value={newProjSubtitle}
-              onChange={(e) => setNewProjSubtitle(e.target.value)}
-              placeholder="Kurzbeschreibung..."
-              className="w-full px-3 py-2 rounded-lg text-xs bg-[#181A1B] text-white border border-white/10"
-            />
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setNewProjectModalOpen(false)}
-                className="px-3 py-1.5 text-xs text-[#9CA3AF]"
-              >
-                Abbrechen
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  if (!newProjName.trim()) return;
-                  const id = `proj-${Date.now()}`;
-                  setState((prev) => ({
-                    ...prev,
-                    projects: [
-                      ...prev.projects,
-                      {
-                        id,
-                        domain: activeDomain,
-                        name: newProjName.trim(),
-                        subtitle: newProjSubtitle.trim() || 'Eigenes Projekt',
-                        icon: 'FolderKanban',
-                        customLogoUrl: null,
-                        accentColor: activeVisualTheme.primary,
-                        archived: false,
-                        customMeta: {},
-                        enabledPlugins: [],
-                        enabledTabs: ['tasks', 'cart', 'knowledge', 'extras'],
-                        tasks: [],
-                        explanations: [],
-                        infos: [],
-                        knowledge: [],
-                        cart: []
-                      }
-                    ]
-                  }));
-                  setSelectedProjectId(id);
-                  setNewProjName('');
-                  setNewProjSubtitle('');
-                  setNewProjectModalOpen(false);
-                  notify('Projekt angelegt.');
-                }}
-                className="px-4 py-1.5 rounded-lg text-xs font-bold text-white"
-                style={{ backgroundColor: activeVisualTheme.primary }}
-              >
-                Anlegen
-              </button>
+        {newProjectModalOpen && (
+          <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+            <div
+              className="max-w-sm w-full rounded-2xl border border-white/15 p-5 space-y-3"
+              style={{ backgroundColor: THEME.bgCard }}
+            >
+              <h3 className="text-sm font-bold text-white">Neues Projekt ({activeDomain})</h3>
+              <input
+                type="text"
+                value={newProjName}
+                onChange={(e) => setNewProjName(e.target.value)}
+                placeholder="Projektname..."
+                className="w-full px-3 py-2 rounded-lg text-xs bg-[#181A1B] text-white border border-white/10"
+              />
+              <input
+                type="text"
+                value={newProjSubtitle}
+                onChange={(e) => setNewProjSubtitle(e.target.value)}
+                placeholder="Kurzbeschreibung..."
+                className="w-full px-3 py-2 rounded-lg text-xs bg-[#181A1B] text-white border border-white/10"
+              />
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setNewProjectModalOpen(false)}
+                  className="px-3 py-1.5 text-xs text-[#9CA3AF]"
+                >
+                  Abbrechen
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!newProjName.trim()) return;
+                    const id = `proj-${Date.now()}`;
+                    setState((prev) => ({
+                      ...prev,
+                      projects: [
+                        ...prev.projects,
+                        {
+                          id,
+                          domain: activeDomain,
+                          name: newProjName.trim(),
+                          subtitle: newProjSubtitle.trim() || 'Eigenes Projekt',
+                          icon: 'FolderKanban',
+                          customLogoUrl: null,
+                          accentColor: activeVisualTheme.primary,
+                          archived: false,
+                          customMeta: {},
+                          enabledPlugins: [],
+                          enabledTabs: ['tasks', 'cart', 'knowledge', 'extras'],
+                          tasks: [],
+                          explanations: [],
+                          infos: [],
+                          knowledge: [],
+                          cart: []
+                        }
+                      ]
+                    }));
+                    setSelectedProjectId(id);
+                    setNewProjName('');
+                    setNewProjSubtitle('');
+                    setNewProjectModalOpen(false);
+                    notify('Projekt angelegt.');
+                  }}
+                  className="px-4 py-1.5 rounded-lg text-xs font-bold text-white"
+                  style={{ backgroundColor: activeVisualTheme.primary }}
+                >
+                  Anlegen
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {previewAttachment && (
-        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4">
-          <div
-            className="max-w-2xl w-full rounded-2xl border border-white/15 overflow-hidden shadow-2xl flex flex-col max-h-[90vh]"
-            style={{ backgroundColor: THEME.bgCard }}
-          >
-            <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between">
-              <span className="text-xs font-bold text-white truncate">
-                {previewAttachment.name} ({previewAttachment.size})
-              </span>
-              <button
-                type="button"
-                onClick={() => setPreviewAttachment(null)}
-                className="p-1 text-[#9CA3AF] hover:text-white"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {previewAttachment.type === 'image' && (
-              <div className="px-4 py-2 border-b border-white/10 bg-[#181A1B] flex items-center gap-2">
-                <input
-                  type="text"
-                  value={newPinLabel}
-                  onChange={(e) => setNewPinLabel(e.target.value)}
-                  placeholder="Maß-Label (z.B. 'Breite: 85cm')... dann Foto anklicken"
-                  className="flex-1 px-3 py-1.5 rounded-lg text-xs bg-[#24292E] text-white border border-white/10 placeholder-[#9CA3AF]"
-                />
-                <span className="text-xs text-[#9CA3AF] shrink-0">Klick = Pin setzen</span>
-              </div>
-            )}
-
-            <div className="p-4 overflow-y-auto flex-1">
-              {previewAttachment.type === 'image' && previewAttachment.dataUrl && (
-                <div
-                  className="relative inline-block mx-auto cursor-crosshair select-none"
-                  onClick={handleImageClickForMeasurePin}
+        {previewAttachment && (
+          <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4">
+            <div
+              className="max-w-2xl w-full rounded-2xl border border-white/15 overflow-hidden shadow-2xl flex flex-col max-h-[90vh]"
+              style={{ backgroundColor: THEME.bgCard }}
+            >
+              <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between">
+                <span className="text-xs font-bold text-white truncate">
+                  {previewAttachment.name} ({previewAttachment.size})
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setPreviewAttachment(null)}
+                  className="p-1 text-[#9CA3AF] hover:text-white"
                 >
-                  <img
-                    src={previewAttachment.dataUrl}
-                    alt={previewAttachment.name}
-                    className="max-h-[60vh] mx-auto rounded-lg block"
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {previewAttachment.type === 'image' && (
+                <div className="px-4 py-2 border-b border-white/10 bg-[#181A1B] flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={newPinLabel}
+                    onChange={(e) => setNewPinLabel(e.target.value)}
+                    placeholder="Maß-Label (z.B. 'Breite: 85cm')... dann Foto anklicken"
+                    className="flex-1 px-3 py-1.5 rounded-lg text-xs bg-[#24292E] text-white border border-white/10 placeholder-[#9CA3AF]"
                   />
-                  {(photoPins[previewAttachment.id] || []).map((pin) => (
-                    <div
-                      key={pin.id}
-                      className="absolute -translate-x-1/2 -translate-y-1/2 px-2 py-0.5 rounded-md text-xs font-bold text-white shadow-lg flex items-center gap-1 border border-white/30"
-                      style={{
-                        left: `${pin.xPercent}%`,
-                        top: `${pin.yPercent}%`,
-                        backgroundColor: activeVisualTheme.primary
-                      }}
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <span>{pin.label}</span>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          const current = photoPins[previewAttachment.id] || [];
-                          const next = {
-                            ...photoPins,
-                            [previewAttachment.id]: current.filter((p) => p.id !== pin.id)
-                          };
-                          setPhotoPins(next);
-                          saveIdbItem(STORAGE_KEYS.PHOTO_PINS, next);
-                          notify('Pin entfernt.');
-                        }}
-                        className="text-white/70 hover:text-white ml-0.5"
-                      >
-                        ×
-                      </button>
-                    </div>
-                  ))}
+                  <span className="text-xs text-[#9CA3AF] shrink-0">Klick = Pin setzen</span>
                 </div>
               )}
-              {previewAttachment.type === 'pdf' && previewAttachment.dataUrl && (
-                <iframe
-                  src={previewAttachment.dataUrl}
-                  title={previewAttachment.name}
-                  className="w-full h-[65vh] rounded-lg border border-white/10"
-                />
-              )}
-              {previewAttachment.type === 'text' && (
-                <pre className="p-3 rounded-lg bg-[#181A1B] text-xs font-mono text-white whitespace-pre-wrap">
-                  {previewAttachment.textContent || 'Kein Textinhalt.'}
-                </pre>
-              )}
+
+              <div className="p-4 overflow-y-auto flex-1">
+                {previewAttachment.type === 'image' && previewAttachment.dataUrl && (
+                  <div
+                    className="relative inline-block mx-auto cursor-crosshair select-none"
+                    onClick={handleImageClickForMeasurePin}
+                  >
+                    <img
+                      src={previewAttachment.dataUrl}
+                      alt={previewAttachment.name}
+                      className="max-h-[60vh] mx-auto rounded-lg block"
+                    />
+                    {(photoPins[previewAttachment.id] || []).map((pin) => (
+                      <div
+                        key={pin.id}
+                        className="absolute -translate-x-1/2 -translate-y-1/2 px-2 py-0.5 rounded-md text-xs font-bold text-white shadow-lg flex items-center gap-1 border border-white/30"
+                        style={{
+                          left: `${pin.xPercent}%`,
+                          top: `${pin.yPercent}%`,
+                          backgroundColor: activeVisualTheme.primary
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <span>{pin.label}</span>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const current = photoPins[previewAttachment.id] || [];
+                            const next = {
+                              ...photoPins,
+                              [previewAttachment.id]: current.filter((p) => p.id !== pin.id)
+                            };
+                            setPhotoPins(next);
+                            saveIdbItem(STORAGE_KEYS.PHOTO_PINS, next);
+                            notify('Pin entfernt.');
+                          }}
+                          className="text-white/70 hover:text-white ml-0.5"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {previewAttachment.type === 'pdf' && previewAttachment.dataUrl && (
+                  <iframe
+                    src={previewAttachment.dataUrl}
+                    title={previewAttachment.name}
+                    className="w-full h-[65vh] rounded-lg border border-white/10"
+                  />
+                )}
+                {previewAttachment.type === 'text' && (
+                  <pre className="p-3 rounded-lg bg-[#181A1B] text-xs font-mono text-white whitespace-pre-wrap">
+                    {previewAttachment.textContent || 'Kein Textinhalt.'}
+                  </pre>
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {toast && (
-        <div
-          className="fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-full text-white text-xs font-bold shadow-2xl flex items-center gap-2 border border-white/20 max-w-[90vw]"
-          style={{ backgroundColor: activeVisualTheme.primary }}
-        >
-          <CheckCircle2 className="w-4 h-4 shrink-0" />
-          <span className="truncate">{toast}</span>
-        </div>
-      )}
-    </div>
+        {toast && (
+          <div
+            className="fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-full text-white text-xs font-bold shadow-2xl flex items-center gap-2 border border-white/20 max-w-[90vw]"
+            style={{ backgroundColor: activeVisualTheme.primary }}
+          >
+            <CheckCircle2 className="w-4 h-4 shrink-0" />
+            <span className="truncate">{toast}</span>
+          </div>
+        )}
+      </div>
     </div >
   );
 }

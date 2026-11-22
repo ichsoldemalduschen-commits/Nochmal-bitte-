@@ -31,6 +31,7 @@ interface NavigationDrawerProps {
   onOpenNewProjectModal: () => void;
   onOpenDeepResearchModal?: () => void;
   onOpenAddonsBackoffice: (section?: ZentraleSectionId) => void;
+  onOpenFloatingCart?: () => void;
   isTabEnabled: (proj: Project | undefined, tab: 'tasks' | 'cart' | 'knowledge' | 'extras') => boolean;
 }
 
@@ -48,6 +49,7 @@ export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({
   onOpenNewProjectModal,
   onOpenDeepResearchModal,
   onOpenAddonsBackoffice,
+  onOpenFloatingCart,
   isTabEnabled
 }) => {
   const renderProjectList = (projects: Project[], domainColorKey: 'arbeit' | 'privat') => {
@@ -238,9 +240,13 @@ export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({
             <button
               type="button"
               onClick={() => {
-                const target = activeProject || workProjects[0] || privateProjects[0];
-                if (target) {
-                  onSelectProjectAndSection(target, 'cart');
+                if (onOpenFloatingCart) {
+                  onOpenFloatingCart();
+                } else {
+                  const target = activeProject || workProjects[0] || privateProjects[0];
+                  if (target) {
+                    onSelectProjectAndSection(target, 'cart');
+                  }
                 }
                 onClose();
               }}

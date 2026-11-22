@@ -47,6 +47,7 @@ import { VoiceModal } from './core/VoiceModal';
 import { FrontWorkspace } from './core/FrontWorkspace';
 import { HexThumbHub } from './core/front/HexThumbHub';
 import { SingleFocusOverlay } from './core/front/SingleFocusOverlay';
+import { FloatingCartOverlay } from './core/front/FloatingCartOverlay';
 import { DeepResearchAndAuditModal } from './components/DeepResearchAndAuditModal';
 import {
   checkAndFireDueReminders,
@@ -95,6 +96,9 @@ export default function App() {
   const [highlightedItemId, setHighlightedItemId] = useState<string | null>(null);
 
   const [voiceModalOpen, setVoiceModalOpen] = useState(false);
+  const [companionStage, setCompanionStage] = useState<1 | 2>(1);
+  const [floatingCartOpen, setFloatingCartOpen] = useState(false);
+  const [quickFanOpen, setQuickFanOpen] = useState(false);
   const [deepResearchModalOpen, setDeepResearchModalOpen] = useState(false);
   const [autoStartMicOnOpen, setAutoStartMicOnOpen] = useState(true);
   const [realityModalOpen, setRealityModalOpen] = useState(false);
@@ -110,7 +114,8 @@ export default function App() {
   const [singleFocusTaskId, setSingleFocusTaskId] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
-  const handleOpenVoice = (autoStart = true) => {
+  const handleOpenVoice = (stage: 1 | 2 = 1, autoStart = true) => {
+    setCompanionStage(stage);
     setAutoStartMicOnOpen(autoStart);
     setVoiceModalOpen(true);
   };
@@ -134,8 +139,8 @@ export default function App() {
       mode === 'off'
         ? 'Hintergrundbeleuchtung deaktiviert.'
         : mode === 'static'
-        ? 'Statische Hintergrundbeleuchtung aktiviert.'
-        : 'Sanftes Schimmern aktiviert.'
+          ? 'Statische Hintergrundbeleuchtung aktiviert.'
+          : 'Sanftes Schimmern aktiviert.'
     );
   };
 
@@ -344,6 +349,65 @@ export default function App() {
       cart: p.cart.map((c) => (c.id === cartId ? { ...c, ...patch, lastModified: ts } : c))
     }));
     notify('Einkaufs-Artikel aktualisiert.');
+  };
+
+  const handleToggleCartItem = (projId: string, cartId: string) => {
+    const ts = formatNow();
+    updateProject(projId, (p) => ({
+      ...p,
+      cart: p.cart.map((c) =>
+        c.id === cartId ? { ...c, completed: !c.completed, lastModified: ts } : c
+      )
+    }));
+  };
+
+  const handleDeleteCartItem = (projId: string, cartId: string) => {
+    updateProject(projId, (p) => ({
+      ...p,
+      cart: p.cart.filter((c) => c.id !== cartId)
+    }));
+  };
+
+  const handleAddCartItems = (
+    projId: string,
+    items: Array<{ title: string; quantity: string; price?: string; reason?: string }>
+  ) => {
+    const ts = formatNow();
+    updateProject(projId, (p) => ({
+      ...p,
+      cart: [
+        ...items.map((it) => ({
+          id: `cart-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          title: it.title,
+          quantity: it.quantity || '1x',
+          price: it.price || '',
+          completed: false,
+          aiTouched: false,
+          lastModified: ts,
+          changeReason: it.reason || 'Hinzugefügt',
+          source: 'Manuell' as const,
+          procurementCheck: buildProcurementCheck(it.title),
+          customMeta: {}
+        })),
+        ...p.cart
+      ]
+    }));
+  };
+
+  const handleConfirmRedDot = (
+    projId: string,
+    section: 'tasks' | 'explanations' | 'infos' | 'cart' | 'knowledge',
+    itemId: string
+  ) => {
+    const ts = formatNow();
+    updateProject(projId, (p) => ({
+      ...p,
+      [section]: (((p as any)[section] as any[]) || []).map((it) =>
+        it.id === itemId
+          ? { ...it, aiTouched: false, lastModified: ts, changeReason: 'Bestätigt' }
+          : it
+      )
+    }));
   };
 
   const handleMoveCartItem = (fromProjId: string, toProjId: string, cartId: string) => {
@@ -1265,17 +1329,7 @@ export default function App() {
               updateProject(projId, (p) => ({ ...p, customLogoUrl: './raccoon-logo.png' }));
               notify('Standard-Logo gesetzt.');
             }}
-            onConfirmRedDot={(projId, section, itemId) => {
-              const ts = formatNow();
-              updateProject(projId, (p) => ({
-                ...p,
-                [section]: ((p as any)[section] as any[] || []).map((it) =>
-                  it.id === itemId
-                    ? { ...it, aiTouched: false, lastModified: ts, changeReason: 'Bestätigt' }
-                    : it
-                )
-              }));
-            }}
+            onConfirmRedDot={handleConfirmRedDot}
             onAddTask={(projId, title, prio = 'Mittel', mins = 25) => {
               const ts = formatNow();
               updateProject(projId, (p) => ({
@@ -1334,43 +1388,9 @@ export default function App() {
             }}
             onUploadInfoAttachment={handleUploadKnowledgeAttachment}
             onPreviewAttachment={(att) => setPreviewAttachment(att)}
-            onAddCartItems={(projId, items) => {
-              const ts = formatNow();
-              updateProject(projId, (p) => ({
-                ...p,
-                cart: [
-                  ...items.map((it, idx) => ({
-                    id: `c-${Date.now()}-${idx}`,
-                    title: it.title,
-                    quantity: it.quantity || '1x',
-                    price: it.price || '',
-                    completed: false,
-                    aiTouched: false,
-                    lastModified: ts,
-                    changeReason: it.reason || 'Hinzugefügt',
-                    source: 'Manuell' as const,
-                    procurementCheck: buildProcurementCheck(it.title),
-                    customMeta: {}
-                  })),
-                  ...p.cart
-                ]
-              }));
-            }}
-            onToggleCartItem={(projId, cartId) => {
-              const ts = formatNow();
-              updateProject(projId, (p) => ({
-                ...p,
-                cart: p.cart.map((c) =>
-                  c.id === cartId ? { ...c, completed: !c.completed, lastModified: ts } : c
-                )
-              }));
-            }}
-            onDeleteCartItem={(projId, cartId) =>
-              updateProject(projId, (p) => ({
-                ...p,
-                cart: p.cart.filter((c) => c.id !== cartId)
-              }))
-            }
+            onAddCartItems={handleAddCartItems}
+            onToggleCartItem={handleToggleCartItem}
+            onDeleteCartItem={handleDeleteCartItem}
             onUpdateCartItem={handleUpdateCartItem}
             onMoveCartItem={handleMoveCartItem}
             onMoveKnowledge={handleMoveKnowledge}
@@ -1391,6 +1411,8 @@ export default function App() {
               setIsBackoffice(true);
               setBackofficeTab('addons');
             }}
+            onOpenFloatingCart={() => setFloatingCartOpen(true)}
+            isFloatingCartOpen={floatingCartOpen}
             ambientLightMode={state.ambientLightMode || 'shimmer'}
             onSaveDossierToProject={handleSaveDossierToProject}
             onReconcileReceiptWithCart={handleReconcileReceiptWithCart}
@@ -1526,7 +1548,7 @@ export default function App() {
               activeTab={activeProjectTab}
               onSelectProject={(id) => setSelectedProjectId(id)}
               onChangeTab={(tab) => setActiveProjectTab(tab)}
-              onOpenVoice={() => handleOpenVoice(true)}
+              onOpenVoice={(stage) => handleOpenVoice(stage || 1, true)}
               onOpenDeepResearch={() => setDeepResearchModalOpen(true)}
               onOpenSingleFocus={(taskId) => {
                 setSingleFocusTaskId(taskId || null);
@@ -1536,6 +1558,11 @@ export default function App() {
                 setIsBackoffice(true);
                 setBackofficeTab('addons');
               }}
+              onOpenFloatingCart={() => setFloatingCartOpen(true)}
+              isCompanionActive={voiceModalOpen}
+              isFloatingCartOpen={floatingCartOpen}
+              isFanOpen={quickFanOpen}
+              onToggleFan={setQuickFanOpen}
               bottomAiText={bottomAiText}
               onSetBottomAiText={setBottomAiText}
               onSubmitBottomAi={handleBottomAiSubmit}
@@ -1576,8 +1603,7 @@ export default function App() {
                       if (bottomAiText.trim()) {
                         handleBottomAiSubmit();
                       } else {
-                        setAutoStartMicOnOpen(true);
-                        setVoiceModalOpen(true);
+                        handleOpenVoice(2, true);
                       }
                     }}
                     aria-label={bottomAiText.trim() ? 'Befehl senden' : 'Sofort sprechen'}
@@ -1621,9 +1647,57 @@ export default function App() {
           }}
         />
 
-      {/* KI-KONTEXT-SCHUBLADE */}
+        {/* SCHWEBENDER EINKAUFSWAGEN */}
+        <FloatingCartOverlay
+          open={floatingCartOpen}
+          onClose={() => setFloatingCartOpen(false)}
+          onSwitchToFullScreen={() => {
+            setFloatingCartOpen(false);
+            setActiveProjectTab('cart');
+          }}
+          activeProject={activeProject || BRAND_CONFIG.projects['proj-foodtruck'] || state.projects[0]}
+          allProjects={state.projects}
+          themeColors={{
+            primary: activeVisualTheme.primary,
+            highlight: activeVisualTheme.highlight,
+            label: activeDomain.toUpperCase()
+          }}
+          highlightedItemId={highlightedItemId}
+          onToggleCartItem={handleToggleCartItem}
+          onDeleteCartItem={handleDeleteCartItem}
+          onAddCartItems={handleAddCartItems}
+          onUpdateCartItem={handleUpdateCartItem}
+          onMoveCartItem={handleMoveCartItem}
+          onConfirmRedDot={handleConfirmRedDot}
+          onOpenSettings={() => {
+            setIsBackoffice(true);
+            setBackofficeTab('addons');
+          }}
+          onNotify={notify}
+          onRegisterUndo={(action) => notify(action.message)}
+          onConfigMissing={(msg) => notify(msg)}
+        />
+
+      {/* LEBENDIGER SECHSECK-BEGLEITER (3-STUFEN-MORPHING) */}
       <VoiceModal
         open={voiceModalOpen}
+        stage={companionStage}
+        onStageChange={(newStage) => {
+          if (newStage === 0) {
+            setVoiceModalOpen(false);
+          } else {
+            setCompanionStage(newStage);
+          }
+        }}
+        themeColors={{
+          primary: activeVisualTheme.primary,
+          highlight: activeVisualTheme.highlight,
+          glow: activeVisualTheme.glow
+        }}
+        onOpenQuickFan={() => {
+          setVoiceModalOpen(false);
+          setQuickFanOpen(true);
+        }}
         autoStartMic={autoStartMicOnOpen}
         activeProjectName={activeProject?.name || BRAND_CONFIG.projects['proj-foodtruck']?.name || 'Pizza Bandit'}
         projects={state.projects}
@@ -1678,18 +1752,18 @@ export default function App() {
         onMoveAiAction={handleMoveAiAction}
       />
 
-      <DeepResearchAndAuditModal
-        open={deepResearchModalOpen}
-        projects={state.projects}
-        activeProject={activeProject}
-        userApiKey={state.userApiKey}
-        fullState={state}
-        onClose={() => setDeepResearchModalOpen(false)}
-        onSaveDossierToProject={handleSaveDossierToProject}
-        onReconcileReceiptWithCart={handleReconcileReceiptWithCart}
-        onReplaceFullStateFromCloud={handleReplaceFullStateFromCloud}
-        onNotify={notify}
-      />
+        <DeepResearchAndAuditModal
+          open={deepResearchModalOpen}
+          projects={state.projects}
+          activeProject={activeProject}
+          userApiKey={state.userApiKey}
+          fullState={state}
+          onClose={() => setDeepResearchModalOpen(false)}
+          onSaveDossierToProject={handleSaveDossierToProject}
+          onReconcileReceiptWithCart={handleReconcileReceiptWithCart}
+          onReplaceFullStateFromCloud={handleReplaceFullStateFromCloud}
+          onNotify={notify}
+        />
 
         <RealityCheckModal open={realityModalOpen} onClose={() => setRealityModalOpen(false)} />
 
