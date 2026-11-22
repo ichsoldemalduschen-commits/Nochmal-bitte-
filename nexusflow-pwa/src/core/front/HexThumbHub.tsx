@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Eye, LayoutGrid, Mic, Scale, Send, Settings, ShoppingCart, X } from 'lucide-react';
+import { Eye, LayoutGrid, Loader2, Mic, Scale, Send, Settings, ShoppingCart, Volume2, X } from 'lucide-react';
 import { Project, ProjectTabId } from '../../types';
 
 export interface HexThumbHubProps {
@@ -17,6 +17,12 @@ export interface HexThumbHubProps {
   onOpenFloatingCart?: () => void;
   isCompanionActive?: boolean;
   isFloatingCartOpen?: boolean;
+  isFanOpen?: boolean;
+  onToggleFan?: (open: boolean) => void;
+  onCloseCompanion?: () => void;
+  companionIsListening?: boolean;
+  companionIsProcessing?: boolean;
+  companionIsSpeaking?: boolean;
   bottomAiText: string;
   onSetBottomAiText: (text: string) => void;
   onSubmitBottomAi: (e?: React.FormEvent) => void;
@@ -42,12 +48,26 @@ export const HexThumbHub: React.FC<HexThumbHubProps> = ({
   onOpenFloatingCart,
   isCompanionActive = false,
   isFloatingCartOpen = false,
+  isFanOpen: controlledFanOpen,
+  onToggleFan,
+  onCloseCompanion,
+  companionIsListening = false,
+  companionIsProcessing = false,
+  companionIsSpeaking = false,
   bottomAiText,
   onSetBottomAiText,
   onSubmitBottomAi,
   themeColors
 }) => {
-  const [isFanOpen, setIsFanOpen] = useState(false);
+  const [internalFanOpen, setInternalFanOpen] = useState(false);
+  const isFanOpen = controlledFanOpen !== undefined ? controlledFanOpen : internalFanOpen;
+  const setIsFanOpen = (open: boolean) => {
+    if (onToggleFan) {
+      onToggleFan(open);
+    } else {
+      setInternalFanOpen(open);
+    }
+  };
   const [isScrolledDown, setIsScrolledDown] = useState(false);
   const [holdProgress, setHoldProgress] = useState(0);
   const [pulseRings, setPulseRings] = useState<number[]>([]);
@@ -141,8 +161,16 @@ export const HexThumbHub: React.FC<HexThumbHubProps> = ({
     if (!wasGesture && pointerStartRef.current) {
       if (isFanOpen) {
         setIsFanOpen(false);
+      } else if (isCompanionActive) {
+        // Stufe 1 schließen per erneutem Tipp
+        try {
+          navigator.vibrate?.(15);
+        } catch {
+          // ignore
+        }
+        onCloseCompanion?.();
       } else {
-        // 1× kurzer Tipp -> 0 ms Latenz für die KI (Stufe 1 aufwecken)
+        // Stufe 0 → Stufe 1: Pulsringe + Öffnen beim Loslassen
         try {
           navigator.vibrate?.(15);
         } catch {
@@ -412,10 +440,9 @@ export const HexThumbHub: React.FC<HexThumbHubProps> = ({
 
       {/* ── Stufe 0 – Präsenter Sechseck-Anker (~72×72 px) mit doppelter Kontur ── */}
       <div
-        className={`fixed z-40 bottom-[max(1rem,env(safe-area-inset-bottom))] ${positionClasses} pointer-events-auto transition-all duration-300 ${
-          isCompanionActive && !isFanOpen
-            ? 'scale-100 opacity-100'
-            : isFloatingCartOpen
+        className={`fixed z-40 bottom-[max(1rem,env(safe-area-inset-bottom))] ${positionClasses} pointer-events-auto transition-all duration-300 ${isCompanionActive && !isFanOpen
+          ? 'scale-100 opacity-100'
+          : isFloatingCartOpen
             ? 'scale-90 opacity-40 pointer-events-none'
             : isScrolledDown && !isFanOpen
               ? 'scale-90 opacity-80'
@@ -429,9 +456,8 @@ export const HexThumbHub: React.FC<HexThumbHubProps> = ({
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
           onPointerCancel={handlePointerCancel}
-          className={`w-[72px] h-[72px] min-w-[72px] min-h-[72px] rounded-2xl flex items-center justify-center relative cursor-pointer select-none touch-none transition-all duration-300 hex-companion-breathing ${
-            isPressed ? 'scale-[0.94] drop-shadow-[0_0_14px_rgba(229,169,60,0.45)]' : 'active:scale-95'
-          }`}
+          className={`w-[72px] h-[72px] min-w-[72px] min-h-[72px] rounded-2xl flex items-center justify-center relative cursor-pointer select-none touch-none transition-all duration-300 hex-companion-breathing ${isPressed ? 'scale-[0.94] drop-shadow-[0_0_14px_rgba(229,169,60,0.45)]' : 'active:scale-95'
+            }`}
           style={
             {
               '--hex-glow': themeColors.glow,
@@ -456,15 +482,14 @@ export const HexThumbHub: React.FC<HexThumbHubProps> = ({
             width="72"
             height="72"
             viewBox="0 0 72 72"
-            className={`absolute inset-0 w-full h-full pointer-events-none ${
-              isCompanionActive && companionIsListening
-                ? 'hex-active-listening'
-                : isCompanionActive && companionIsProcessing
+            className={`absolute inset-0 w-full h-full pointer-events-none ${isCompanionActive && companionIsListening
+              ? 'hex-active-listening'
+              : isCompanionActive && companionIsProcessing
                 ? 'hex-active-thinking'
                 : isCompanionActive && companionIsSpeaking
-                ? 'hex-active-speaking'
-                : ''
-            }`}
+                  ? 'hex-active-speaking'
+                  : ''
+              }`}
           >
             {/* Äußerer Rand in Projektfarbe */}
             <path
@@ -474,12 +499,12 @@ export const HexThumbHub: React.FC<HexThumbHubProps> = ({
                 isCompanionActive && companionIsListening
                   ? themeColors.highlight
                   : isCompanionActive && companionIsProcessing
-                  ? '#E5A93C'
-                  : isCompanionActive && companionIsSpeaking
-                  ? '#14B8A6'
-                  : isFanOpen
-                  ? themeColors.highlight
-                  : themeColors.primary
+                    ? '#E5A93C'
+                    : isCompanionActive && companionIsSpeaking
+                      ? '#14B8A6'
+                      : isFanOpen
+                        ? themeColors.highlight
+                        : themeColors.primary
               }
               strokeWidth="2.5"
               strokeLinejoin="round"

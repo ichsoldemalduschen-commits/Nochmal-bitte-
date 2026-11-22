@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Eye, Loader2, Mic, Scale, Send, Settings, ShoppingCart, Volume2, X } from 'lucide-react';
+import { Eye, LayoutGrid, Loader2, Mic, Scale, Send, Settings, ShoppingCart, Volume2, X } from 'lucide-react';
 import { Project, ProjectTabId } from '../../types';
 
 export interface HexThumbHubProps {
@@ -163,7 +163,11 @@ export const HexThumbHub: React.FC<HexThumbHubProps> = ({
         setIsFanOpen(false);
       } else if (isCompanionActive) {
         // Stufe 1 schließen per erneutem Tipp
-        try { navigator.vibrate?.(15); } catch {}
+        try {
+          navigator.vibrate?.(15);
+        } catch {
+          // ignore
+        }
         onCloseCompanion?.();
       } else {
         // Stufe 0 → Stufe 1: Pulsringe + Öffnen beim Loslassen
@@ -272,11 +276,10 @@ export const HexThumbHub: React.FC<HexThumbHubProps> = ({
                         onSelectProject(p.id);
                         setIsFanOpen(false);
                       }}
-                      className={`min-h-[44px] px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-2 border transition shrink-0 active:scale-95 cursor-pointer ${
-                        isActive
-                          ? 'bg-white/10 text-white border-white/30'
-                          : 'bg-[#111317] text-[#94A3B8] border-white/5 hover:text-white'
-                      }`}
+                      className={`min-h-[44px] px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-2 border transition shrink-0 active:scale-95 cursor-pointer ${isActive
+                        ? 'bg-white/10 text-white border-white/30'
+                        : 'bg-[#111317] text-[#94A3B8] border-white/5 hover:text-white'
+                        }`}
                     >
                       <span
                         className="w-2.5 h-2.5 rounded-full shrink-0"
@@ -305,11 +308,10 @@ export const HexThumbHub: React.FC<HexThumbHubProps> = ({
                         onChangeTab(tab.id);
                         setIsFanOpen(false);
                       }}
-                      className={`min-h-[44px] px-2 py-1.5 rounded-xl text-xs font-bold border flex items-center justify-center transition active:scale-95 cursor-pointer ${
-                        isActive
-                          ? 'text-white border-white/30'
-                          : 'bg-[#111317] text-[#94A3B8] border-white/5 hover:text-white'
-                      }`}
+                      className={`min-h-[44px] px-2 py-1.5 rounded-xl text-xs font-bold border flex items-center justify-center transition active:scale-95 cursor-pointer ${isActive
+                        ? 'text-white border-white/30'
+                        : 'bg-[#111317] text-[#94A3B8] border-white/5 hover:text-white'
+                        }`}
                       style={isActive ? { backgroundColor: themeColors.primary } : {}}
                     >
                       {tab.label}
@@ -325,11 +327,10 @@ export const HexThumbHub: React.FC<HexThumbHubProps> = ({
                       onChangeTab('extras');
                       setIsFanOpen(false);
                     }}
-                    className={`w-full min-h-[44px] px-2 py-1.5 rounded-xl text-xs font-bold border flex items-center justify-center transition active:scale-95 cursor-pointer ${
-                      activeTab === 'extras'
-                        ? 'text-white border-white/30'
-                        : 'bg-[#111317] text-[#94A3B8] border-white/5 hover:text-white'
-                    }`}
+                    className={`w-full min-h-[44px] px-2 py-1.5 rounded-xl text-xs font-bold border flex items-center justify-center transition active:scale-95 cursor-pointer ${activeTab === 'extras'
+                      ? 'text-white border-white/30'
+                      : 'bg-[#111317] text-[#94A3B8] border-white/5 hover:text-white'
+                      }`}
                     style={activeTab === 'extras' ? { backgroundColor: themeColors.primary } : {}}
                   >
                     Extras &amp; Plugins
@@ -439,15 +440,14 @@ export const HexThumbHub: React.FC<HexThumbHubProps> = ({
 
       {/* ── Stufe 0 – Präsenter Sechseck-Anker (~72×72 px) mit doppelter Kontur ── */}
       <div
-        className={`fixed z-40 bottom-[max(1rem,env(safe-area-inset-bottom))] ${positionClasses} pointer-events-auto transition-all duration-300 ${
-          isCompanionActive && !isFanOpen
-            ? 'scale-100 opacity-100'
-            : isFloatingCartOpen
+        className={`fixed z-40 bottom-[max(1rem,env(safe-area-inset-bottom))] ${positionClasses} pointer-events-auto transition-all duration-300 ${isCompanionActive && !isFanOpen
+          ? 'scale-100 opacity-100'
+          : isFloatingCartOpen
             ? 'scale-90 opacity-40 pointer-events-none'
             : isScrolledDown && !isFanOpen
-            ? 'scale-90 opacity-80'
-            : 'scale-100 opacity-100'
-        }`}
+              ? 'scale-90 opacity-80'
+              : 'scale-100 opacity-100'
+          }`}
       >
         <button
           type="button"
@@ -456,9 +456,8 @@ export const HexThumbHub: React.FC<HexThumbHubProps> = ({
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
           onPointerCancel={handlePointerCancel}
-          className={`w-[72px] h-[72px] min-w-[72px] min-h-[72px] rounded-2xl flex items-center justify-center relative cursor-pointer select-none touch-none transition-all duration-300 hex-companion-breathing ${
-            isPressed ? 'scale-[0.94] drop-shadow-[0_0_14px_rgba(229,169,60,0.45)]' : 'active:scale-95'
-          }`}
+          className={`w-[72px] h-[72px] min-w-[72px] min-h-[72px] rounded-2xl flex items-center justify-center relative cursor-pointer select-none touch-none transition-all duration-300 hex-companion-breathing ${isPressed ? 'scale-[0.94] drop-shadow-[0_0_14px_rgba(229,169,60,0.45)]' : 'active:scale-95'
+            }`}
           style={
             {
               '--hex-glow': themeColors.glow,
@@ -483,15 +482,14 @@ export const HexThumbHub: React.FC<HexThumbHubProps> = ({
             width="72"
             height="72"
             viewBox="0 0 72 72"
-            className={`absolute inset-0 w-full h-full pointer-events-none ${
-              isCompanionActive && companionIsListening
-                ? 'hex-active-listening'
-                : isCompanionActive && companionIsProcessing
+            className={`absolute inset-0 w-full h-full pointer-events-none ${isCompanionActive && companionIsListening
+              ? 'hex-active-listening'
+              : isCompanionActive && companionIsProcessing
                 ? 'hex-active-thinking'
                 : isCompanionActive && companionIsSpeaking
-                ? 'hex-active-speaking'
-                : ''
-            }`}
+                  ? 'hex-active-speaking'
+                  : ''
+              }`}
           >
             {/* Äußerer Rand in Projektfarbe */}
             <path
@@ -501,12 +499,12 @@ export const HexThumbHub: React.FC<HexThumbHubProps> = ({
                 isCompanionActive && companionIsListening
                   ? themeColors.highlight
                   : isCompanionActive && companionIsProcessing
-                  ? '#E5A93C'
-                  : isCompanionActive && companionIsSpeaking
-                  ? '#14B8A6'
-                  : isFanOpen
-                  ? themeColors.highlight
-                  : themeColors.primary
+                    ? '#E5A93C'
+                    : isCompanionActive && companionIsSpeaking
+                      ? '#14B8A6'
+                      : isFanOpen
+                        ? themeColors.highlight
+                        : themeColors.primary
               }
               strokeWidth="2.5"
               strokeLinejoin="round"
