@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Eye, LayoutGrid, Mic, Scale, Send, Settings, ShoppingCart, X } from 'lucide-react';
+import { Eye, Loader2, Mic, Scale, Send, Settings, ShoppingCart, Volume2, X } from 'lucide-react';
 import { Project, ProjectTabId } from '../../types';
 
 export interface HexThumbHubProps {
@@ -19,6 +19,10 @@ export interface HexThumbHubProps {
   isFloatingCartOpen?: boolean;
   isFanOpen?: boolean;
   onToggleFan?: (open: boolean) => void;
+  onCloseCompanion?: () => void;
+  companionIsListening?: boolean;
+  companionIsProcessing?: boolean;
+  companionIsSpeaking?: boolean;
   bottomAiText: string;
   onSetBottomAiText: (text: string) => void;
   onSubmitBottomAi: (e?: React.FormEvent) => void;
@@ -46,6 +50,10 @@ export const HexThumbHub: React.FC<HexThumbHubProps> = ({
   isFloatingCartOpen = false,
   isFanOpen: controlledFanOpen,
   onToggleFan,
+  onCloseCompanion,
+  companionIsListening = false,
+  companionIsProcessing = false,
+  companionIsSpeaking = false,
   bottomAiText,
   onSetBottomAiText,
   onSubmitBottomAi,
@@ -63,6 +71,7 @@ export const HexThumbHub: React.FC<HexThumbHubProps> = ({
   const [isScrolledDown, setIsScrolledDown] = useState(false);
   const [holdProgress, setHoldProgress] = useState(0);
   const [pulseRings, setPulseRings] = useState<number[]>([]);
+  const [isPressed, setIsPressed] = useState(false);
 
   const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const holdIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -86,6 +95,7 @@ export const HexThumbHub: React.FC<HexThumbHubProps> = ({
   }, []);
 
   const clearHoldState = () => {
+    setIsPressed(false);
     if (holdTimerRef.current) {
       clearTimeout(holdTimerRef.current);
       holdTimerRef.current = null;
@@ -99,11 +109,13 @@ export const HexThumbHub: React.FC<HexThumbHubProps> = ({
 
   const handlePointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
+    setIsPressed(true);
     setIsScrolledDown(false);
     didTriggerGestureRef.current = false;
     pointerStartRef.current = { x: e.clientX, y: e.clientY, time: Date.now() };
 
     clearHoldState();
+    setIsPressed(true);
 
     // Fortschritt der Honig-Gold Ladekontur über 320ms berechnen
     const startTime = Date.now();
@@ -142,14 +154,19 @@ export const HexThumbHub: React.FC<HexThumbHubProps> = ({
   };
 
   const handlePointerUp = () => {
+    setIsPressed(false);
     const wasGesture = didTriggerGestureRef.current;
     clearHoldState();
 
     if (!wasGesture && pointerStartRef.current) {
       if (isFanOpen) {
         setIsFanOpen(false);
+      } else if (isCompanionActive) {
+        // Stufe 1 schließen per erneutem Tipp
+        try { navigator.vibrate?.(15); } catch {}
+        onCloseCompanion?.();
       } else {
-        // 1× kurzer Tipp -> 0 ms Latenz für die KI (Stufe 1 aufwecken)
+        // Stufe 0 → Stufe 1: Pulsringe + Öffnen beim Loslassen
         try {
           navigator.vibrate?.(15);
         } catch {
@@ -165,6 +182,7 @@ export const HexThumbHub: React.FC<HexThumbHubProps> = ({
   };
 
   const handlePointerCancel = () => {
+    setIsPressed(false);
     clearHoldState();
     pointerStartRef.current = null;
     didTriggerGestureRef.current = false;
@@ -423,7 +441,7 @@ export const HexThumbHub: React.FC<HexThumbHubProps> = ({
       <div
         className={`fixed z-40 bottom-[max(1rem,env(safe-area-inset-bottom))] ${positionClasses} pointer-events-auto transition-all duration-300 ${
           isCompanionActive && !isFanOpen
-            ? 'opacity-0 pointer-events-none scale-75'
+            ? 'scale-100 opacity-100'
             : isFloatingCartOpen
             ? 'scale-90 opacity-40 pointer-events-none'
             : isScrolledDown && !isFanOpen
@@ -438,7 +456,9 @@ export const HexThumbHub: React.FC<HexThumbHubProps> = ({
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
           onPointerCancel={handlePointerCancel}
-          className="w-[72px] h-[72px] min-w-[72px] min-h-[72px] rounded-2xl flex items-center justify-center relative cursor-pointer select-none touch-none active:scale-95 transition-all duration-300 hex-companion-breathing"
+          className={`w-[72px] h-[72px] min-w-[72px] min-h-[72px] rounded-2xl flex items-center justify-center relative cursor-pointer select-none touch-none transition-all duration-300 hex-companion-breathing ${
+            isPressed ? 'scale-[0.94] drop-shadow-[0_0_14px_rgba(229,169,60,0.45)]' : 'active:scale-95'
+          }`}
           style={
             {
               '--hex-glow': themeColors.glow,
@@ -463,13 +483,31 @@ export const HexThumbHub: React.FC<HexThumbHubProps> = ({
             width="72"
             height="72"
             viewBox="0 0 72 72"
-            className="absolute inset-0 w-full h-full pointer-events-none"
+            className={`absolute inset-0 w-full h-full pointer-events-none ${
+              isCompanionActive && companionIsListening
+                ? 'hex-active-listening'
+                : isCompanionActive && companionIsProcessing
+                ? 'hex-active-thinking'
+                : isCompanionActive && companionIsSpeaking
+                ? 'hex-active-speaking'
+                : ''
+            }`}
           >
             {/* Äußerer Rand in Projektfarbe */}
             <path
               d="M36 6 L63 21.6 L63 50.4 L36 66 L9 50.4 L9 21.6 Z"
               fill="#14171D"
-              stroke={isFanOpen ? themeColors.highlight : themeColors.primary}
+              stroke={
+                isCompanionActive && companionIsListening
+                  ? themeColors.highlight
+                  : isCompanionActive && companionIsProcessing
+                  ? '#E5A93C'
+                  : isCompanionActive && companionIsSpeaking
+                  ? '#14B8A6'
+                  : isFanOpen
+                  ? themeColors.highlight
+                  : themeColors.primary
+              }
               strokeWidth="2.5"
               strokeLinejoin="round"
             />
@@ -497,7 +535,15 @@ export const HexThumbHub: React.FC<HexThumbHubProps> = ({
 
           {/* Icon im Zentrum */}
           <div className="relative z-10 flex items-center justify-center pointer-events-none">
-            {isFanOpen ? (
+            {isCompanionActive && companionIsListening ? (
+              <Mic className="w-6 h-6 animate-pulse" style={{ color: themeColors.highlight }} />
+            ) : isCompanionActive && companionIsProcessing ? (
+              <Loader2 className="w-6 h-6 text-[#E5A93C] animate-spin" />
+            ) : isCompanionActive && companionIsSpeaking ? (
+              <Volume2 className="w-6 h-6 text-[#14B8A6] hex-speak-anim" />
+            ) : isCompanionActive ? (
+              <Mic className="w-6 h-6 stroke-[2.2]" style={{ color: themeColors.highlight }} />
+            ) : isFanOpen ? (
               <X className="w-6 h-6 text-white stroke-[2.2]" />
             ) : (
               <Mic

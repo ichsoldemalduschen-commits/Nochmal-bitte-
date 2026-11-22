@@ -268,3 +268,35 @@ export interface PluginDefinition {
   metaKeysUsed: string[];
   render: (ctx: PluginContextProps) => JSX.Element;
 }
+
+// ── Voll-Backup v2 & Projekt-Import Datenmodell ─────────────────────────────
+
+export interface FullBackupV2 {
+  backupVersion: 2;
+  exportedAt: string;
+  appState: AppStateSnapshot;
+  userPrefs: any;
+  blueprints: any;
+  photoPins: any;
+  aiChat: any;
+  scannedReceipts: any[];
+  savedDossiers: any[];
+  pizzaCatalog: PizzaCatalogItem[];
+  posSlots: PosPizzaSlot[];
+  doughCalcDefaults: DoughCalcDefaults;
+}
+
+export interface BackupImportResult {
+  projectCount: number;
+  taskCount: number;
+  cartCount: number;
+  knowledgeCount: number;
+  pizzaVarietyCount: number;
+  warnings: string[];
+}
+
+export interface ProjectImportResult {
+  addedTasks: number;
+  addedCart: number;
+  addedKnowledge: number;
+}

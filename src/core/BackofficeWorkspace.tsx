@@ -13,6 +13,7 @@ import {
   Copy,
   Database,
   Download,
+  FileUp,
   FolderArchive,
   HeartHandshake,
   Key,
@@ -46,6 +47,9 @@ import { PLUGIN_REGISTRY } from '../plugins/registry';
 import {
   STORAGE_KEYS,
   downloadProjectJson,
+  downloadFullBackupV2,
+  importFullBackupV2,
+  importProjectJsonToTarget,
   getAzureSpeechKey,
   getAzureSpeechRegion,
   getIdbItemSync,
@@ -301,19 +305,69 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
     onNotify(`Vorlage "${bp.name}" im Tresor gespeichert.`);
   };
 
-  const handleBackupUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const [backupReceipt, setBackupReceipt] = React.useState<{
+    type: 'export' | 'import';
+    projectCount: number;
+    taskCount: number;
+    cartCount: number;
+    knowledgeCount: number;
+    pizzaVarietyCount?: number;
+    warnings?: string[];
+    timestamp: string;
+  } | null>(null);
+
+  const handleBackupUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      try {
-        const parsed = JSON.parse(String(ev.target?.result)) as AppStateSnapshot;
-        if (parsed && Array.isArray(parsed.projects)) onImportFullBackup(parsed);
-      } catch {
+    const text = await file.text();
+    try {
+      const raw = JSON.parse(text);
+      if (!raw || (typeof raw !== 'object')) {
         onNotify('Ungültige JSON-Backup-Datei.');
+        return;
       }
-    };
-    reader.readAsText(file);
+      const { snapshot, result } = await importFullBackupV2(raw, fullState || {} as AppStateSnapshot);
+      onImportFullBackup(snapshot);
+      setBackupReceipt({
+        type: 'import',
+        projectCount: result.projectCount,
+        taskCount: result.taskCount,
+        cartCount: result.cartCount,
+        knowledgeCount: result.knowledgeCount,
+        pizzaVarietyCount: result.pizzaVarietyCount,
+        warnings: result.warnings,
+        timestamp: new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }),
+      });
+      onNotify(`Backup wiederhergestellt: ${result.projectCount} Projekte, ${result.taskCount} Aufgaben.`);
+    } catch (err) {
+      onNotify(`Backup-Fehler: ${(err as any)?.message || 'Ungültiges Format'}`);
+    }
+    e.target.value = '';
+  };
+
+  const handleProjectJsonUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const text = await file.text();
+    try {
+      const raw = JSON.parse(text);
+      const targetProj = activeProjects[0] || projects[0];
+      if (!targetProj) {
+        onNotify('Kein Zielprojekt vorhanden.');
+        return;
+      }
+      const { updatedProject, result } = importProjectJsonToTarget(raw, targetProj);
+      onUpdateProject?.(targetProj.id, {
+        tasks: updatedProject.tasks,
+        cart: updatedProject.cart,
+        knowledge: updatedProject.knowledge
+      });
+      onNotify(
+        `Projekt-Import: ${result.addedTasks} Aufgaben, ${result.addedCart} Einkäufe, ${result.addedKnowledge} Wissens-Einträge an "${targetProj.name}" angehängt.`
+      );
+    } catch (err) {
+      onNotify(`Projekt-Import-Fehler: ${(err as any)?.message || 'Ungültiges JSON-Format'}`);
+    }
     e.target.value = '';
   };
 
@@ -1360,7 +1414,20 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
               <div className="flex gap-2">
                 <button
                   type="button"
-                  onClick={onExportFullBackup}
+                  onClick={async () => {
+                    if (!fullState) { onNotify('Kein Status vorhanden.'); return; }
+                    const backup = await downloadFullBackupV2(fullState);
+                    setBackupReceipt({
+                      type: 'export',
+                      projectCount: backup.appState.projects.length,
+                      taskCount: backup.appState.projects.reduce((n, p) => n + (p.tasks?.length || 0), 0),
+                      cartCount: backup.appState.projects.reduce((n, p) => n + (p.cart?.length || 0), 0),
+                      knowledgeCount: backup.appState.projects.reduce((n, p) => n + (p.knowledge?.length || 0), 0),
+                      pizzaVarietyCount: Array.isArray(backup.pizzaCatalog) ? backup.pizzaCatalog.length : 0,
+                      timestamp: new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }),
+                    });
+                    onNotify('Vollständiges Backup gespeichert (v2).');
+                  }}
                   className="flex-1 min-h-[44px] py-2 px-3 rounded-xl text-xs font-semibold bg-[#242930] text-white border border-white/10 flex items-center justify-center gap-2 active:scale-95 transition"
                 >
                   <Download className="w-4 h-4 text-[#14B8A6]" />
@@ -1378,6 +1445,17 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
                 </label>
               </div>
 
+              <label className="w-full min-h-[44px] cursor-pointer py-2 px-3 rounded-xl text-xs font-semibold bg-[#242930] text-[#E5A93C] border border-[#E5A93C]/40 flex items-center justify-center gap-2 active:scale-95 transition">
+                <FileUp className="w-4 h-4" />
+                <span>Projekt importieren</span>
+                <input
+                  type="file"
+                  accept=".json"
+                  className="hidden"
+                  onChange={handleProjectJsonUpload}
+                />
+              </label>
+
               {eventSalesLogs.length > 0 && (
                 <button
                   type="button"
@@ -1386,6 +1464,53 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
                 >
                   POS-Abrechnungen als CSV exportieren ({eventSalesLogs.length})
                 </button>
+              )}
+
+              {backupReceipt && (
+                <div className="p-3.5 rounded-2xl bg-[#242930] border border-[#E5A93C]/30 space-y-2 animate-fadeIn">
+                  <div className="flex items-center justify-between">
+                    <div className="text-xs font-bold text-[#E5A93C]">
+                      {backupReceipt.type === 'export' ? '✓ Backup gespeichert' : '✓ Backup wiederhergestellt'} · {backupReceipt.timestamp}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setBackupReceipt(null)}
+                      className="min-h-[44px] min-w-[44px] rounded-xl bg-transparent text-[#94A3B8] hover:text-white flex items-center justify-center transition"
+                      aria-label="Quittung schließen"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1.5 text-xs">
+                    <div className="bg-[#111317] rounded-xl p-2 text-center">
+                      <div className="text-[#F1F5F9] font-mono font-bold text-base">{backupReceipt.projectCount}</div>
+                      <div className="text-[#94A3B8]">Projekte</div>
+                    </div>
+                    <div className="bg-[#111317] rounded-xl p-2 text-center">
+                      <div className="text-[#F1F5F9] font-mono font-bold text-base">{backupReceipt.taskCount}</div>
+                      <div className="text-[#94A3B8]">Aufgaben</div>
+                    </div>
+                    <div className="bg-[#111317] rounded-xl p-2 text-center">
+                      <div className="text-[#F1F5F9] font-mono font-bold text-base">{backupReceipt.cartCount}</div>
+                      <div className="text-[#94A3B8]">Einkäufe</div>
+                    </div>
+                    <div className="bg-[#111317] rounded-xl p-2 text-center">
+                      <div className="text-[#F1F5F9] font-mono font-bold text-base">{backupReceipt.knowledgeCount}</div>
+                      <div className="text-[#94A3B8]">Wissen</div>
+                    </div>
+                    {(backupReceipt.pizzaVarietyCount ?? 0) > 0 && (
+                      <div className="col-span-2 bg-[#111317] rounded-xl p-2 text-center">
+                        <div className="text-[#F1F5F9] font-mono font-bold text-base">{backupReceipt.pizzaVarietyCount}</div>
+                        <div className="text-[#94A3B8]">Pizza-Sorten (Katalog)</div>
+                      </div>
+                    )}
+                  </div>
+                  {backupReceipt.warnings && backupReceipt.warnings.length > 0 && (
+                    <div className="text-xs text-[#E5A93C]/80 space-y-0.5">
+                      {backupReceipt.warnings.map((w, i) => <div key={i}>⚠ {w}</div>)}
+                    </div>
+                  )}
+                </div>
               )}
             </div>
 

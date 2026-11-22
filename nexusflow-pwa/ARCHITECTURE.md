@@ -240,3 +240,27 @@ Beide Werkzeuge besitzen oben rechts einen ruhigen `⚙`-Button (`min-h-[44px] m
 - Löschen eines Katalog-Eintrags: betroffene Slots behalten ihre aktuellen Werte, `catalogId` wird auf `null` gesetzt.
 
 > **Regel:** Neue `PosPizzaSlot`-Daten gehören in `banditos_pos_slots_v1` (IDB), keine losen `localStorage`-Keys.
+
+
+---
+
+## 15  Organischer, mittiger Sechseck-Begleiter & 100-%-Voll-Backup (v2)
+
+### Organischer, mittiger Sechseck-Begleiter (Stufe 0 → Stufe 1 → Stufe 2)
+
+- **Fester Daumen-Anker mittig unten:** Das lebendige Sechseck (~64–72 px) verbleibt beim Aufwachen in Stufe 1 als fester Daumen-Anker unten mittig (`bottom-[max(1rem,env(safe-area-inset-bottom))]`, kein Wegspringen nach oben links).
+- **Ruhiges Öffnen erst beim Loslassen (pointerup):** Bei `pointerdown` erfolgt ein sanftes, kontrolliertes Eindrücken (`scale(0.94)`) mit subtilem Lichtaufbau. Erst beim Loslassen eines kurzen Tipps (ohne Wisch oder 320-ms-Halten) feuern konzentrische Lichtringe und das Kontextfeld entfaltet sich per GPU-Animation (`transform`, `opacity`, `cubic-bezier(0.22, 1, 0.36, 1)`, ~340 ms, respektiert `prefers-reduced-motion`) organisch nach oben heraus.
+- **Kontextfeld direkt über Sechseck:** Das kompakte Sprach-/Kontextfeld (2 Zeilen Live-Transkript / Quittung inkl. Rückgängig-Button) liegt direkt über dem Sechseck (`bottom-[calc(max(1rem,env(safe-area-inset-bottom))+82px)]`). Die Listen dahinter bleiben vollständig sichtbar und scrollbar (Semi-Integration ohne Fullscreen-Blur).
+- **1-Tipp-Schließen:** Ein erneuter Tipp auf das mittige Sechseck beendet sofort das Zuhören, stoppt Gisela und schließt Stufe 1 sanft zurück in Stufe 0.
+- **Begleiter-Status:** Zuhören (Projektfarben-Puls), Denken (Honig-Gold #E5A93C) und Sprechen/Gisela (weiches Atmen #14B8A6).
+- **Vollwertige Stufe 2:** Umschalten per `⤢` oder Hochziehen auf volles Gesprächs-Modal (Web Speech API, Silence-Timer, Foto-Anhang, Azure TTS „Gisela“) und Rückkehr per `⤡`.
+
+### 100-%-Voll-Backup (backupVersion: 2) & 1-Klick-Projekt-Import
+
+- **Vollständiger JSON-Export (Zentrale Bereich 4):** Exportiert abwärtskompatibel alle lokalen IndexedDB-Daten:
+  1. `AppStateSnapshot`: Projekte (inkl. `overviewEnabled`, `legalWatchEnabled`, `enabledTabs`, `lifecycle`, `domain`, `archived`), alle Tasks, Einkäufe, Wissens-Einträge.
+  2. Alle Zusatz-Stores aus `storage.ts`: Nutzer-Präferenzen (`ambientLightMode`, `thumbHubEnabled`, `thumbHubPosition`), Vorlagen-Blueprints, Foto-Pins, persistenter KI-Chat, Beleg-Scans (`scannedReceipts`) und Deep-Research-Dossiers (`savedDossiers`).
+  3. Paket-3-Werkzeugdaten: `pizzaCatalog`, `posSlots` (inkl. lokaler Event-Überschreibungen) und `doughCalcDefaults`.
+- **Dateiname:** `bandit-os-vollbackup-YYYY-MM-DD.json`.
+- **Verlustfreier Import:** Stellt alle Stores in IndexedDB und den aktuellen App-State wieder her (abwärtskompatibel für v1-Backups). Quittungskarte direkt in Bereich 4 zeigt gesicherte/wiederhergestellte Elemente an.
+- **1-Klick-Projekt-JSON-Import:** Hängt Tasks, Einkäufe und Wissens-Einträge an das Zielprojekt an, ohne Bestehendes zu löschen, und füllt fehlende optionale Felder mit robusten Defaults.

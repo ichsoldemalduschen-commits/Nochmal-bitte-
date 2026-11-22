@@ -410,6 +410,17 @@ test.describe('Block C: Mobile-Guard 390×844 px Gesamt-Schutznetz', () => {
     await focusOverlay.locator('button[aria-label="Schließen"]').click();
     await expect(focusOverlay).toBeHidden();
 
+    // 6b. Organischer Fluss: Kurztipper schließt Stufe 1 wieder
+    // (der hexBtn ist nach dem 1-Fokus-Test noch verfügbar)
+    // Stufe 1 erneut öffnen
+    await hexBtn.click();
+    await expect(stage1Region).toBeVisible();
+    // Erneuter Tipp auf das mittige Sechseck schließt Stufe 1
+    await hexBtn.click();
+    await expect(stage1Region).toBeHidden();
+    await expect(hexBtn).toBeVisible(); // Sechseck bleibt sichtbar (Stufe 0)
+    await assertNoHorizontalOverflow(page, 'Station 6 – Stufe 1 schließt per Hex-Tipp');
+
     // 8. Umschalten in der Zentrale auf die klassische Leiste
     await page.locator('button[aria-label="Navigation öffnen"]').click();
     await page.getByRole('button', { name: 'Zentrale', exact: true }).click();
@@ -590,6 +601,23 @@ test.describe('Block C: Mobile-Guard 390×844 px Gesamt-Schutznetz', () => {
     await expect(page.locator('text=Backup, Export & Import')).toBeVisible();
     await expect(page.locator('button:has-text("Backup speichern")')).toBeVisible();
     await expect(page.locator('text=Backup laden')).toBeVisible();
+
+    // Backup-Buttons touch-sicher prüfen (>= 44px)
+    const backupSaveBtn = page.locator('button:has-text("Backup speichern")');
+    const backupSaveBtnBox = await backupSaveBtn.boundingBox();
+    expect(backupSaveBtnBox?.height ?? 0).toBeGreaterThanOrEqual(44);
+
+    const backupLoadLabel = page.locator('label:has-text("Backup laden")');
+    await expect(backupLoadLabel).toBeVisible();
+    const backupLoadBtnBox = await backupLoadLabel.boundingBox();
+    expect(backupLoadBtnBox?.height ?? 0).toBeGreaterThanOrEqual(44);
+
+    const projectImportLabel = page.locator('label:has-text("Projekt importieren")');
+    await expect(projectImportLabel).toBeVisible();
+    const projectImportBtnBox = await projectImportLabel.boundingBox();
+    expect(projectImportBtnBox?.height ?? 0).toBeGreaterThanOrEqual(44);
+
+    await assertNoHorizontalOverflow(page, 'Station 7 – Backup-Kontrollen touch-sicher');
 
     // Vorlagen-Tresor (Blueprints)
     await expect(page.locator('text=Vorlagen-Tresor (Blueprints)')).toBeVisible();

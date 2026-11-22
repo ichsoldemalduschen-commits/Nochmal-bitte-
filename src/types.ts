@@ -205,6 +205,37 @@ export interface EventSalesLog {
   items: PosSoldVariety[];
 }
 
+// ── Pizza-Katalog & POS-Slot-Datenmodell (Paket 3) ──────────────────────────
+
+/** Stammdaten-Eintrag für eine Pizza-Sorte im IndexedDB-Katalog */
+export interface PizzaCatalogItem {
+  id: string;
+  title: string;
+  price: number;
+  portionScope: string;
+  doughWeightGrams?: number;
+  unitCost?: number;
+}
+
+/** Aktiver Zähler-Slot im POS-Clicker – kann lokal überschrieben sein */
+export interface PosPizzaSlot {
+  slotId: string;
+  catalogId: string | null;
+  title: string;
+  price: number;
+  portionScope: string;
+  unitCost: number;
+  count: number;
+  isLocallyOverridden: boolean;
+}
+
+/** Persistente Vorgaben für den Teigballen-Kalkulator */
+export interface DoughCalcDefaults {
+  defaultBallWeightGrams: number;
+  defaultHydrationPercent: number;
+  defaultBallsPerBox: number;
+}
+
 export interface AppStateSnapshot {
   projects: Project[];
   aiLogs: AiLogEntry[];
@@ -236,4 +267,36 @@ export interface PluginDefinition {
   recommendedDomains: DomainType[];
   metaKeysUsed: string[];
   render: (ctx: PluginContextProps) => JSX.Element;
+}
+
+// ── Voll-Backup v2 & Projekt-Import Datenmodell ─────────────────────────────
+
+export interface FullBackupV2 {
+  backupVersion: 2;
+  exportedAt: string;
+  appState: AppStateSnapshot;
+  userPrefs: any;
+  blueprints: any;
+  photoPins: any;
+  aiChat: any;
+  scannedReceipts: any[];
+  savedDossiers: any[];
+  pizzaCatalog: PizzaCatalogItem[];
+  posSlots: PosPizzaSlot[];
+  doughCalcDefaults: DoughCalcDefaults;
+}
+
+export interface BackupImportResult {
+  projectCount: number;
+  taskCount: number;
+  cartCount: number;
+  knowledgeCount: number;
+  pizzaVarietyCount: number;
+  warnings: string[];
+}
+
+export interface ProjectImportResult {
+  addedTasks: number;
+  addedCart: number;
+  addedKnowledge: number;
 }

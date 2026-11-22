@@ -76,6 +76,9 @@ export interface VoiceModalProps {
   onJumpToAction?: (act: AiExecutedAction) => void;
   onUndoAiAction?: (logId: string, actionId: string) => void;
   onMoveAiAction?: (logId: string, actionId: string, newProjectId: string) => void;
+  onListeningChange?: (listening: boolean) => void;
+  onProcessingChange?: (processing: boolean) => void;
+  onSpeakingChange?: (speaking: boolean) => void;
 }
 
 const SILENCE_AUTO_SEND_MS = 5000;
@@ -136,7 +139,10 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
   onSaveAnswerToInfos,
   onJumpToAction,
   onUndoAiAction,
-  onMoveAiAction
+  onMoveAiAction,
+  onListeningChange,
+  onProcessingChange,
+  onSpeakingChange
 }) => {
   const [messages, setMessages] = useState<ConversationMessage[]>(() => {
     return getIdbItemSync<ConversationMessage[]>(STORAGE_KEYS.AI_CHAT, []);
@@ -195,6 +201,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
   const stopMicrophone = () => {
     isListeningRef.current = false;
     setIsListening(false);
+    onListeningChange?.(false);
     if (recognitionRef.current) {
       try {
         recognitionRef.current.onend = null;
@@ -233,6 +240,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
       rec.onstart = () => {
         isListeningRef.current = true;
         setIsListening(true);
+        onListeningChange?.(true);
         lastSpeechTimestampRef.current = Date.now();
         triggerHapticFeedback(10);
       };
@@ -250,12 +258,14 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
         setSpeechNotice(`Mikrofon-Status: ${event?.error || 'Berechtigung prüfen'}`);
         isListeningRef.current = false;
         setIsListening(false);
+        onListeningChange?.(false);
       };
 
       rec.onend = () => {
         if (isListeningRef.current && !autoSendTriggeredRef.current) {
           isListeningRef.current = false;
           setIsListening(false);
+          onListeningChange?.(false);
         }
       };
 
@@ -321,6 +331,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
 
     stopMicrophone();
     setIsProcessing(true);
+    onProcessingChange?.(true);
     triggerHapticFeedback([12, 30, 12]);
     const currentAtt = attachment;
     setTranscript('');
@@ -371,8 +382,10 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
         }
 
         setIsSpeaking(true);
+        onSpeakingChange?.(true);
         speakText(result.spokenText, () => {
           setIsSpeaking(false);
+          onSpeakingChange?.(false);
           if (result.needsClarification && open) {
             startMicrophoneImmediately();
           }
@@ -382,6 +395,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
       console.warn('[VoiceModal] Fehler bei Sprachausführung:', err);
     } finally {
       setIsProcessing(false);
+      onProcessingChange?.(false);
       isSendingRef.current = false;
     }
   };
@@ -427,10 +441,10 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
       <div
         role="region"
         aria-label="KI-Begleiter Kompakt"
-        className="fixed inset-x-0 bottom-0 z-40 pointer-events-none pb-[max(0.75rem,env(safe-area-inset-bottom))] px-3"
+        className="fixed inset-x-0 bottom-[calc(max(1rem,env(safe-area-inset-bottom))+82px)] z-40 pointer-events-none px-3"
       >
         <div
-          className="max-w-[440px] mx-auto pointer-events-auto rounded-[26px] border shadow-2xl p-3 space-y-2.5 transition-all duration-300 relative overflow-hidden"
+          className="max-w-[440px] mx-auto pointer-events-auto rounded-[26px] border shadow-2xl p-3 space-y-2.5 stage1-organic-grow transition-all duration-300 relative overflow-hidden"
           style={{
             backgroundColor: 'rgba(25, 28, 34, 0.94)',
             borderColor: `${accentColor}55`,
@@ -455,6 +469,9 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
             stage1TouchYRef.current = null;
           }}
         >
+          {/* Organischer Verbinder nach unten zum Sechseck */}
+          <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-8 h-2 bg-[#191C22] rounded-t-full border-t border-x border-[#14B8A6]/40 pointer-events-none" />
+
           {/* Oberer Zieh-Griff */}
           <div
             onClick={() => updateStage(2)}
@@ -504,7 +521,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                     isProcessing
                       ? '#E5A93C'
                       : isListening
-                      ? '#EF4444'
+                      ? accentColor
                       : isSpeaking
                       ? accentColor
                       : `${accentColor}88`
@@ -519,7 +536,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                 {isProcessing ? (
                   <Loader2 className="w-5 h-5 animate-spin text-[#E5A93C]" />
                 ) : isListening ? (
-                  <Mic className="w-5 h-5 text-red-500 animate-pulse" />
+                  <Mic className="w-5 h-5 animate-pulse" style={{ color: accentColor }} />
                 ) : isSpeaking ? (
                   <Volume2 className="w-5 h-5 text-[#14B8A6] hex-speak-anim" />
                 ) : (
@@ -536,9 +553,9 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
             >
               {isListening ? (
                 <div>
-                  <div className="flex items-center justify-between text-[11px] font-bold text-red-400">
+                  <div className="flex items-center justify-between text-xs font-bold" style={{ color: accentColor }}>
                     <span className="flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-red-500 animate-ping shrink-0" />
+                      <span className="w-2 h-2 rounded-full animate-ping shrink-0" style={{ backgroundColor: accentColor }} />
                       <span>Höre zu...</span>
                     </span>
                     <span className="font-mono text-[#14B8A6]">{countdownSeconds}s</span>
@@ -549,7 +566,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                 </div>
               ) : isProcessing ? (
                 <div>
-                  <div className="text-[11px] font-bold text-[#E5A93C] flex items-center gap-1.5">
+                  <div className="text-xs font-bold text-[#E5A93C] flex items-center gap-1.5">
                     <Loader2 className="w-3 h-3 animate-spin shrink-0" />
                     <span>Denken &amp; Zuordnen...</span>
                   </div>
@@ -559,7 +576,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                 </div>
               ) : isSpeaking ? (
                 <div>
-                  <div className="text-[11px] font-bold text-[#14B8A6] flex items-center gap-1.5">
+                  <div className="text-xs font-bold text-[#14B8A6] flex items-center gap-1.5">
                     <Volume2 className="w-3 h-3 animate-pulse shrink-0" />
                     <span>Gisela antwortet:</span>
                   </div>
@@ -570,7 +587,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
               ) : lastAction ? (
                 <div className="flex items-center justify-between gap-1">
                   <div className="min-w-0 flex-1">
-                    <div className="text-[11px] font-bold text-[#14B8A6] truncate flex items-center gap-1">
+                    <div className="text-xs font-bold text-[#14B8A6] truncate flex items-center gap-1">
                       <Check className="w-3 h-3 shrink-0" />
                       <span className="truncate">{lastAction.shortCheckableTitle}</span>
                     </div>
@@ -599,7 +616,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                           )
                         );
                       }}
-                      className="min-h-[36px] px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-red-500/15 text-red-300 border border-red-500/30 shrink-0 active:scale-95 transition"
+                      className="min-h-[44px] min-w-[44px] px-3 py-1.5 rounded-xl text-xs font-semibold bg-[#E5A93C]/15 text-[#E5A93C] border border-[#E5A93C]/30 shrink-0 active:scale-95 transition flex items-center justify-center"
                       aria-label="Rückgängig"
                     >
                       Rückgängig
@@ -608,7 +625,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                 </div>
               ) : (
                 <div>
-                  <div className="text-[11px] font-extrabold uppercase tracking-wider text-[#94A3B8] truncate">
+                  <div className="text-xs font-extrabold uppercase tracking-wider text-[#94A3B8] truncate">
                     {activeProjectName}
                   </div>
                   <div className="text-xs text-white truncate mt-0.5">

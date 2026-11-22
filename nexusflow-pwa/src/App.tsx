@@ -21,6 +21,7 @@ import { BRAND_CONFIG } from './config/brandConfig';
 import { INITIAL_APP_SNAPSHOT } from './data/pizzaBanditTsaSeed';
 import {
   downloadStateBackupJson,
+  downloadFullBackupV2,
   formatNow,
   loadPersistedState,
   savePersistedState,
@@ -113,11 +114,18 @@ export default function App() {
   const [singleFocusOpen, setSingleFocusOpen] = useState(false);
   const [singleFocusTaskId, setSingleFocusTaskId] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [companionIsListening, setCompanionIsListening] = useState(false);
+  const [companionIsProcessing, setCompanionIsProcessing] = useState(false);
+  const [companionIsSpeaking, setCompanionIsSpeaking] = useState(false);
 
   const handleOpenVoice = (stage: 1 | 2 = 1, autoStart = true) => {
     setCompanionStage(stage);
     setAutoStartMicOnOpen(autoStart);
     setVoiceModalOpen(true);
+  };
+
+  const handleExportFullBackup = () => {
+    downloadFullBackupV2(state).catch(console.warn);
   };
 
   const handleToggleThumbHub = (enabled: boolean) => {
@@ -1511,7 +1519,7 @@ export default function App() {
                 }));
                 notify('Projektstruktur aktualisiert.');
               }}
-              onExportFullBackup={() => downloadStateBackupJson(state)}
+              onExportFullBackup={handleExportFullBackup}
               onImportFullBackup={(snap) => {
                 setState(snap);
                 notify('Backup geladen.');
@@ -1563,6 +1571,10 @@ export default function App() {
               isFloatingCartOpen={floatingCartOpen}
               isFanOpen={quickFanOpen}
               onToggleFan={setQuickFanOpen}
+              onCloseCompanion={() => setVoiceModalOpen(false)}
+              companionIsListening={companionIsListening}
+              companionIsProcessing={companionIsProcessing}
+              companionIsSpeaking={companionIsSpeaking}
               bottomAiText={bottomAiText}
               onSetBottomAiText={setBottomAiText}
               onSubmitBottomAi={handleBottomAiSubmit}
@@ -1750,6 +1762,9 @@ export default function App() {
         onJumpToAction={handleJumpToAction}
         onUndoAiAction={handleUndoAiAction}
         onMoveAiAction={handleMoveAiAction}
+        onListeningChange={setCompanionIsListening}
+        onProcessingChange={setCompanionIsProcessing}
+        onSpeakingChange={setCompanionIsSpeaking}
       />
 
         <DeepResearchAndAuditModal
