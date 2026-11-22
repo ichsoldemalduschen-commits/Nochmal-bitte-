@@ -122,6 +122,8 @@ export interface Project {
   accentColor: string;
   archived?: boolean;
   archivedAt?: string;
+  /** Vorschriften-Wächter (⚖️) im Daumen-Fächer anzeigen */
+  legalWatchEnabled?: boolean;
   customMeta: CustomMeta;
   enabledPlugins: string[];
   enabledTabs?: ('tasks' | 'cart' | 'knowledge' | 'extras')[];
@@ -209,6 +211,8 @@ export interface AppStateSnapshot {
   realityCheckEnabled: boolean;
   haWebhookUrl: string;
   haEmbedUrl: string;
+  thumbHubEnabled?: boolean;
+  thumbHubPosition?: 'left' | 'center' | 'right';
 }
 
 export interface PluginContextProps {

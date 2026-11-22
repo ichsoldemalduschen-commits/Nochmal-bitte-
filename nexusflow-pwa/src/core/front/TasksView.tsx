@@ -40,6 +40,7 @@ interface TasksViewProps {
   onResetChecklist?: (projectId: string) => void;
   onResetChecklistForDeployment?: (projectId: string) => void;
   onUpdatePrefs: (patch: Partial<BanditUserPreferences>) => void;
+  onOpenSingleFocus?: (taskId?: string) => void;
   onOpenSettings?: () => void;
   onNotify: (msg: string) => void;
   onRegisterUndo?: (action: { message: string; undo: () => void }) => void;
@@ -64,6 +65,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
   onResetChecklist,
   onResetChecklistForDeployment,
   onUpdatePrefs,
+  onOpenSingleFocus,
   onOpenSettings,
   onNotify,
   onRegisterUndo,
@@ -477,6 +479,21 @@ export const TasksView: React.FC<TasksViewProps> = ({
                       <Edit3 className="w-4 h-4 text-[#14B8A6] shrink-0" />
                       <span className="truncate">Bearbeiten</span>
                     </button>
+
+                    {onOpenSingleFocus && !task.completed && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          toggleActionCard(task.id);
+                          onOpenSingleFocus(task.id);
+                        }}
+                        className="min-w-0 min-h-[44px] px-3 rounded-xl text-xs font-semibold bg-[#191C22] hover:bg-[#22262F] text-[#F1F5F9] hover:text-[#14B8A6] border border-white/5 flex items-center justify-center gap-1.5 active:scale-95 transition cursor-pointer"
+                        title="Diesen Task im 1-Fokus-Overlay öffnen"
+                      >
+                        <Eye className="w-4 h-4 text-[#14B8A6] shrink-0" />
+                        <span className="truncate">1-Fokus</span>
+                      </button>
+                    )}
 
                     <button
                       type="button"

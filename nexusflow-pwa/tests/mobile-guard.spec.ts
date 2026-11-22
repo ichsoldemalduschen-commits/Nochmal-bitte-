@@ -149,6 +149,16 @@ test.describe('Block C: Mobile-Guard 390×844 px Gesamt-Schutznetz', () => {
     const editBtn = firstTaskCard.locator('button:has-text("Bearbeiten")');
     await expect(editBtn).toBeVisible();
 
+    // Neuer 1-Fokus Button in der Task-Aktionsleiste
+    const singleFocusBtn = firstTaskCard.locator('button:has-text("1-Fokus")');
+    await expect(singleFocusBtn).toBeVisible();
+    await singleFocusBtn.click();
+    const taskFocusOverlay = page.locator('div[role="dialog"][aria-label="1-Fokus-Modus"]');
+    await expect(taskFocusOverlay).toBeVisible();
+    await assertNoHorizontalOverflow(page, 'Station 3 – 1-Fokus-Overlay aus Task geöffnet');
+    await taskFocusOverlay.locator('button[aria-label="Schließen"]').click();
+    await expect(taskFocusOverlay).toBeHidden();
+
     // Überlauf bei aufgeklappter Task-Karte prüfen
     await assertNoHorizontalOverflow(page, 'Station 3 – Task-Karte aufgeklappt');
 
@@ -246,41 +256,106 @@ test.describe('Block C: Mobile-Guard 390×844 px Gesamt-Schutznetz', () => {
     await assertNoHorizontalOverflow(page, 'Station 5 – Wissen (KnowledgeView)');
   });
 
-  test('Station 6 – Sprach-KI (AiBottomBar & VoiceModal): Leiste sichtbar, Modal öffnet ohne 390px-Überlauf, Modus-Schalter ohne Doppel-Blitz', async ({ page }) => {
+  test('Station 6 – Block D Daumen-Steuerung & Sprach-KI: Sechskant-Button, Daumen-Fächer, 1-Fokus-Overlay & Umschalten auf klassische Leiste', async ({ page }) => {
     await page.goto('./');
     await page.waitForLoadState('domcontentloaded');
 
-    // Untere KI-Leiste sichtbar
+    // 1. Sechskant-Button ist standardmäßig sichtbar (thumbHubEnabled = true)
+    const hexBtn = page.locator('button[aria-label="Daumen-Steuerung"]');
+    await expect(hexBtn).toBeVisible();
+    await assertNoHorizontalOverflow(page, 'Station 6 – Sechskant-Button sichtbar');
+
+    // 2. Kurzer Tipp öffnet den Daumen-Fächer
+    await hexBtn.click();
+    const fanRegion = page.locator('div[role="region"][aria-label="Daumen-Fächer"]');
+    await expect(fanRegion).toBeVisible();
+
+    // Fächer-Inhalte prüfen: Projekt-Chips, Bereichs-Chips, Werkzeuge, „Kurz tippen…“
+    await expect(fanRegion.locator('text=Projekte')).toBeVisible();
+    await expect(fanRegion.locator('button:has-text("Aufgaben")')).toBeVisible();
+    await expect(fanRegion.locator('button:has-text("Einkauf")')).toBeVisible();
+    await expect(fanRegion.locator('button:has-text("Wissen")')).toBeVisible();
+    await expect(fanRegion.locator('button:has-text("1-Fokus")')).toBeVisible();
+    await expect(fanRegion.locator('button:has-text("Wächter ⚖️")')).toBeVisible();
+    await expect(fanRegion.locator('input[placeholder*="Kurz tippen"]')).toBeVisible();
+
+    // Überlauf im geöffneten Fächer prüfen
+    await assertNoHorizontalOverflow(page, 'Station 6 – Daumen-Fächer geöffnet');
+
+    // 3. 1-Fokus-Overlay über Fächer öffnen
+    const focusBtn = fanRegion.locator('button:has-text("1-Fokus")');
+    await focusBtn.click();
+
+    const focusOverlay = page.locator('div[role="dialog"][aria-label="1-Fokus-Modus"]');
+    await expect(focusOverlay).toBeVisible();
+
+    // 1-Fokus Elemente: Große Knöpfe „Erstmal parken“ und „Erledigt ✓“, Schalter 5-Min-Start
+    const parkBtn = focusOverlay.locator('button:has-text("Erstmal parken")');
+    const doneBtn = focusOverlay.locator('button:has-text("Erledigt ✓")');
+    await expect(parkBtn).toBeVisible();
+    await expect(doneBtn).toBeVisible();
+    await expect(focusOverlay.locator('button:has-text("5-Min-Start")')).toBeVisible();
+
+    // Überlauf im 1-Fokus-Overlay prüfen
+    await assertNoHorizontalOverflow(page, 'Station 6 – 1-Fokus-Overlay geöffnet');
+
+    // 1-Fokus-Overlay schließen
+    const closeFocusBtn = focusOverlay.locator('button[aria-label="Schließen"]');
+    await closeFocusBtn.click();
+    await expect(focusOverlay).toBeHidden();
+
+    // 4. Umschalten in der Zentrale auf die klassische Leiste
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    await page.getByRole('button', { name: 'Zentrale', exact: true }).click();
+
+    const section2Btn = page.locator('button:has-text("Fokus, Bedienung & Optik")');
+    await section2Btn.click();
+
+    // Umschalter für Sechskant-Daumenmodul betätigen -> ausschalten
+    const thumbToggleBtn = page.locator('button[aria-label="Sechskant-Daumenmodul umschalten"]');
+    await expect(thumbToggleBtn).toBeVisible();
+    await expect(thumbToggleBtn).toContainText('Eingeschaltet');
+    await thumbToggleBtn.click();
+    await expect(thumbToggleBtn).toContainText('Ausgeschaltet');
+
+    // Zurück zur Hauptansicht
+    await page.locator('button:has-text("Zurück")').click();
+
+    // Sechskant ist ausgeblendet, klassische Leiste ist eingeblendet
+    await expect(hexBtn).toBeHidden();
     const bottomBarInput = page.locator('input[placeholder*="Frag mich"]');
     await expect(bottomBarInput).toBeVisible();
-
     const voiceBtn = page.locator('button[aria-label="Sofort sprechen"]');
     await expect(voiceBtn).toBeVisible();
 
-    // Öffnen des VoiceModal
+    // VoiceModal über klassische Leiste öffnen
     await voiceBtn.click();
-
-    // VoiceModal Dialog sichtbar
     const modalHeader = page.locator('text=KI-Kontext & Dialog');
     await expect(modalHeader).toBeVisible();
-
-    // Überlauf prüfen bei geöffnetem VoiceModal
     await assertNoHorizontalOverflow(page, 'Station 6 – VoiceModal geöffnet');
 
-    // Modus-Schalter (Flash/Pro) sichtbar
+    // Modus-Schalter prüfen (kein Doppel-Blitz)
     const modeSwitchBtn = page.locator('button[aria-label="KI-Modus umschalten"]').first();
     await expect(modeSwitchBtn).toBeVisible();
-    await expect(modeSwitchBtn).toContainText(/Sprech|Research/);
-
-    // Prüfen: Kein doppelter Blitz (max. 1 Zap Icon im Modus-Button)
     const zapIconsInModeBtn = modeSwitchBtn.locator('svg.lucide-zap');
-    const zapCount = await zapIconsInModeBtn.count();
-    expect(zapCount).toBeLessThanOrEqual(1);
+    expect(await zapIconsInModeBtn.count()).toBeLessThanOrEqual(1);
 
-    // Modal sauber schließen
-    const closeVoiceBtn = page.locator('button[aria-label="Schließen"]').first();
-    await closeVoiceBtn.click();
+    // VoiceModal schließen
+    await page.locator('button[aria-label="Schließen"]').first().click();
     await expect(modalHeader).toBeHidden();
+
+    // 5. Zurück zur Zentrale und Sechskant wieder aktivieren
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    await page.getByRole('button', { name: 'Zentrale', exact: true }).click();
+    await section2Btn.click();
+    const thumbOffBtn = page.locator('button[aria-label="Sechskant-Daumenmodul umschalten"]');
+    await expect(thumbOffBtn).toContainText('Ausgeschaltet');
+    await thumbOffBtn.click();
+    await expect(thumbOffBtn).toContainText('Eingeschaltet');
+    await page.locator('button:has-text("Zurück")').click();
+
+    // Sechskant-Button ist wieder sichtbar
+    await expect(hexBtn).toBeVisible();
   });
 
   test('Station 7 – Die „Zentrale“ (BackofficeWorkspace): Komplettes Inventar, 4 Bereiche zugeklappt, Fußzeile, alle Bereiche funktionstüchtig', async ({ page }) => {
@@ -334,16 +409,21 @@ test.describe('Block C: Mobile-Guard 390×844 px Gesamt-Schutznetz', () => {
     await pizzaCard.click();
     await assertNoHorizontalOverflow(page, 'Station 7 – Projekt Pizza Bandit aufgeklappt');
 
-    // Farb-Presets, Bild-Tausch, enabledTabs/Module, JSON-Export, Archivieren vorhanden
+    // Farb-Presets, Bild-Tausch, enabledTabs/Module, JSON-Export, Archivieren, Vorschriften-Wächter Schalter vorhanden
     await expect(page.locator('text=Akzentfarbe:')).toBeVisible();
     await expect(page.locator('button:has-text("Bild ändern")')).toBeVisible();
     await expect(page.locator('text=Aktive Modul-Bereiche')).toBeVisible();
+    await expect(page.locator('text=Vorschriften-Wächter (⚖️) im Fächer anzeigen')).toBeVisible();
     await expect(page.locator('button:has-text("JSON")').first()).toBeVisible();
     await expect(page.locator('button:has-text("Archivieren")').first()).toBeVisible();
 
     // ── Bereich 2 aufklappen: Fokus, Bedienung & Optik ──
     await section2Btn.click();
     await assertNoHorizontalOverflow(page, 'Station 7 – Bereich 2 geöffnet');
+
+    // Sechskant-Daumenmodul & Parkplatz
+    await expect(page.locator('text=Sechskant-Daumenmodul (Einhand-Steuerung)')).toBeVisible();
+    await expect(page.locator('text=Parkplatz für Einhand-Bedienung:')).toBeVisible();
 
     // ADHS & Fokus
     await expect(page.locator('text=ADHS- & Fokus-Unterstützung')).toBeVisible();

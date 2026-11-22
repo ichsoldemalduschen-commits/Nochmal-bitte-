@@ -18,7 +18,9 @@ export const STORAGE_KEYS = {
   AZURE_SPEECH_KEY: 'banditos_azure_speech_key_v1',
   AZURE_SPEECH_REGION: 'banditos_azure_speech_region_v1',
   ACTIVE_AI_MODE: 'banditos_active_ai_mode_v1',
-  FIRED_REMINDERS: 'banditos_fired_reminders_v4'
+  FIRED_REMINDERS: 'banditos_fired_reminders_v4',
+  THUMB_HUB_ENABLED: 'banditos_thumb_hub_enabled_v1',
+  THUMB_HUB_POSITION: 'banditos_thumb_hub_position_v1'
 } as const;
 
 // In-Memory-Cache für verzögerungsfreie synchrone UI-Abfragen
@@ -114,6 +116,9 @@ export function normalizeProject(project: Project): Project {
   const lifecycle = (project as any).lifecycle ?? (project.id === 'proj-baeckerei' ? 'project' : 'permanent');
   const businessDomain = (project as any).businessDomain ?? (domain === 'private' ? 'private' : 'business');
   const archived = typeof project.archived === 'boolean' ? project.archived : false;
+  const legalWatchEnabled = typeof (project as any).legalWatchEnabled === 'boolean'
+    ? (project as any).legalWatchEnabled
+    : (domain === 'business');
 
   return {
     ...project,
@@ -121,6 +126,7 @@ export function normalizeProject(project: Project): Project {
     lifecycle,
     businessDomain,
     archived,
+    legalWatchEnabled,
     enabledTabs,
     knowledge,
     // Alte Arrays für eventuelle Abwärtskompatibilität als gespiegelte Kopien beibehalten
@@ -171,7 +177,9 @@ export async function migrateLocalStorageToIndexedDB(): Promise<void> {
     STORAGE_KEYS.AZURE_SPEECH_KEY,
     STORAGE_KEYS.AZURE_SPEECH_REGION,
     STORAGE_KEYS.ACTIVE_AI_MODE,
-    STORAGE_KEYS.FIRED_REMINDERS
+    STORAGE_KEYS.FIRED_REMINDERS,
+    STORAGE_KEYS.THUMB_HUB_ENABLED,
+    STORAGE_KEYS.THUMB_HUB_POSITION
   ];
 
   for (const key of keysToMigrate) {
@@ -304,6 +312,8 @@ export async function loadPersistedState(
       return {
         ...defaultSeed,
         ...stored,
+        thumbHubEnabled: typeof (stored as any).thumbHubEnabled === 'boolean' ? (stored as any).thumbHubEnabled : true,
+        thumbHubPosition: (stored as any).thumbHubPosition || 'center',
         projects: normalizedProjects
       };
     }
@@ -314,7 +324,13 @@ export async function loadPersistedState(
         const parsed = JSON.parse(raw) as AppStateSnapshot;
         if (parsed && Array.isArray(parsed.projects)) {
           const normalizedProjects = parsed.projects.map(normalizeProject);
-          return { ...defaultSeed, ...parsed, projects: normalizedProjects };
+          return {
+            ...defaultSeed,
+            ...parsed,
+            thumbHubEnabled: typeof (parsed as any).thumbHubEnabled === 'boolean' ? (parsed as any).thumbHubEnabled : true,
+            thumbHubPosition: (parsed as any).thumbHubPosition || 'center',
+            projects: normalizedProjects
+          };
         }
       }
     } catch {
@@ -323,7 +339,12 @@ export async function loadPersistedState(
   }
 
   const normalizedSeedProjects = defaultSeed.projects.map(normalizeProject);
-  return { ...defaultSeed, projects: normalizedSeedProjects };
+  return {
+    ...defaultSeed,
+    thumbHubEnabled: true,
+    thumbHubPosition: 'center',
+    projects: normalizedSeedProjects
+  };
 }
 
 export async function savePersistedState(snapshot: AppStateSnapshot): Promise<void> {
@@ -398,4 +419,20 @@ export function getActiveAiMode(): 'flash' | 'research' {
 
 export function saveActiveAiMode(mode: 'flash' | 'research'): void {
   saveIdbItem(STORAGE_KEYS.ACTIVE_AI_MODE, mode);
+}
+
+export function getThumbHubEnabled(): boolean {
+  return getIdbItemSync<boolean>(STORAGE_KEYS.THUMB_HUB_ENABLED, true);
+}
+
+export function saveThumbHubEnabled(enabled: boolean): void {
+  saveIdbItem(STORAGE_KEYS.THUMB_HUB_ENABLED, enabled);
+}
+
+export function getThumbHubPosition(): 'left' | 'center' | 'right' {
+  return getIdbItemSync<'left' | 'center' | 'right'>(STORAGE_KEYS.THUMB_HUB_POSITION, 'center');
+}
+
+export function saveThumbHubPosition(pos: 'left' | 'center' | 'right'): void {
+  saveIdbItem(STORAGE_KEYS.THUMB_HUB_POSITION, pos);
 }

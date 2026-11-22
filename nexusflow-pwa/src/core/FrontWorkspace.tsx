@@ -102,6 +102,7 @@ interface FrontWorkspaceProps {
   onMoveKnowledge?: (fromProjectId: string, toProjectId: string, itemId: string) => void;
   onUpdateProjectMeta: (projectId: string, patch: CustomMeta) => void;
   onRecordEventSale: (entry: EventSalesLog) => void;
+  onOpenSingleFocus?: (taskId?: string) => void;
   onOpenAddonsBackoffice: (section?: ZentraleSectionId) => void;
   onNotify: (msg: string) => void;
 }
@@ -146,6 +147,7 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
   onMoveKnowledge,
   onUpdateProjectMeta,
   onRecordEventSale,
+  onOpenSingleFocus,
   onOpenAddonsBackoffice,
   onNotify
 }) => {
@@ -299,7 +301,7 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
 
   return (
     <div
-      className="relative min-h-[75vh] space-y-3.5 pb-32"
+      className="relative min-h-[75vh] space-y-3.5 pb-40"
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
@@ -508,6 +510,7 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
               onResetChecklist={onResetChecklist}
               onResetChecklistForDeployment={onResetChecklistForDeployment}
               onUpdatePrefs={updatePrefs}
+              onOpenSingleFocus={onOpenSingleFocus}
               onOpenSettings={() => onOpenAddonsBackoffice('focus')}
               onNotify={onNotify}
               onRegisterUndo={handleRegisterUndo}

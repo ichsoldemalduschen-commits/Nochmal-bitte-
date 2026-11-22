@@ -27,6 +27,8 @@ import {
   migrateLocalStorageToIDB,
   loadIdbItem,
   saveIdbItem,
+  saveThumbHubEnabled,
+  saveThumbHubPosition,
   STORAGE_KEYS
 } from './services/storage';
 import {
@@ -40,6 +42,8 @@ import { RealityCheckModal, SelfCheckModal } from './plugins/mindfulChecks';
 import { Flip7CoverView } from './core/Flip7CoverView';
 import { VoiceModal } from './core/VoiceModal';
 import { FrontWorkspace } from './core/FrontWorkspace';
+import { HexThumbHub } from './core/front/HexThumbHub';
+import { SingleFocusOverlay } from './core/front/SingleFocusOverlay';
 import { DeepResearchAndAuditModal } from './components/DeepResearchAndAuditModal';
 import {
   checkAndFireDueReminders,
@@ -99,7 +103,26 @@ export default function App() {
   const [photoPins, setPhotoPins] = useState<Record<string, PhotoMeasurePin[]>>({});
   const [newPinLabel, setNewPinLabel] = useState('');
   const [bottomAiText, setBottomAiText] = useState('');
+  const [singleFocusOpen, setSingleFocusOpen] = useState(false);
+  const [singleFocusTaskId, setSingleFocusTaskId] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+
+  const handleOpenVoice = (autoStart = true) => {
+    setAutoStartMicOnOpen(autoStart);
+    setVoiceModalOpen(true);
+  };
+
+  const handleToggleThumbHub = (enabled: boolean) => {
+    setState((prev) => ({ ...prev, thumbHubEnabled: enabled }));
+    saveThumbHubEnabled(enabled);
+    notify(enabled ? 'Sechskant-Daumenmodul aktiviert.' : 'Klassische untere Leiste aktiviert.');
+  };
+
+  const handleChangeThumbHubPosition = (pos: 'left' | 'center' | 'right') => {
+    setState((prev) => ({ ...prev, thumbHubPosition: pos }));
+    saveThumbHubPosition(pos);
+    notify(`Parkplatz auf ${pos === 'left' ? 'Links' : pos === 'right' ? 'Rechts' : 'Mitte'} gesetzt.`);
+  };
 
   const notify = (msg: string) => {
     setToast(msg);
@@ -152,6 +175,8 @@ export default function App() {
       setState({
         ...INITIAL_APP_SNAPSHOT,
         ...loaded,
+        thumbHubEnabled: typeof (loaded as any).thumbHubEnabled === 'boolean' ? (loaded as any).thumbHubEnabled : true,
+        thumbHubPosition: (loaded as any).thumbHubPosition || 'center',
         projects: normalizedProjects,
         eventSalesLogs: Array.isArray(loaded.eventSalesLogs) ? loaded.eventSalesLogs : [],
         aiLogs: Array.isArray(loaded.aiLogs) ? loaded.aiLogs : [],
@@ -249,6 +274,16 @@ export default function App() {
       };
     });
     notify('Modul-Einstellung aktualisiert.');
+  };
+
+  const handleToggleTask = (projId: string, taskId: string) => {
+    const ts = formatNow();
+    updateProject(projId, (p) => ({
+      ...p,
+      tasks: p.tasks.map((t) =>
+        t.id === taskId ? { ...t, completed: !t.completed, lastModified: ts } : t
+      )
+    }));
   };
 
   const handleUpdateTask = (projId: string, taskId: string, patch: Partial<TaskItem>) => {
@@ -1103,21 +1138,17 @@ export default function App() {
                 ]
               }));
             }}
-            onToggleTask={(projId, taskId) => {
-              const ts = formatNow();
-              updateProject(projId, (p) => ({
-                ...p,
-                tasks: p.tasks.map((t) =>
-                  t.id === taskId ? { ...t, completed: !t.completed, lastModified: ts } : t
-                )
-              }));
-            }}
+            onToggleTask={handleToggleTask}
             onDeleteTask={(projId, taskId) =>
               updateProject(projId, (p) => ({
                 ...p,
                 tasks: p.tasks.filter((t) => t.id !== taskId)
               }))
             }
+            onOpenSingleFocus={(taskId) => {
+              setSingleFocusTaskId(taskId || null);
+              setSingleFocusOpen(true);
+            }}
             onUpdateTask={handleUpdateTask}
             onMoveTask={handleMoveTask}
             onResetChecklistForDeployment={(projId) => {
@@ -1307,68 +1338,120 @@ export default function App() {
                 updateProject(projId, (p) => ({ ...p, customLogoUrl: './raccoon-logo.png' }));
                 notify('Standard-Logo gesetzt.');
               }}
+              thumbHubEnabled={state.thumbHubEnabled !== false}
+              thumbHubPosition={state.thumbHubPosition || 'center'}
+              onToggleThumbHub={handleToggleThumbHub}
+              onChangeThumbHubPosition={handleChangeThumbHubPosition}
               onNotify={notify}
             />
           )}
         </main>
 
-        {/* UNTERE BANDIT.OS KI-FIRST-LEISTE */}
-        <div className="fixed bottom-3 inset-x-0 z-40 pointer-events-none">
-          <div className="max-w-[440px] mx-auto px-3">
-            <form
-              onSubmit={handleBottomAiSubmit}
-              className="pointer-events-auto rounded-3xl border border-white/10 p-1.5 shadow-2xl flex items-center gap-1.5"
-              style={{ backgroundColor: '#1C2026' }}
-            >
-              <button
-                type="button"
-                onClick={() => setDeepResearchModalOpen(true)}
-                className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-2xl text-[#94A3B8] hover:text-white bg-[#242930] border border-white/5 active:scale-95 transition shrink-0"
-                aria-label="Deep Research"
-              >
-                <Scale className="w-4 h-4" />
-              </button>
+        {/* UNTERE BANDIT.OS STEUERUNG: Sechskant-Daumenmodul (hinter Feature-Flag) ODER Klassische Leiste */}
+        {!isBackoffice && (
+          state.thumbHubEnabled !== false ? (
+            <HexThumbHub
+              position={state.thumbHubPosition || 'center'}
+              activeProject={activeProject}
+              domainProjects={domainProjects}
+              allProjects={state.projects}
+              activeTab={activeProjectTab}
+              onSelectProject={(id) => setSelectedProjectId(id)}
+              onChangeTab={(tab) => setActiveProjectTab(tab)}
+              onOpenVoice={() => handleOpenVoice(true)}
+              onOpenDeepResearch={() => setDeepResearchModalOpen(true)}
+              onOpenSingleFocus={(taskId) => {
+                setSingleFocusTaskId(taskId || null);
+                setSingleFocusOpen(true);
+              }}
+              onOpenZentrale={() => {
+                setIsBackoffice(true);
+                setBackofficeTab('addons');
+              }}
+              bottomAiText={bottomAiText}
+              onSetBottomAiText={setBottomAiText}
+              onSubmitBottomAi={handleBottomAiSubmit}
+              themeColors={{
+                primary: activeVisualTheme.primary,
+                highlight: activeVisualTheme.highlight,
+                glow: activeVisualTheme.glow
+              }}
+            />
+          ) : (
+            <div className="fixed bottom-3 inset-x-0 z-40 pointer-events-none">
+              <div className="max-w-[440px] mx-auto px-3">
+                <form
+                  onSubmit={handleBottomAiSubmit}
+                  className="pointer-events-auto rounded-3xl border border-white/10 p-1.5 shadow-2xl flex items-center gap-1.5"
+                  style={{ backgroundColor: '#1C2026' }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setDeepResearchModalOpen(true)}
+                    className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-2xl text-[#94A3B8] hover:text-white bg-[#242930] border border-white/5 active:scale-95 transition shrink-0"
+                    aria-label="Deep Research"
+                  >
+                    <Scale className="w-4 h-4" />
+                  </button>
 
-              <input
-                type="text"
-                value={bottomAiText}
-                onChange={(e) => setBottomAiText(e.target.value)}
-                placeholder="Frag mich etwas oder gib einen Befehl..."
-                className="flex-1 min-h-[44px] px-3 py-2 rounded-2xl text-xs bg-transparent text-white placeholder-[#94A3B8] outline-none min-w-0"
-              />
+                  <input
+                    type="text"
+                    value={bottomAiText}
+                    onChange={(e) => setBottomAiText(e.target.value)}
+                    placeholder="Frag mich etwas oder gib einen Befehl..."
+                    className="flex-1 min-h-[44px] px-3 py-2 rounded-2xl text-xs bg-transparent text-white placeholder-[#94A3B8] outline-none min-w-0"
+                  />
 
-              <button
-                type="button"
-                onClick={() => {
-                  if (bottomAiText.trim()) {
-                    handleBottomAiSubmit();
-                  } else {
-                    setAutoStartMicOnOpen(true);
-                    setVoiceModalOpen(true);
-                  }
-                }}
-                aria-label={bottomAiText.trim() ? 'Befehl senden' : 'Sofort sprechen'}
-                className="min-h-[44px] min-w-[44px] px-3.5 py-2.5 rounded-2xl text-white font-bold text-xs flex items-center justify-center gap-1.5 shrink-0 active:scale-95 transition shadow-lg"
-                style={{
-                  backgroundColor: activeVisualTheme.primary,
-                  boxShadow: `0 4px 16px ${activeVisualTheme.glow}`
-                }}
-              >
-                {bottomAiText.trim() ? (
-                  <>
-                    <Send className="w-4 h-4" />
-                    <span className="hidden sm:inline">Senden</span>
-                  </>
-                ) : (
-                  <>
-                    <Mic className="w-4 h-4" />
-                    <span>Sprechen</span>
-                  </>
-                )}
-              </button>
-            </form>
-          </div>
-        </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (bottomAiText.trim()) {
+                        handleBottomAiSubmit();
+                      } else {
+                        setAutoStartMicOnOpen(true);
+                        setVoiceModalOpen(true);
+                      }
+                    }}
+                    aria-label={bottomAiText.trim() ? 'Befehl senden' : 'Sofort sprechen'}
+                    className="min-h-[44px] min-w-[44px] px-3.5 py-2.5 rounded-2xl text-white font-bold text-xs flex items-center justify-center gap-1.5 shrink-0 active:scale-95 transition shadow-lg"
+                    style={{
+                      backgroundColor: activeVisualTheme.primary,
+                      boxShadow: `0 4px 16px ${activeVisualTheme.glow}`
+                    }}
+                  >
+                    {bottomAiText.trim() ? (
+                      <>
+                        <Send className="w-4 h-4" />
+                        <span className="hidden sm:inline">Senden</span>
+                      </>
+                    ) : (
+                      <>
+                        <Mic className="w-4 h-4" />
+                        <span>Sprechen</span>
+                      </>
+                    )}
+                  </button>
+                </form>
+              </div>
+            </div>
+          )
+        )}
+
+      {/* 1-FOKUS-OVERLAY (Lesebrillen-Modus) */}
+      <SingleFocusOverlay
+        open={singleFocusOpen}
+        onClose={() => setSingleFocusOpen(false)}
+        activeProject={activeProject}
+        initialTaskId={singleFocusTaskId}
+        onToggleTask={handleToggleTask}
+        onRegisterUndo={(action) => {
+          notify(action.message);
+        }}
+        themeColors={{
+          primary: activeVisualTheme.primary,
+          highlight: activeVisualTheme.highlight
+        }}
+      />
 
       {/* KI-KONTEXT-SCHUBLADE */}
       <VoiceModal

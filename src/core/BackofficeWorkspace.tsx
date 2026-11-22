@@ -106,6 +106,10 @@ interface BackofficeWorkspaceProps {
   onImportFullBackup: (snapshot: AppStateSnapshot) => void;
   onUploadProjectLogo?: (projectId: string, file: File) => void;
   onResetProjectLogo?: (projectId: string) => void;
+  thumbHubEnabled?: boolean;
+  thumbHubPosition?: 'left' | 'center' | 'right';
+  onToggleThumbHub?: (enabled: boolean) => void;
+  onChangeThumbHubPosition?: (pos: 'left' | 'center' | 'right') => void;
   onNotify: (msg: string) => void;
 }
 
@@ -143,6 +147,10 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
   onImportFullBackup,
   onUploadProjectLogo,
   onResetProjectLogo,
+  thumbHubEnabled = true,
+  thumbHubPosition = 'center',
+  onToggleThumbHub,
+  onChangeThumbHubPosition,
   onNotify
 }) => {
   const [openSection, setOpenSection] = useState<AccordionSectionId | null>(initialSection || null);
@@ -597,6 +605,35 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
                           </div>
                         </div>
 
+                        {/* Vorschriften-Wächter (⚖️) Schalter pro Projekt */}
+                        <div className="p-3 rounded-2xl bg-[#181A1B] border border-white/5 flex items-center justify-between gap-3">
+                          <div className="min-w-0 flex-1">
+                            <div className="text-xs font-bold text-white flex items-center gap-1.5">
+                              <span>Vorschriften-Wächter (⚖️) im Fächer anzeigen</span>
+                            </div>
+                            <div className="text-xs text-[#94A3B8]">
+                              {proj.legalWatchEnabled !== false
+                                ? 'Im Daumen-Fächer aktiv'
+                                : 'Ausgeblendet (geschlossene Schublade)'}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onUpdateProject?.(proj.id, {
+                                legalWatchEnabled: !(proj.legalWatchEnabled !== false)
+                              })
+                            }
+                            className={`min-h-[44px] px-3.5 py-1.5 rounded-xl text-xs font-bold border transition shrink-0 active:scale-95 ${
+                              proj.legalWatchEnabled !== false
+                                ? 'bg-[#0A9396] text-white border-[#14B8A6]'
+                                : 'bg-[#242930] text-[#94A3B8] border-white/10 hover:text-white'
+                            }`}
+                          >
+                            {proj.legalWatchEnabled !== false ? 'An' : 'Aus'}
+                          </button>
+                        </div>
+
                         {/* Einzel-JSON-Export & Archivieren */}
                         <div className="flex gap-2 flex-wrap pt-1">
                           <button
@@ -911,6 +948,67 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
                   ))}
                 </div>
               </div>
+            </div>
+
+            {/* ── Unterabschnitt: EINHAND-BEDIENUNG & DAUMEN-STEUERUNG ── */}
+            <div className="space-y-3">
+              <div className="text-xs font-extrabold uppercase tracking-wider text-[#94A3B8] px-1 pt-1">
+                Einhand-Bedienung &amp; Daumen-Steuerung
+              </div>
+              <div className="p-3.5 rounded-2xl bg-[#242930] border border-white/5 flex items-center justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-bold text-white">
+                    Sechskant-Daumenmodul (Einhand-Steuerung)
+                  </div>
+                  <div className="text-xs text-[#94A3B8]">
+                    Ergonomischer Sechskant mit Daumen-Fächer statt klassischer unterer Leiste
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  aria-label="Sechskant-Daumenmodul umschalten"
+                  onClick={() => onToggleThumbHub?.(!thumbHubEnabled)}
+                  className="min-h-[44px] px-4 py-2 rounded-xl text-xs font-bold text-white shrink-0 active:scale-95 transition"
+                  style={{
+                    backgroundColor: thumbHubEnabled ? THEME.accentPrimary : '#374151'
+                  }}
+                >
+                  {thumbHubEnabled ? 'Eingeschaltet' : 'Ausgeschaltet'}
+                </button>
+              </div>
+
+              {thumbHubEnabled && (
+                <div className="space-y-1.5 p-3.5 rounded-2xl bg-[#242930] border border-white/5">
+                  <label className="text-xs text-[#94A3B8] block font-medium">
+                    Parkplatz für Einhand-Bedienung:
+                  </label>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {[
+                      { id: 'left', label: 'Links' },
+                      { id: 'center', label: 'Mitte' },
+                      { id: 'right', label: 'Rechts' }
+                    ].map((pos) => (
+                      <button
+                        type="button"
+                        key={pos.id}
+                        onClick={() => onChangeThumbHubPosition?.(pos.id as 'left' | 'center' | 'right')}
+                        className={`min-h-[44px] py-2 rounded-xl text-xs font-bold border transition active:scale-95 ${
+                          thumbHubPosition === pos.id
+                            ? 'text-white border-white/30'
+                            : 'bg-[#181A1B] text-[#94A3B8] border-white/5 hover:text-white'
+                        }`}
+                        style={
+                          thumbHubPosition === pos.id
+                            ? { backgroundColor: THEME.accentPrimary }
+                            : {}
+                        }
+                      >
+                        {pos.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* ── Unterabschnitt: TAGESPLANER ── */}

@@ -132,6 +132,8 @@ Die ehemalige Mono-Datei `FrontWorkspace.tsx` (> 2 500 Zeilen) ist in eigenstän
 | `front/KnowledgeView.tsx` | Wissens-Sektion (Erklärungen, Infos, Attachments) |
 | `front/ExtrasView.tsx` | Plugin-Rendering |
 | `front/AiBottomBar.tsx` | Untere KI-Eingabeleiste |
+| `front/HexThumbHub.tsx` | Sechskant-Daumenmodul & Daumen-Fächer (Block D) |
+| `front/SingleFocusOverlay.tsx` | 1-Fokus Lesebrillen-Overlay (Block D) |
 | `front/index.ts` | Barrel-Reexport aller Module |
 
 > **Regel:** Neue Front-Features gehören in das passende Modul oder ein neues Modul unter `src/core/front/`, nicht zurück in die Shell.
@@ -164,4 +166,22 @@ Für jede künftige Änderung gilt ein verbindliches E2E-Qualitätsgate auf mobi
   1. `npm run build` muss fehlerfrei durchlaufen.
   2. Playwright Mobile-Guard (`tests/mobile-guard.spec.ts`) muss alle Stationen (Start & Kopfleiste, NavigationDrawer, TasksView, CartView, KnowledgeView, AiBottomBar & VoiceModal, Zentrale mit allen 4 Überbereichen, Deep-Links) zu 100 % grün durchlaufen.
   3. Strikte Wächter: 0 ungefangene `pageerror`-Exceptions, 0 unberechtigte `console.error`-Meldungen, 0 horizontale Viewport-Überläufe (`document.documentElement.scrollWidth <= window.innerWidth + 1`).
+
+---
+
+## 13  Block D – Sechskant-Daumenmodul, Daumen-Fächer, 1-Fokus-Overlay & Vorschriften-Wächter
+
+- **`front/HexThumbHub.tsx`:** Ergonomisches Sechskant-Daumenmodul (~64×64 px, SVG-Hexagon mit weichen Ecken) im unteren Daumenbogen mit feinem Rahmen & Lichtsaum in Projektfarbe.
+  - **Feature-Flag `thumbHubEnabled`:** Steuert Umschaltung zwischen `HexThumbHub` (Standard: `true`) und der klassischen unteren Leiste als Fallback.
+  - **Parkplatz `thumbHubPosition`:** `'left' | 'center' | 'right'` (Standard: `'center'`).
+  - **Android-Schutz:** Sicheres Padding (`bottom-[max(1rem,env(safe-area-inset-bottom))]`), kein Lichtsaum ganz unten am Bildschirmrand. Beim Nach-unten-Scrollen sanftes `scale-90 opacity-80`.
+  - **Zwei werkstatttaugliche Handgriffe:**
+    1. **Kurzer Tipp:** Öffnet Daumen-Fächer (`bg-[#0B0D11]/80 backdrop-blur-md`, Übergang `cubic-bezier(0.22, 1, 0.36, 1)`) mit Sprechen-Direktknopf, Projektwechsel, Bereichswechsel (Aufgaben · Einkauf · Wissen), Werkzeugen (1-Fokus, Vorschriften-Wächter ⚖️, Zentrale) sowie „⌨ Kurz tippen…“ für Lautlos-Eingabe.
+    2. **Drücken & Halten (~350 ms):** Kurzer Impuls (`vibrate(20)`), Sechskant atmet auf und startet direkt das bestehende `VoiceModal` im Einrast-Modus.
+- **`front/SingleFocusOverlay.tsx`:** Reines Aufsatz-Overlay (`bg-[#0B0D11]/88 backdrop-blur-md`, z-50).
+  - Zeigt genau **eine** große Aufgaben-Karte (`#191C22`, 3px Projektfarbstreifen links, Titel groß in `Inter`, Zeit in `JetBrains Mono`).
+  - Kleiner Schalter **„5-Min-Start“** mit hauchdünner, gleichmäßig schrumpfender Fortschritts-Linie in Projektfarbe (keine hektisch springenden Ziffern).
+  - Genau zwei große wertfreie Daumen-Knöpfe (`min-h-[48px]`): **„Erstmal parken“** (schaltet wertfrei zur nächsten Aufgabe oder schließt) und **„Erledigt ✓“** (hakt ab inkl. 4-Sekunden-Rückgängig-Leiste).
+- **Vorschriften-Wächter-Schalter (`legalWatchEnabled`):** Pro Projekt in der Zentrale konfigurierbar (Standard: `true` für Business, `false` für Privat). Bei Deaktivierung verschwindet das Waage-Icon nach dem Prinzip der geschlossenen Schublade komplett aus der Oberfläche.
+
 
