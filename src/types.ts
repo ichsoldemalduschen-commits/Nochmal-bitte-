@@ -1,18 +1,19 @@
-export type DomainType = 'arbeit' | 'privat';
+export type DomainType = 'business' | 'private' | 'arbeit' | 'privat';
 export type PriorityType = 'Hoch' | 'Mittel' | 'Niedrig';
 export type DayBlockId = 'morning' | 'focus' | 'errands' | 'evening' | null;
 export type ProjectTabId = 'tasks' | 'cart' | 'knowledge' | 'extras' | 'explanations' | 'infos';
 export type BackofficeTabId = 'analytics' | 'planner' | 'addons' | 'system';
 
 export const THEME = {
-  bgMain: '#121417',
-  bgCard: '#1C2026',
-  bgSub: '#242930',
-  accentPrimary: '#0A9396',
+  bgMain: '#111317',
+  bgCard: '#191C22',
+  bgSub: '#22262F',
+  accentPrimary: '#0D9488',
   accentHighlight: '#14B8A6',
-  textMain: '#F8F9FA',
-  textMeta: '#9CA3AF',
-  aiRedDot: '#EF4444',
+  textMain: '#F1F5F9',
+  textMeta: '#94A3B8',
+  aiGold: '#E5A93C',
+  aiRedDot: '#E5A93C',
   banditRed: '#DC2626'
 } as const;
 
@@ -104,15 +105,22 @@ export interface CartItem {
   customMeta: CustomMeta;
 }
 
+export type LifecycleType = 'permanent' | 'project';
+export type BusinessDomain = 'business' | 'private';
+
 export interface Project {
   id: string;
   domain: DomainType;
+  /** Dauer-Begleiter ('permanent') vs. zeitliches Projekt ('project'). Default: 'permanent' */
+  lifecycle?: LifecycleType;
+  /** Betrieblich ('business') vs. privat ('private') – für Exporte/Skripte. Default: entspricht DomainType */
+  businessDomain?: BusinessDomain;
   name: string;
   subtitle: string;
   icon: string;
   customLogoUrl: string | null;
   accentColor: string;
-  archived: boolean;
+  archived?: boolean;
   archivedAt?: string;
   customMeta: CustomMeta;
   enabledPlugins: string[];

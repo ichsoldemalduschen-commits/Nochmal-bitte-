@@ -5,14 +5,15 @@ export type ProjectTabId = 'tasks' | 'cart' | 'knowledge' | 'extras' | 'explanat
 export type BackofficeTabId = 'analytics' | 'planner' | 'addons' | 'system';
 
 export const THEME = {
-  bgMain: '#121417',
-  bgCard: '#1C2026',
-  bgSub: '#242930',
-  accentPrimary: '#0A9396',
+  bgMain: '#111317',
+  bgCard: '#191C22',
+  bgSub: '#22262F',
+  accentPrimary: '#0D9488',
   accentHighlight: '#14B8A6',
-  textMain: '#F8F9FA',
-  textMeta: '#9CA3AF',
-  aiRedDot: '#EF4444',
+  textMain: '#F1F5F9',
+  textMeta: '#94A3B8',
+  aiGold: '#E5A93C',
+  aiRedDot: '#E5A93C',
   banditRed: '#DC2626'
 } as const;
 

@@ -2,14 +2,13 @@ import React, { useMemo, useState } from 'react';
 import {
   Check,
   Edit3,
-  MoreHorizontal,
   Plus,
   Scale,
   Settings,
   ShoppingCart,
   Trash2
 } from 'lucide-react';
-import { CartItem, Project, THEME } from '../../types';
+import { CartItem, Project } from '../../types';
 import { BRAND_CONFIG } from '../../config/brandConfig';
 import { ProcurementCheckPanel } from '../../plugins/procurementCheck';
 import { triggerHapticFeedback } from '../../services/aiRouter';
@@ -36,6 +35,8 @@ interface CartViewProps {
   ) => void;
   onOpenSettings?: () => void;
   onNotify: (msg: string) => void;
+  onRegisterUndo?: (action: { message: string; undo: () => void }) => void;
+  onConfigMissing?: (msg: string) => void;
 }
 
 export const CartView: React.FC<CartViewProps> = ({
@@ -43,7 +44,7 @@ export const CartView: React.FC<CartViewProps> = ({
   allProjects,
   themeColors,
   searchQuery,
-  highlightedItemId,
+  highlightedItemId: _highlightedItemId,
   onToggleCartItem,
   onDeleteCartItem,
   onAddCartItems,
@@ -51,13 +52,15 @@ export const CartView: React.FC<CartViewProps> = ({
   onMoveCartItem,
   onConfirmRedDot,
   onOpenSettings,
-  onNotify
+  onNotify,
+  onRegisterUndo,
+  onConfigMissing: _onConfigMissing
 }) => {
   const [isAddingCart, setIsAddingCart] = useState(false);
   const [newCartTitle, setNewCartTitle] = useState('');
   const [newCartQty, setNewCartQty] = useState('1x');
   const [newCartPrice, setNewCartPrice] = useState('');
-  const [globalCartMode, setGlobalCartMode] = useState(true);
+  const [globalCartMode] = useState(true);
   const [cartProjectFilter, setCartProjectFilter] = useState<string>('ALL');
   const [cartCategoryFilter, setCartCategoryFilter] = useState<'ALL' | 'open' | 'completed'>('ALL');
   const [editingCartId, setEditingCartId] = useState<string | null>(null);
@@ -66,6 +69,7 @@ export const CartView: React.FC<CartViewProps> = ({
   const [editCartPrice, setEditCartPrice] = useState('');
   const [openProcurements, setOpenProcurements] = useState<Record<string, boolean>>({});
   const [expandedActionCards, setExpandedActionCards] = useState<Record<string, boolean>>({});
+  const [glowItemId, setGlowItemId] = useState<string | null>(null);
 
   const toggleActionCard = (id: string) => {
     triggerHapticFeedback(10);
@@ -107,24 +111,71 @@ export const CartView: React.FC<CartViewProps> = ({
         }
         return true;
       })
-      .sort((a, b) => Number(a.completed) - Number(b.completed));
-  }, [activeProject, allProjects, globalCartMode, cartProjectFilter, cartCategoryFilter, searchQuery]);
+      .sort((a, b) => {
+        // While glowing, keep item at its current position to prevent jump
+        if (a.id === glowItemId) return -1;
+        if (b.id === glowItemId) return 1;
+        return Number(a.completed) - Number(b.completed);
+      });
+  }, [activeProject, allProjects, globalCartMode, cartProjectFilter, cartCategoryFilter, searchQuery, glowItemId]);
+
+  const handleSoftToggle = (e: React.MouseEvent, item: CartItem & { originProjectId: string }) => {
+    e.stopPropagation();
+    triggerHapticFeedback(15);
+
+    if (!item.completed) {
+      // 400-500ms soft glow before re-sorting
+      setGlowItemId(item.id);
+      setTimeout(() => {
+        onToggleCartItem(item.originProjectId, item.id);
+        setGlowItemId(null);
+        onRegisterUndo?.({
+          message: `„${item.title}“ besorgt`,
+          undo: () => onToggleCartItem(item.originProjectId, item.id)
+        });
+      }, 450);
+    } else {
+      onToggleCartItem(item.originProjectId, item.id);
+      onRegisterUndo?.({
+        message: `„${item.title}“ wieder offen`,
+        undo: () => onToggleCartItem(item.originProjectId, item.id)
+      });
+    }
+  };
+
+  const handleDeleteWithUndo = (item: CartItem & { originProjectId: string }) => {
+    const backupItem = { ...item };
+    onDeleteCartItem(item.originProjectId, item.id);
+    onRegisterUndo?.({
+      message: 'Artikel gelöscht',
+      undo: () => {
+        onAddCartItems(backupItem.originProjectId, [
+          {
+            title: backupItem.title,
+            quantity: backupItem.quantity,
+            price: backupItem.price,
+            reason: backupItem.changeReason
+          }
+        ]);
+        onNotify('Artikel wiederhergestellt.');
+      }
+    });
+    onNotify('Artikel entfernt.');
+  };
 
   return (
-    <section
-      className="rounded-3xl border border-white/5 p-5 space-y-4 shadow-xl transition-all"
-      style={{ backgroundColor: '#1C2026' }}
-    >
-      <div className="flex items-center justify-between gap-3">
+    <section className="space-y-3.5">
+      {/* Sektions-Kopf ohne äußeren Kasten */}
+      <div className="flex items-center justify-between gap-3 px-1">
         <div className="flex items-center gap-2.5">
           <ShoppingCart
             className="w-5 h-5"
             style={{ color: themeColors.highlight }}
           />
-          <h3 className="text-base font-bold text-white tracking-wide">
+          <h3 className="text-base font-bold text-[#F1F5F9] tracking-wide">
             Einkaufswagen
           </h3>
-          <span className="text-xs font-semibold text-[#9CA3AF] px-2 py-0.5 rounded-full bg-[#242930]">
+          <span className="text-xs font-semibold text-[#94A3B8] px-2 py-0.5 rounded-full bg-[#191C22] border border-white/5 font-mono">
             {displayedCart.filter((c) => !c.completed).length} offen
           </span>
         </div>
@@ -132,10 +183,10 @@ export const CartView: React.FC<CartViewProps> = ({
         <button
           type="button"
           onClick={() => setIsAddingCart((v) => !v)}
-          className={`w-11 h-11 min-h-[44px] min-w-[44px] rounded-2xl border flex items-center justify-center transition active:scale-95 ${
+          className={`w-11 h-11 min-h-[44px] min-w-[44px] rounded-2xl border flex items-center justify-center transition active:scale-95 cursor-pointer ${
             isAddingCart
               ? 'text-white border-white/30'
-              : 'bg-[#242930] hover:bg-[#2A3038] text-white border-white/5'
+              : 'bg-[#191C22] hover:bg-[#22262F] text-white border-white/5'
           }`}
           style={isAddingCart ? { backgroundColor: themeColors.primary } : {}}
           aria-label="Artikel hinzufügen"
@@ -145,8 +196,8 @@ export const CartView: React.FC<CartViewProps> = ({
         </button>
       </div>
 
-      {/* EINZIGE KLARE ANGEPINNTE FILTER-LEISTE */}
-      <div className="sticky top-0 z-20 py-2.5 -mx-2 px-2 bg-[#1C2026]/95 backdrop-blur-md rounded-2xl border border-white/5 space-y-2">
+      {/* EINZIGE KLARE ANGEPINNTE FILTER-LEISTE (direkt auf Canvas mit sanftem Blur) */}
+      <div className="sticky top-0 z-20 py-2.5 -mx-1 px-1 bg-[#111317]/90 backdrop-blur-md space-y-2">
         {/* Projekt-Filter-Chips */}
         <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-0.5">
           <button
@@ -154,9 +205,10 @@ export const CartView: React.FC<CartViewProps> = ({
             onClick={() => setCartProjectFilter('ALL')}
             className={`min-h-[44px] px-3.5 rounded-xl text-xs font-bold border shrink-0 transition active:scale-95 cursor-pointer ${
               cartProjectFilter === 'ALL'
-                ? 'bg-[#0A9396] text-white border-[#14B8A6] shadow-sm'
-                : 'bg-[#242930] text-[#9CA3AF] border-white/5 hover:text-white'
+                ? 'text-white border-white/20 shadow-sm'
+                : 'bg-[#191C22] text-[#94A3B8] border-white/5 hover:text-white'
             }`}
+            style={cartProjectFilter === 'ALL' ? { backgroundColor: themeColors.primary } : {}}
           >
             Alle (
             {
@@ -176,7 +228,7 @@ export const CartView: React.FC<CartViewProps> = ({
                 (proj.customMeta?.customAccentColor as string) ||
                 proj.accentColor ||
                 BRAND_CONFIG.projects[proj.id]?.accentColor ||
-                '#0A9396';
+                '#0D9488';
 
               return (
                 <button
@@ -188,7 +240,7 @@ export const CartView: React.FC<CartViewProps> = ({
                   className={`min-h-[44px] px-3.5 rounded-xl text-xs font-bold border shrink-0 flex items-center gap-1.5 transition active:scale-95 cursor-pointer ${
                     isActive
                       ? 'text-white border-white/30 shadow-sm'
-                      : 'bg-[#242930] text-[#9CA3AF] border-white/5 hover:text-white'
+                      : 'bg-[#191C22] text-[#94A3B8] border-white/5 hover:text-white'
                   }`}
                   style={isActive ? { backgroundColor: pColor } : {}}
                 >
@@ -219,7 +271,7 @@ export const CartView: React.FC<CartViewProps> = ({
                 className={`min-h-[44px] px-3.5 rounded-xl text-xs font-semibold transition active:scale-95 cursor-pointer ${
                   isSelected
                     ? 'bg-white/10 text-white border border-white/20'
-                    : 'text-[#9CA3AF] hover:text-white'
+                    : 'text-[#94A3B8] hover:text-white'
                 }`}
               >
                 {label}
@@ -250,7 +302,7 @@ export const CartView: React.FC<CartViewProps> = ({
             setIsAddingCart(false);
             onNotify('Artikel zum Einkaufswagen hinzugefügt.');
           }}
-          className="p-4 rounded-2xl bg-[#242930] border border-white/10 space-y-3 shadow-inner"
+          className="p-4 rounded-2xl bg-[#191C22] border border-white/10 space-y-3 shadow-lg"
         >
           <input
             type="text"
@@ -258,7 +310,7 @@ export const CartView: React.FC<CartViewProps> = ({
             value={newCartTitle}
             onChange={(e) => setNewCartTitle(e.target.value)}
             placeholder="Material / Artikel beschreiben..."
-            className="w-full min-h-[44px] px-3.5 py-2.5 rounded-xl text-sm bg-[#1C2026] text-white border border-white/10 placeholder-[#9CA3AF] focus:outline-none focus:border-white/20"
+            className="w-full min-h-[44px] px-3.5 py-2.5 rounded-xl text-sm bg-[#111317] text-[#F1F5F9] border border-white/10 placeholder-[#94A3B8] focus:outline-none focus:border-white/20"
           />
           <div className="flex gap-2">
             <input
@@ -266,14 +318,14 @@ export const CartView: React.FC<CartViewProps> = ({
               value={newCartQty}
               onChange={(e) => setNewCartQty(e.target.value)}
               placeholder="Menge (z.B. 2x, 50kg)"
-              className="w-36 min-h-[44px] px-3.5 py-2.5 rounded-xl text-sm bg-[#1C2026] text-white border border-white/10 placeholder-[#9CA3AF] focus:outline-none focus:border-white/20"
+              className="w-36 min-h-[44px] px-3.5 py-2.5 rounded-xl text-sm bg-[#111317] text-[#F1F5F9] border border-white/10 placeholder-[#94A3B8] focus:outline-none focus:border-white/20 font-mono"
             />
             <input
               type="text"
               value={newCartPrice}
               onChange={(e) => setNewCartPrice(e.target.value)}
               placeholder="Preis (opt., z.B. 45 €)"
-              className="flex-1 min-w-0 min-h-[44px] px-3.5 py-2.5 rounded-xl text-sm bg-[#1C2026] text-white border border-white/10 placeholder-[#9CA3AF] focus:outline-none focus:border-white/20"
+              className="flex-1 min-w-0 min-h-[44px] px-3.5 py-2.5 rounded-xl text-sm bg-[#111317] text-[#F1F5F9] border border-white/10 placeholder-[#94A3B8] focus:outline-none focus:border-white/20 font-mono"
             />
           </div>
           <div className="flex justify-end gap-2 pt-1">
@@ -285,14 +337,14 @@ export const CartView: React.FC<CartViewProps> = ({
                 setNewCartQty('1x');
                 setNewCartPrice('');
               }}
-              className="min-h-[44px] px-4 rounded-xl text-xs font-semibold text-[#9CA3AF] hover:text-white transition"
+              className="min-h-[44px] px-4 rounded-xl text-xs font-semibold text-[#94A3B8] hover:text-white transition cursor-pointer"
             >
               Abbrechen
             </button>
             <button
               type="submit"
               disabled={!newCartTitle.trim()}
-              className="min-h-[44px] px-5 rounded-xl text-xs font-bold text-white shadow-md active:scale-95 transition disabled:opacity-40"
+              className="min-h-[44px] px-5 rounded-xl text-xs font-bold text-white shadow-md active:scale-95 transition disabled:opacity-40 cursor-pointer"
               style={{ backgroundColor: themeColors.primary }}
             >
               Speichern
@@ -301,11 +353,13 @@ export const CartView: React.FC<CartViewProps> = ({
         </form>
       )}
 
-      {/* Einkaufswagen-Liste */}
-      <div className="space-y-2">
+      {/* Einkaufswagen-Liste: Zwei-Zonen-Karten direkt auf dem Canvas */}
+      <div className="space-y-2.5">
         {displayedCart.map((item) => {
           const isProcOpen = !!openProcurements[item.id];
           const isTrayOpen = !!expandedActionCards[item.id];
+          const isGlowing = glowItemId === item.id;
+          const isEffectivelyCompleted = item.completed || isGlowing;
           const originProject = allProjects.find((p) => p.id === item.originProjectId) || activeProject;
           const projColor =
             (originProject?.customMeta?.customAccentColor as string) ||
@@ -322,102 +376,99 @@ export const CartView: React.FC<CartViewProps> = ({
             <div
               key={`${item.originProjectId}-${item.id}`}
               id={`item-card-${item.id}`}
-              className={`rounded-2xl border transition-all duration-200 overflow-hidden shadow-sm ${
-                item.completed ? 'opacity-70' : ''
+              className={`rounded-2xl border transition-all duration-300 overflow-hidden shadow-sm ${
+                item.completed && !isGlowing ? 'opacity-65' : ''
               }`}
               style={{
-                backgroundColor: '#242930',
-                borderColor: 'rgba(255,255,255,0.05)',
-                borderLeft: `3px solid ${projColor}`
+                backgroundColor: '#191C22',
+                borderColor: isGlowing ? `${themeColors.primary}99` : 'rgba(255,255,255,0.04)',
+                borderLeft: `3px solid ${projColor}`,
+                boxShadow: isGlowing ? `0 0 16px ${themeColors.primary}44` : undefined
               }}
             >
-              {/* Karten-Ruhezustand */}
-              <div className="p-4 flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2 flex-1 min-w-0">
-                  {/* Große Touch-Fläche (>= 44px) für Checkbox */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      triggerHapticFeedback(15);
-                      onToggleCartItem(item.originProjectId, item.id);
-                    }}
-                    className="min-w-[44px] min-h-[44px] flex items-center justify-center -ml-2 shrink-0 cursor-pointer"
-                    aria-label={item.completed ? 'Als offen markieren' : 'Als besorgt markieren'}
-                  >
-                    <div
-                      className="w-5 h-5 rounded-md flex items-center justify-center border transition-all active:scale-90"
-                      style={{
-                        backgroundColor: item.completed
-                          ? `${themeColors.primary}33`
-                          : 'rgba(28,32,38,0.8)',
-                        borderColor: item.completed ? themeColors.highlight : '#6B7280'
-                      }}
-                    >
-                      {item.completed && (
-                        <Check className="w-3.5 h-3.5 text-white stroke-[2.5]" />
-                      )}
-                    </div>
-                  </button>
-
-                  {/* Titel & Metadaten (Kein Durchstreichen für Maße/Mengen!) */}
-                  <div
-                    onClick={() => toggleActionCard(item.id)}
-                    className="flex-1 min-w-0 cursor-pointer select-none"
-                  >
-                    <span
-                      className={`text-base font-semibold leading-snug block break-words ${
-                        item.completed ? 'text-white/70' : 'text-white'
-                      }`}
-                    >
-                      {item.title}
-                    </span>
-                    <div className="flex items-center gap-2 mt-1 flex-wrap">
-                      <span
-                        className="text-xs font-semibold"
-                        style={{ color: themeColors.highlight }}
-                      >
-                        Menge: {item.quantity}
-                      </span>
-
-                      {formattedPrice && (
-                        <span className="text-xs font-mono font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md">
-                          {formattedPrice}
-                        </span>
-                      )}
-
-                      {item.aiTouched && (
-                        <span className="inline-flex items-center gap-1 text-xs font-bold text-red-300 bg-red-500/20 px-2 py-0.5 rounded-md border border-red-500/30">
-                          <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
-                          KI-Artikel
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Konsolidierter ••• Trigger */}
+              {/* Karten-Ruhezustand: ZWEI ZONEN OHNE ••• BUTTON */}
+              <div className="p-3.5 flex items-start gap-1">
+                {/* ZONE 1 (LINKS): Striktes Abhaken (mind. 44x44 Touch-Fläche mit stopPropagation) */}
                 <button
                   type="button"
-                  onClick={() => toggleActionCard(item.id)}
-                  className="min-w-[44px] min-h-[44px] flex items-center justify-center -mr-2 rounded-xl text-[#9CA3AF] hover:text-white hover:bg-white/5 active:scale-95 transition cursor-pointer shrink-0"
-                  aria-label="Aktionsmenü öffnen"
+                  onClick={(e) => handleSoftToggle(e, item)}
+                  className="min-w-[44px] min-h-[44px] w-11 h-11 flex items-center justify-center -ml-1 shrink-0 cursor-pointer"
+                  aria-label={item.completed ? 'Als offen markieren' : 'Als besorgt markieren'}
                 >
-                  <MoreHorizontal className="w-5 h-5" />
+                  <div
+                    className="w-5 h-5 rounded-md flex items-center justify-center border transition-all duration-300 active:scale-90"
+                    style={{
+                      backgroundColor: isEffectivelyCompleted
+                        ? `${themeColors.primary}33`
+                        : 'rgba(17,19,23,0.8)',
+                      borderColor: isEffectivelyCompleted
+                        ? themeColors.highlight
+                        : '#6B7280',
+                      boxShadow: isGlowing
+                        ? `0 0 8px ${themeColors.highlight}`
+                        : undefined
+                    }}
+                  >
+                    {isEffectivelyCompleted && (
+                      <Check className="w-3.5 h-3.5 text-white stroke-[2.5] animate-fadeIn" />
+                    )}
+                  </div>
                 </button>
+
+                {/* ZONE 2 (REST DER KARTE): Volle Breite für Titel & In-Place Aufklappen */}
+                <div
+                  onClick={() => toggleActionCard(item.id)}
+                  className="flex-1 min-w-0 pt-2.5 pb-1 pr-1 cursor-pointer select-none"
+                >
+                  {/* Kein Durchstreichen für Mengen/Maße! Ruhiger Titel mit voller Breite */}
+                  <span
+                    className={`text-base font-semibold leading-snug block break-words transition-colors duration-300 ${
+                      item.completed && !isGlowing ? 'text-[#94A3B8]/70' : 'text-[#F1F5F9]'
+                    }`}
+                  >
+                    {item.title}
+                  </span>
+
+                  <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                    <span className="text-xs font-mono font-medium text-[#94A3B8]">
+                      Menge: {item.quantity}
+                    </span>
+
+                    {formattedPrice && (
+                      <span className="text-xs font-mono font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md">
+                        {formattedPrice}
+                      </span>
+                    )}
+
+                    {globalCartMode && (
+                      <span className="text-xs font-medium text-[#94A3B8] px-2 py-0.5 rounded-md bg-[#111317]">
+                        {originProject.name}
+                      </span>
+                    )}
+
+                    {/* KI-Badge: Warmes Honig-Gold #E5A93C */}
+                    {item.aiTouched && (
+                      <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#E5A93C] bg-[#E5A93C]/10 px-2 py-0.5 rounded-md border border-[#E5A93C]/20">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#E5A93C] animate-pulse" />
+                        KI-Artikel
+                      </span>
+                    )}
+                  </div>
+                </div>
               </div>
 
-              {/* Ausklappbare Aktionsleiste */}
+              {/* In-Place aufgeklappter Bereich (Kontext-Infos + Kompakte Aktionsleiste) */}
               {isTrayOpen && (
-                <div className="px-4 pb-4 pt-3 border-t border-white/5 space-y-2.5 bg-[#1C2026]/80 animate-fadeIn">
+                <div className="px-4 pb-4 pt-2.5 border-t border-white/5 space-y-3 bg-[#111317]/80 animate-fadeIn">
                   {/* Inline-Bearbeitung für den Artikel */}
                   {editingCartId === item.id ? (
-                    <div className="p-3 rounded-2xl bg-[#242930] border border-white/10 space-y-2.5">
-                      <div className="text-xs font-bold text-white">Artikel bearbeiten</div>
+                    <div className="p-3 rounded-2xl bg-[#191C22] border border-white/10 space-y-2.5">
+                      <div className="text-xs font-bold text-[#F1F5F9]">Artikel bearbeiten</div>
                       <input
                         type="text"
                         value={editCartTitle}
                         onChange={(e) => setEditCartTitle(e.target.value)}
-                        className="w-full min-h-[44px] px-3.5 py-2 rounded-xl text-sm bg-[#1C2026] text-white border border-white/10 focus:outline-none focus:border-[#14B8A6]"
+                        className="w-full min-h-[44px] px-3.5 py-2 rounded-xl text-sm bg-[#111317] text-[#F1F5F9] border border-white/10 focus:outline-none focus:border-[#14B8A6]"
                       />
                       <div className="flex gap-2">
                         <input
@@ -425,21 +476,21 @@ export const CartView: React.FC<CartViewProps> = ({
                           value={editCartQty}
                           onChange={(e) => setEditCartQty(e.target.value)}
                           placeholder="Menge (z. B. 2x)"
-                          className="w-36 min-h-[44px] px-3.5 py-2 rounded-xl text-xs bg-[#1C2026] text-white border border-white/10 focus:outline-none focus:border-[#14B8A6]"
+                          className="w-36 min-h-[44px] px-3.5 py-2 rounded-xl text-xs bg-[#111317] text-[#F1F5F9] border border-white/10 focus:outline-none focus:border-[#14B8A6] font-mono"
                         />
                         <input
                           type="text"
                           value={editCartPrice}
                           onChange={(e) => setEditCartPrice(e.target.value)}
                           placeholder="Preis (opt., z. B. 25 €)"
-                          className="flex-1 min-w-0 min-h-[44px] px-3.5 py-2 rounded-xl text-xs bg-[#1C2026] text-white border border-white/10 focus:outline-none focus:border-[#14B8A6]"
+                          className="flex-1 min-w-0 min-h-[44px] px-3.5 py-2 rounded-xl text-xs bg-[#111317] text-[#F1F5F9] border border-white/10 focus:outline-none focus:border-[#14B8A6] font-mono"
                         />
                       </div>
                       <div className="flex justify-end gap-2 pt-1">
                         <button
                           type="button"
                           onClick={() => setEditingCartId(null)}
-                          className="min-h-[44px] px-4 rounded-xl text-xs font-semibold text-[#9CA3AF] hover:text-white"
+                          className="min-h-[44px] px-4 rounded-xl text-xs font-semibold text-[#94A3B8] hover:text-white cursor-pointer"
                         >
                           Abbrechen
                         </button>
@@ -455,7 +506,7 @@ export const CartView: React.FC<CartViewProps> = ({
                             setEditingCartId(null);
                             onNotify('Artikel aktualisiert.');
                           }}
-                          className="min-h-[44px] px-4 rounded-xl text-xs font-bold text-white shadow-md active:scale-95 transition"
+                          className="min-h-[44px] px-4 rounded-xl text-xs font-bold text-white shadow-md active:scale-95 transition cursor-pointer"
                           style={{ backgroundColor: themeColors.primary }}
                         >
                           Speichern
@@ -464,6 +515,7 @@ export const CartView: React.FC<CartViewProps> = ({
                     </div>
                   ) : null}
 
+                  {/* KI-Bestätigung: Dezent in Honig-Gold #E5A93C */}
                   {item.aiTouched && (
                     <button
                       type="button"
@@ -471,15 +523,15 @@ export const CartView: React.FC<CartViewProps> = ({
                         onConfirmRedDot(item.originProjectId, 'cart', item.id);
                         toggleActionCard(item.id);
                       }}
-                      className="w-full min-h-[44px] px-4 rounded-xl text-xs font-bold bg-red-500/20 hover:bg-red-500/30 text-red-200 border border-red-500/30 flex items-center justify-center gap-2 active:scale-95 transition"
+                      className="w-full min-h-[44px] px-4 rounded-xl text-xs font-bold bg-[#E5A93C]/15 hover:bg-[#E5A93C]/25 text-[#E5A93C] border border-[#E5A93C]/30 flex items-center justify-center gap-2 active:scale-95 transition cursor-pointer"
                     >
-                      <span className="w-2 h-2 rounded-full bg-red-400" />
-                      <span>KI-Änderung bestätigen</span>
+                      <span className="w-2 h-2 rounded-full bg-[#E5A93C]" />
+                      <span>KI-Änderung prüfen &amp; bestätigen</span>
                     </button>
                   )}
 
+                  {/* Kompakte Aktionsleiste (Touch-Ziele >= 44px) */}
                   <div className="flex flex-wrap items-center gap-2">
-                    {/* Artikel bearbeiten */}
                     <button
                       type="button"
                       onClick={() => {
@@ -488,13 +540,12 @@ export const CartView: React.FC<CartViewProps> = ({
                         setEditCartQty(item.quantity || '1x');
                         setEditCartPrice(item.price || '');
                       }}
-                      className="min-h-[44px] px-3.5 rounded-xl text-xs font-semibold bg-[#242930] hover:bg-[#2A3038] text-white hover:text-[#14B8A6] border border-white/5 flex items-center justify-center gap-2 active:scale-95 transition"
+                      className="min-h-[44px] px-3.5 rounded-xl text-xs font-semibold bg-[#191C22] hover:bg-[#22262F] text-[#F1F5F9] hover:text-[#14B8A6] border border-white/5 flex items-center justify-center gap-2 active:scale-95 transition cursor-pointer"
                     >
                       <Edit3 className="w-4 h-4 text-[#14B8A6]" />
                       <span>Bearbeiten</span>
                     </button>
 
-                    {/* Beschaffungs-Check / Preisvergleich: Nur wenn unvollständig */}
                     {!item.completed && (
                       <button
                         type="button"
@@ -504,35 +555,29 @@ export const CartView: React.FC<CartViewProps> = ({
                             [item.id]: !p[item.id]
                           }))
                         }
-                        className={`flex-1 min-w-0 min-h-[44px] px-3.5 rounded-xl text-xs font-semibold border flex items-center justify-center gap-2 active:scale-95 transition ${
+                        className={`flex-1 min-w-0 min-h-[44px] px-3.5 rounded-xl text-xs font-semibold border flex items-center justify-center gap-2 active:scale-95 transition cursor-pointer ${
                           isProcOpen
                             ? 'text-white border-white/30'
-                            : 'bg-[#242930] hover:bg-[#2A3038] text-white border-white/5'
+                            : 'bg-[#191C22] hover:bg-[#22262F] text-[#F1F5F9] border-white/5'
                         }`}
-                        style={
-                          isProcOpen ? { backgroundColor: themeColors.primary } : {}
-                        }
+                        style={isProcOpen ? { backgroundColor: themeColors.primary } : {}}
                       >
                         <Scale className="w-4 h-4 text-[#14B8A6]" />
                         <span>{isProcOpen ? 'Vergleich schließen' : 'Beschaffungs-Check'}</span>
                       </button>
                     )}
 
-                    {/* Löschen */}
                     <button
                       type="button"
-                      onClick={() => {
-                        onDeleteCartItem(item.originProjectId, item.id);
-                        onNotify('Artikel entfernt.');
-                      }}
-                      className="min-h-[44px] px-4 rounded-xl text-xs font-semibold bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 flex items-center justify-center gap-2 active:scale-95 transition"
+                      onClick={() => handleDeleteWithUndo(item)}
+                      className="min-h-[44px] px-4 rounded-xl text-xs font-semibold bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 flex items-center justify-center gap-2 active:scale-95 transition cursor-pointer"
                     >
                       <Trash2 className="w-4 h-4" />
                       <span>Löschen</span>
                     </button>
                   </div>
 
-                  {/* In anderes Projekt verschieben */}
+                  {/* Projektverschiebung */}
                   {allProjects.filter((p) => !p.archived && p.id !== item.originProjectId).length > 0 && (
                     <div className="pt-1.5 border-t border-white/5">
                       <select
@@ -543,7 +588,7 @@ export const CartView: React.FC<CartViewProps> = ({
                             toggleActionCard(item.id);
                           }
                         }}
-                        className="w-full min-h-[44px] px-3.5 py-2 rounded-xl text-xs bg-[#181A1B] text-white border border-white/10 focus:outline-none focus:border-[#14B8A6] cursor-pointer"
+                        className="w-full min-h-[44px] px-3.5 py-2 rounded-xl text-xs bg-[#111317] text-[#F1F5F9] border border-white/10 focus:outline-none focus:border-[#14B8A6] cursor-pointer"
                       >
                         <option value="" disabled>
                           In anderes Projekt verschieben...
@@ -563,7 +608,7 @@ export const CartView: React.FC<CartViewProps> = ({
 
               {/* Beschaffungs-Check Panel */}
               {isProcOpen && (
-                <div className="border-t border-white/5 bg-[#1C2026]">
+                <div className="border-t border-white/5 bg-[#111317]">
                   <ProcurementCheckPanel
                     title={item.title}
                     customCheck={item.procurementCheck}
@@ -576,11 +621,11 @@ export const CartView: React.FC<CartViewProps> = ({
       </div>
 
       {/* BEREICHS-EINSTELLUNGEN */}
-      <div className="pt-2 border-t border-white/5">
+      <div className="pt-2">
         <button
           type="button"
           onClick={() => onOpenSettings?.()}
-          className="w-full min-h-[44px] py-2.5 px-4 rounded-xl text-xs font-semibold text-[#9CA3AF] hover:text-white bg-[#242930]/60 hover:bg-[#242930] border border-white/5 flex items-center justify-center gap-2 active:scale-95 transition cursor-pointer"
+          className="w-full min-h-[44px] py-2.5 px-4 rounded-xl text-xs font-semibold text-[#94A3B8] hover:text-white bg-[#191C22]/60 hover:bg-[#191C22] border border-white/5 flex items-center justify-center gap-2 active:scale-95 transition cursor-pointer"
         >
           <Settings className="w-4 h-4 text-[#14B8A6]" />
           <span>Einkauf-Einstellungen &amp; Beschaffung</span>

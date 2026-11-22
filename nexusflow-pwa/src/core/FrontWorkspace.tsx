@@ -1,6 +1,8 @@
 import React, { useMemo, useRef, useState } from 'react';
 import {
-  Crosshair
+  Crosshair,
+  RotateCcw,
+  Sparkles
 } from 'lucide-react';
 import {
   Attachment,
@@ -20,7 +22,8 @@ import { PLUGIN_REGISTRY } from '../plugins/registry';
 import {
   BanditUserPreferences,
   loadUserPrefs,
-  saveUserPrefs
+  saveUserPrefs,
+  triggerHapticFeedback
 } from '../services/aiRouter';
 import {
   NavigationDrawer,
@@ -38,12 +41,13 @@ interface FrontWorkspaceProps {
   activeProject?: Project;
   activeTab: ProjectTabId;
   highlightedItemId: string | null;
+  userApiKey?: string;
   onSwitchDomain: (d: DomainType) => void;
   onSelectProject: (id: string) => void;
   onChangeTab: (tab: ProjectTabId) => void;
   onOpenNewProjectModal: () => void;
-  onUploadProjectLogo: (projectId: string, file: File) => void;
-  onResetProjectLogo: (projectId: string) => void;
+  onUploadProjectLogo?: (projectId: string, file: File) => void;
+  onResetProjectLogo?: (projectId: string) => void;
   onOpenDeepResearchModal?: () => void;
   onConfirmRedDot: (
     projectId: string,
@@ -108,6 +112,7 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
   activeProject,
   activeTab,
   highlightedItemId,
+  userApiKey,
   onSwitchDomain,
   onSelectProject,
   onChangeTab,
@@ -150,10 +155,35 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
+  // 4-Sekunden-Rückgängig-Leiste State
+  const [undoAction, setUndoAction] = useState<{ message: string; undo: () => void } | null>(null);
+  const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Zentraler Honig-Gold-Hinweis-Toast State (#E5A93C)
+  const [configNotice, setConfigNotice] = useState<{ message: string; actionLabel: string } | null>(null);
+  const configNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const touchStartXRef = useRef<number | null>(null);
   const touchStartYRef = useRef<number | null>(null);
   const drawerDragXRef = useRef<number>(0);
   const [drawerDragX, setDrawerDragX] = useState<number>(0);
+
+  const handleRegisterUndo = (action: { message: string; undo: () => void }) => {
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+    setUndoAction(action);
+    undoTimerRef.current = setTimeout(() => {
+      setUndoAction(null);
+    }, 4000);
+  };
+
+  const showConfigNotice = (message: string, actionLabel: string = 'Zentrale') => {
+    if (configNoticeTimerRef.current) clearTimeout(configNoticeTimerRef.current);
+    triggerHapticFeedback([20, 30]);
+    setConfigNotice({ message, actionLabel });
+    configNoticeTimerRef.current = setTimeout(() => {
+      setConfigNotice(null);
+    }, 4500);
+  };
 
   const handleTouchStart = (e: React.TouchEvent) => {
     const t = e.touches[0];
@@ -171,12 +201,10 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
     if (deltaY > 60) return; // vertical scroll – ignore
 
     if (!drawerOpen && touchStartXRef.current <= 30 && deltaX > 0) {
-      // Edge-pull: clamp to drawer width
       const drag = Math.min(deltaX, window.innerWidth * 0.85);
       drawerDragXRef.current = drag;
       setDrawerDragX(drag);
     } else if (drawerOpen && deltaX < 0) {
-      // Swipe-away: clamp to negative drawer width
       const drag = Math.max(deltaX, -(window.innerWidth * 0.85));
       drawerDragXRef.current = drag;
       setDrawerDragX(drag);
@@ -255,7 +283,6 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
     setDrawerOpen(false);
   };
 
-  const activeTabs = activeProject?.enabledTabs || ['tasks', 'cart', 'knowledge', 'extras'];
   const showTasksSection =
     (viewAllSections || activeTab === 'tasks') && isTabEnabled(activeProject, 'tasks');
   const showCartSection =
@@ -268,16 +295,6 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
     isTabEnabled(activeProject, 'knowledge');
   const showExtrasSection =
     (!viewAllSections && activeTab === 'extras') && isTabEnabled(activeProject, 'extras');
-
-  const currentSectionLabel = viewAllSections
-    ? 'Gesamtübersicht'
-    : activeTab === 'tasks'
-      ? 'Tasks'
-      : activeTab === 'cart'
-        ? 'Einkaufswagen'
-        : activeTab === 'knowledge' || activeTab === 'explanations' || activeTab === 'infos'
-          ? 'Wissen'
-          : 'Werkzeuge';
 
   return (
     <div
@@ -293,12 +310,85 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
           aria-hidden="true"
         />
       )}
-      {/* Organische Ambient-Aura im Hintergrund */}
-      {prefs.organicMotion && (
+
+      {/* Hauchfeiner Ambient-Glow oben am Bildschirmrand (ca. 16 % Deckkraft in Projektfarbe) */}
+      <div
+        className="pointer-events-none fixed top-0 left-1/2 -translate-x-1/2 w-full max-w-[500px] h-48 blur-3xl opacity-16 transition-all duration-700 z-0"
+        style={{
+          background: `radial-gradient(ellipse at 50% 0%, ${themeColors.primary} 0%, transparent 75%)`
+        }}
+        aria-hidden="true"
+      />
+
+      {/* Weicher dunkler Fade-Out-Verlauf am unteren Bildschirmrand (transparent → #111317) */}
+      <div
+        className="pointer-events-none fixed bottom-0 left-0 right-0 h-28 bg-gradient-to-t from-[#111317] via-[#111317]/85 to-transparent z-20"
+        aria-hidden="true"
+      />
+
+      {/* ZENTRALER HONIG-GOLD-HINWEIS-TOAST (#E5A93C) BEI FEHLENDEN KEYS / FUNKTIONEN */}
+      {configNotice && (
         <div
-          className="pointer-events-none fixed top-6 left-1/2 -translate-x-1/2 w-96 h-40 rounded-full blur-3xl opacity-20 transition-all duration-700"
-          style={{ backgroundColor: themeColors.primary }}
-        />
+          role="alert"
+          className="fixed top-5 left-1/2 -translate-x-1/2 z-50 w-[92%] max-w-[420px] min-h-[44px] px-4 py-3 rounded-2xl border shadow-2xl flex items-center justify-between gap-3 animate-fadeIn backdrop-blur-md"
+          style={{
+            backgroundColor: '#191C22',
+            borderColor: 'rgba(229,169,60,0.35)',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.6), 0 0 16px rgba(229,169,60,0.12)'
+          }}
+        >
+          <div className="flex items-center gap-2.5 min-w-0 flex-1">
+            <Sparkles className="w-4 h-4 text-[#E5A93C] shrink-0" />
+            <span className="text-xs font-medium text-[#F1F5F9] leading-snug">
+              {configNotice.message}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setConfigNotice(null);
+              onOpenAddonsBackoffice();
+            }}
+            className="min-h-[44px] px-3.5 rounded-xl text-xs font-bold text-[#111317] shrink-0 active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
+            style={{ backgroundColor: '#E5A93C' }}
+          >
+            {configNotice.actionLabel}
+          </button>
+        </div>
+      )}
+
+      {/* 4-SEKUNDEN-RÜCKGÄNGIG-LEISTE (direkt über der unteren Leiste) */}
+      {undoAction && (
+        <div
+          role="status"
+          className="fixed bottom-20 left-1/2 -translate-x-1/2 z-40 w-[92%] max-w-[420px] min-h-[44px] px-4 py-2.5 rounded-2xl border shadow-2xl flex items-center justify-between gap-3 animate-fadeIn backdrop-blur-md"
+          style={{
+            backgroundColor: '#191C22',
+            borderColor: 'rgba(255,255,255,0.08)'
+          }}
+        >
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <RotateCcw className="w-4 h-4 text-[#94A3B8] shrink-0" />
+            <span className="text-xs font-medium text-[#F1F5F9] truncate">
+              {undoAction.message}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              undoAction.undo();
+              setUndoAction(null);
+              triggerHapticFeedback(10);
+            }}
+            className="min-h-[44px] min-w-[44px] px-3.5 rounded-xl text-xs font-bold shrink-0 active:scale-95 transition cursor-pointer flex items-center justify-center"
+            style={{
+              color: themeColors.highlight,
+              backgroundColor: `${themeColors.primary}22`
+            }}
+          >
+            Rückgängig
+          </button>
+        </div>
       )}
 
       {/* ADHS-FUNKTION: "WO WAR ICH GERADE?"-ANKER (Ruhige Fläche) */}
@@ -308,8 +398,8 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
           <div
             className="p-4 rounded-3xl border flex items-center justify-between gap-3 shadow-xl transition-all duration-300"
             style={{
-              backgroundColor: '#1C2026',
-              borderColor: `${themeColors.highlight}55`
+              backgroundColor: '#191C22',
+              borderColor: `${themeColors.highlight}33`
             }}
           >
             <div
@@ -333,10 +423,10 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
                 />
               </div>
               <div className="min-w-0">
-                <div className="text-xs font-extrabold uppercase tracking-wider text-[#9CA3AF]">
+                <div className="text-xs font-extrabold uppercase tracking-wider text-[#94A3B8]">
                   Aktiver Fokus-Anker (Gerade dran)
                 </div>
-                <div className="text-sm font-semibold text-white truncate">
+                <div className="text-sm font-semibold text-[#F1F5F9] truncate">
                   {prefs.activeFocusTaskTitle}
                 </div>
               </div>
@@ -350,7 +440,7 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
                   activeFocusProjectId: null
                 })
               }
-              className="min-h-[44px] px-3.5 rounded-xl text-xs font-semibold bg-[#242930] hover:bg-[#2A3038] text-[#9CA3AF] hover:text-white shrink-0 border border-white/5 active:scale-95 transition"
+              className="min-h-[44px] px-3.5 rounded-xl text-xs font-semibold bg-[#111317] hover:bg-[#22262F] text-[#94A3B8] hover:text-white shrink-0 border border-white/5 active:scale-95 transition cursor-pointer"
             >
               Lösen
             </button>
@@ -419,6 +509,8 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
               onUpdatePrefs={updatePrefs}
               onOpenSettings={onOpenAddonsBackoffice}
               onNotify={onNotify}
+              onRegisterUndo={handleRegisterUndo}
+              onConfigMissing={showConfigNotice}
             />
           )}
 
@@ -438,6 +530,8 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
               onConfirmRedDot={onConfirmRedDot}
               onOpenSettings={onOpenAddonsBackoffice}
               onNotify={onNotify}
+              onRegisterUndo={handleRegisterUndo}
+              onConfigMissing={showConfigNotice}
             />
           )}
 
@@ -449,6 +543,7 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
               themeColors={themeColors}
               searchQuery={searchQuery}
               highlightedItemId={highlightedItemId}
+              userApiKey={userApiKey}
               onAddKnowledge={onAddKnowledge}
               onUpdateKnowledge={onUpdateKnowledge}
               onUploadKnowledgeAttachment={onUploadKnowledgeAttachment}
@@ -467,6 +562,7 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
                 onOpenDeepResearchModal?.();
               }}
               onNotify={onNotify}
+              onConfigMissing={showConfigNotice}
             />
           )}
 

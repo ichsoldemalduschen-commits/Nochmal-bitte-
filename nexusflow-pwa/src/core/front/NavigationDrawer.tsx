@@ -60,8 +60,8 @@ export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({
           key={proj.id}
           className="rounded-2xl border overflow-hidden transition-all shadow-sm"
           style={{
-            backgroundColor: '#242930',
-            borderColor: isActive ? `${pColor}88` : 'rgba(255,255,255,0.06)'
+            backgroundColor: '#191C22',
+            borderColor: isActive ? `${pColor}88` : 'rgba(255,255,255,0.04)'
           }}
         >
           <button
@@ -80,7 +80,7 @@ export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({
           </button>
 
           {isActive && (
-            <div className="p-2.5 pt-1.5 grid grid-cols-2 gap-2 border-t border-white/5 bg-[#1C2026]/70">
+            <div className="p-2.5 pt-1.5 grid grid-cols-2 gap-2 border-t border-white/5 bg-[#111317]/80">
               <button
                 type="button"
                 onClick={() => onSelectProjectAndSection(proj, 'ALL')}
@@ -184,7 +184,7 @@ export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({
           drawerDragX === 0 ? 'transition-transform duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]' : ''
         }`}
         style={{
-          backgroundColor: '#1C2026',
+          backgroundColor: '#111317',
           transform: drawerOpen
             ? drawerDragX < 0
               ? `translateX(${drawerDragX}px)`
@@ -225,8 +225,8 @@ export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({
             }}
             className={`w-full min-h-[48px] p-3.5 rounded-2xl border flex items-center justify-between transition-all shadow-sm active:scale-95 cursor-pointer ${
               !viewAllSections && activeTab === 'cart'
-                ? 'bg-[#14B8A6]/20 border-[#14B8A6] text-white'
-                : 'bg-[#242930] hover:bg-[#2A3038] text-white border-white/10'
+                ? 'bg-[#0D9488]/20 border-[#0D9488] text-white'
+                : 'bg-[#191C22] hover:bg-[#22262F] text-white border-white/5'
             }`}
           >
             <div className="flex items-center gap-3 min-w-0">

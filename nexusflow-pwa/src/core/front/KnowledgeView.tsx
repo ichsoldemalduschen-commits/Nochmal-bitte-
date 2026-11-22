@@ -16,8 +16,7 @@ import {
   Attachment,
   KnowledgeItem,
   KnowledgeKind,
-  Project,
-  THEME
+  Project
 } from '../../types';
 import { speakText, stopSpeaking, triggerHapticFeedback } from '../../services/aiRouter';
 import { ThemeColors } from './FrontHeader';
@@ -28,6 +27,7 @@ interface KnowledgeViewProps {
   themeColors: ThemeColors;
   searchQuery: string;
   highlightedItemId: string | null;
+  userApiKey?: string;
   onAddKnowledge?: (
     projectId: string,
     kind: KnowledgeKind,
@@ -61,6 +61,7 @@ interface KnowledgeViewProps {
   onOpenSettings?: () => void;
   onAskAi?: (prompt: string) => void;
   onNotify: (msg: string) => void;
+  onConfigMissing?: (msg: string) => void;
 }
 
 export const KnowledgeView: React.FC<KnowledgeViewProps> = ({
@@ -68,7 +69,8 @@ export const KnowledgeView: React.FC<KnowledgeViewProps> = ({
   allProjects,
   themeColors,
   searchQuery,
-  highlightedItemId,
+  highlightedItemId: _highlightedItemId,
+  userApiKey,
   onAddKnowledge,
   onUpdateKnowledge,
   onUploadKnowledgeAttachment,
@@ -82,7 +84,8 @@ export const KnowledgeView: React.FC<KnowledgeViewProps> = ({
   onSetActiveAudioGuideExp,
   onOpenSettings,
   onAskAi,
-  onNotify
+  onNotify,
+  onConfigMissing
 }) => {
   const [knowledgeFilter, setKnowledgeFilter] = useState<'ALL' | 'explanation' | 'info'>('ALL');
   const [openKnowledge, setOpenKnowledge] = useState<Record<string, boolean>>({});
@@ -152,21 +155,33 @@ export const KnowledgeView: React.FC<KnowledgeViewProps> = ({
     });
   };
 
+  const handleAskAiClick = (item: KnowledgeItem) => {
+    const prompt = `Wissenseintrag "${item.title}":\n${item.content}`;
+    if (!userApiKey && !localStorage.getItem('nexusflow_gemini_api_key')) {
+      onConfigMissing?.('Gemini API-Key fehlt. In der Zentrale unter System/KI hinterlegen.');
+      return;
+    }
+    if (onAskAi) {
+      onAskAi(prompt);
+    } else {
+      navigator.clipboard.writeText(prompt);
+      onNotify('Wissen für KI-Assistenten kopiert.');
+    }
+  };
+
   return (
-    <section
-      className="rounded-3xl border border-white/5 p-5 space-y-4 shadow-xl transition-all"
-      style={{ backgroundColor: '#1C2026' }}
-    >
-      <div className="flex items-center justify-between gap-3">
+    <section className="space-y-3.5">
+      {/* Sektions-Kopf ohne äußeren Kasten */}
+      <div className="flex items-center justify-between gap-3 px-1">
         <div className="flex items-center gap-2.5">
           <BookOpen
             className="w-5 h-5"
             style={{ color: themeColors.highlight }}
           />
-          <h3 className="text-base font-bold text-white tracking-wide">
+          <h3 className="text-base font-bold text-[#F1F5F9] tracking-wide">
             Wissen
           </h3>
-          <span className="text-xs font-semibold text-[#9CA3AF] px-2 py-0.5 rounded-full bg-[#242930]">
+          <span className="text-xs font-semibold text-[#94A3B8] px-2 py-0.5 rounded-full bg-[#191C22] border border-white/5 font-mono">
             {projectKnowledge.length} Einträge
           </span>
         </div>
@@ -174,10 +189,10 @@ export const KnowledgeView: React.FC<KnowledgeViewProps> = ({
         <button
           type="button"
           onClick={() => setIsAddingKnowledge((v) => !v)}
-          className={`min-h-[44px] min-w-[44px] px-3.5 rounded-xl text-xs font-bold border flex items-center justify-center gap-1.5 transition active:scale-95 ${
+          className={`min-h-[44px] min-w-[44px] px-3.5 rounded-xl text-xs font-bold border flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer ${
             isAddingKnowledge
               ? 'text-white border-white/30'
-              : 'bg-[#242930] hover:bg-[#2A3038] text-white border-white/5'
+              : 'bg-[#191C22] hover:bg-[#22262F] text-white border-white/5'
           }`}
           style={isAddingKnowledge ? { backgroundColor: themeColors.primary } : {}}
           aria-label="Wissenseintrag hinzufügen"
@@ -193,11 +208,12 @@ export const KnowledgeView: React.FC<KnowledgeViewProps> = ({
         <button
           type="button"
           onClick={() => setKnowledgeFilter('ALL')}
-          className={`min-h-[44px] px-3.5 rounded-xl text-xs font-bold border shrink-0 transition active:scale-95 ${
+          className={`min-h-[44px] px-3.5 rounded-xl text-xs font-bold border shrink-0 transition active:scale-95 cursor-pointer ${
             knowledgeFilter === 'ALL'
-              ? 'bg-[#0A9396] text-white border-[#14B8A6] shadow-sm'
-              : 'bg-[#242930] text-[#9CA3AF] border-white/5 hover:text-white'
+              ? 'text-white border-white/20 shadow-sm'
+              : 'bg-[#191C22] text-[#94A3B8] border-white/5 hover:text-white'
           }`}
+          style={knowledgeFilter === 'ALL' ? { backgroundColor: themeColors.primary } : {}}
         >
           Alle ({projectKnowledge.length})
         </button>
@@ -206,11 +222,12 @@ export const KnowledgeView: React.FC<KnowledgeViewProps> = ({
           onClick={() =>
             setKnowledgeFilter((prev) => (prev === 'explanation' ? 'ALL' : 'explanation'))
           }
-          className={`min-h-[44px] px-3.5 rounded-xl text-xs font-bold border shrink-0 transition active:scale-95 ${
+          className={`min-h-[44px] px-3.5 rounded-xl text-xs font-bold border shrink-0 transition active:scale-95 cursor-pointer ${
             knowledgeFilter === 'explanation'
-              ? 'bg-[#0A9396] text-white border-[#14B8A6] shadow-sm'
-              : 'bg-[#242930] text-[#9CA3AF] border-white/5 hover:text-white'
+              ? 'text-white border-white/20 shadow-sm'
+              : 'bg-[#191C22] text-[#94A3B8] border-white/5 hover:text-white'
           }`}
+          style={knowledgeFilter === 'explanation' ? { backgroundColor: themeColors.primary } : {}}
         >
           Abläufe ({projectKnowledge.filter((k) => k.kind === 'explanation').length})
         </button>
@@ -219,11 +236,12 @@ export const KnowledgeView: React.FC<KnowledgeViewProps> = ({
           onClick={() =>
             setKnowledgeFilter((prev) => (prev === 'info' ? 'ALL' : 'info'))
           }
-          className={`min-h-[44px] px-3.5 rounded-xl text-xs font-bold border shrink-0 transition active:scale-95 ${
+          className={`min-h-[44px] px-3.5 rounded-xl text-xs font-bold border shrink-0 transition active:scale-95 cursor-pointer ${
             knowledgeFilter === 'info'
-              ? 'bg-[#0A9396] text-white border-[#14B8A6] shadow-sm'
-              : 'bg-[#242930] text-[#9CA3AF] border-white/5 hover:text-white'
+              ? 'text-white border-white/20 shadow-sm'
+              : 'bg-[#191C22] text-[#94A3B8] border-white/5 hover:text-white'
           }`}
+          style={knowledgeFilter === 'info' ? { backgroundColor: themeColors.primary } : {}}
         >
           Infos ({projectKnowledge.filter((k) => k.kind !== 'explanation').length})
         </button>
@@ -260,29 +278,30 @@ export const KnowledgeView: React.FC<KnowledgeViewProps> = ({
             setIsAddingKnowledge(false);
             onNotify('Wissenseintrag gespeichert.');
           }}
-          className="p-4 rounded-2xl bg-[#242930] border border-white/10 space-y-3 shadow-inner"
+          className="p-4 rounded-2xl bg-[#191C22] border border-white/10 space-y-3 shadow-lg"
         >
-          {/* Segmented Control: Ablauf vs. Info */}
-          <div className="grid grid-cols-2 gap-2 bg-[#1C2026] p-1 rounded-xl border border-white/10">
+          <div className="grid grid-cols-2 gap-2 bg-[#111317] p-1 rounded-xl border border-white/10">
             <button
               type="button"
               onClick={() => setNewKnowledgeKind('explanation')}
-              className={`min-h-[44px] rounded-lg text-xs font-bold transition ${
+              className={`min-h-[44px] rounded-lg text-xs font-bold transition cursor-pointer ${
                 newKnowledgeKind === 'explanation'
-                  ? 'bg-[#0A9396] text-white shadow'
-                  : 'text-[#9CA3AF] hover:text-white'
+                  ? 'text-white shadow'
+                  : 'text-[#94A3B8] hover:text-white'
               }`}
+              style={newKnowledgeKind === 'explanation' ? { backgroundColor: themeColors.primary } : {}}
             >
               Ablauf / Checkliste
             </button>
             <button
               type="button"
               onClick={() => setNewKnowledgeKind('info')}
-              className={`min-h-[44px] rounded-lg text-xs font-bold transition ${
+              className={`min-h-[44px] rounded-lg text-xs font-bold transition cursor-pointer ${
                 newKnowledgeKind === 'info'
-                  ? 'bg-[#0A9396] text-white shadow'
-                  : 'text-[#9CA3AF] hover:text-white'
+                  ? 'text-white shadow'
+                  : 'text-[#94A3B8] hover:text-white'
               }`}
+              style={newKnowledgeKind === 'info' ? { backgroundColor: themeColors.primary } : {}}
             >
               Info / Maße / Notiz
             </button>
@@ -298,7 +317,7 @@ export const KnowledgeView: React.FC<KnowledgeViewProps> = ({
                 ? 'Titel des Ablaufs (z. B. Ofen einbrennen)...'
                 : 'Titel der Info / Maße (z. B. Gasanschluss-Maße)...'
             }
-            className="w-full min-h-[44px] px-3.5 py-2.5 rounded-xl text-sm bg-[#1C2026] text-white border border-white/10 placeholder-[#9CA3AF] focus:outline-none focus:border-white/20"
+            className="w-full min-h-[44px] px-3.5 py-2.5 rounded-xl text-sm bg-[#111317] text-[#F1F5F9] border border-white/10 placeholder-[#94A3B8] focus:outline-none focus:border-white/20"
           />
           <textarea
             rows={4}
@@ -309,7 +328,7 @@ export const KnowledgeView: React.FC<KnowledgeViewProps> = ({
                 ? 'Einzelschritte (Zeile für Zeile notieren)...'
                 : 'Details, technische Daten, Notizen...'
             }
-            className="w-full p-3.5 rounded-xl text-sm bg-[#1C2026] text-white border border-white/10 placeholder-[#9CA3AF] focus:outline-none focus:border-white/20"
+            className="w-full p-3.5 rounded-xl text-sm bg-[#111317] text-[#F1F5F9] border border-white/10 placeholder-[#94A3B8] focus:outline-none focus:border-white/20"
           />
           <div className="flex justify-end gap-2 pt-1">
             <button
@@ -319,14 +338,14 @@ export const KnowledgeView: React.FC<KnowledgeViewProps> = ({
                 setNewKnowledgeTitle('');
                 setNewKnowledgeContent('');
               }}
-              className="min-h-[44px] px-4 rounded-xl text-xs font-semibold text-[#9CA3AF] hover:text-white transition"
+              className="min-h-[44px] px-4 rounded-xl text-xs font-semibold text-[#94A3B8] hover:text-white transition cursor-pointer"
             >
               Abbrechen
             </button>
             <button
               type="submit"
               disabled={!newKnowledgeTitle.trim()}
-              className="min-h-[44px] px-5 rounded-xl text-xs font-bold text-white shadow-md active:scale-95 transition disabled:opacity-40"
+              className="min-h-[44px] px-5 rounded-xl text-xs font-bold text-white shadow-md active:scale-95 transition disabled:opacity-40 cursor-pointer"
               style={{ backgroundColor: themeColors.primary }}
             >
               Speichern
@@ -335,8 +354,8 @@ export const KnowledgeView: React.FC<KnowledgeViewProps> = ({
         </form>
       )}
 
-      {/* WISSENS-LISTE */}
-      <div className="space-y-2">
+      {/* WISSENS-LISTE: Karten direkt auf dem Canvas */}
+      <div className="space-y-2.5">
         {filteredKnowledge.map((item) => {
           const isOpen = !!openKnowledge[item.id];
           const isEditing = editingKnowledgeId === item.id;
@@ -346,10 +365,13 @@ export const KnowledgeView: React.FC<KnowledgeViewProps> = ({
             <div
               key={item.id}
               id={`item-card-${item.id}`}
-              className="rounded-2xl border border-white/5 overflow-hidden transition-all shadow-sm"
-              style={{ backgroundColor: '#242930' }}
+              className="rounded-2xl border transition-all duration-300 overflow-hidden shadow-sm"
+              style={{
+                backgroundColor: '#191C22',
+                borderColor: 'rgba(255,255,255,0.04)'
+              }}
             >
-              {/* Karten-Ruhezustand: nur voller mehrzeiliger Titel, dezenter Typ-Indikator, Chevron */}
+              {/* Karten-Ruhezustand */}
               <div
                 onClick={() =>
                   setOpenKnowledge((p) => ({ ...p, [item.id]: !p[item.id] }))
@@ -357,32 +379,31 @@ export const KnowledgeView: React.FC<KnowledgeViewProps> = ({
                 className="p-4 flex items-center justify-between gap-3 cursor-pointer select-none"
               >
                 <div className="min-w-0 flex-1 flex items-start gap-2.5">
-                  {/* Roter KI-Punkt */}
+                  {/* Warmes Honig-Gold #E5A93C für KI-Hinweis */}
                   {item.aiTouched && (
                     <span
-                      className="w-2.5 h-2.5 rounded-full shrink-0 mt-1.5"
-                      style={{ backgroundColor: THEME.aiRedDot }}
+                      className="w-2.5 h-2.5 rounded-full shrink-0 mt-1.5 bg-[#E5A93C]"
                       title="Automatisch von KI bearbeitet"
                     />
                   )}
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 mb-1">
-                      <span className="text-xs font-semibold text-[#9CA3AF] uppercase tracking-wider">
+                      <span className="text-xs font-semibold text-[#94A3B8] uppercase tracking-wider">
                         {item.kind === 'explanation' ? '• Ablauf' : '• Info'}
                       </span>
                       {item.attachments && item.attachments.length > 0 && (
-                        <span className="text-xs text-[#14B8A6] font-medium">
+                        <span className="text-xs text-[#14B8A6] font-medium font-mono">
                           ({item.attachments.length} Anhang{item.attachments.length > 1 ? 'e' : ''})
                         </span>
                       )}
                     </div>
-                    <h4 className="text-base font-bold text-white leading-snug break-words">
+                    <h4 className="text-base font-semibold text-[#F1F5F9] leading-snug break-words">
                       {item.title}
                     </h4>
                   </div>
                 </div>
 
-                <div className="min-w-[44px] min-h-[44px] flex items-center justify-center text-[#9CA3AF] shrink-0">
+                <div className="min-w-[44px] min-h-[44px] flex items-center justify-center text-[#94A3B8] shrink-0">
                   {isOpen ? (
                     <ChevronUp className="w-5 h-5" />
                   ) : (
@@ -393,26 +414,26 @@ export const KnowledgeView: React.FC<KnowledgeViewProps> = ({
 
               {/* Aufgeklappter Zustand */}
               {isOpen && (
-                <div className="px-4 pb-4 pt-2 border-t border-white/5 space-y-3 bg-[#1C2026]/70 animate-fadeIn">
+                <div className="px-4 pb-4 pt-2 border-t border-white/5 space-y-3 bg-[#111317]/80 animate-fadeIn">
                   {isEditing ? (
                     <div className="space-y-3 pt-2">
                       <input
                         type="text"
                         value={editKnowledgeTitle}
                         onChange={(e) => setEditKnowledgeTitle(e.target.value)}
-                        className="w-full min-h-[44px] px-3.5 py-2 rounded-xl text-sm bg-[#242930] text-white border border-white/10"
+                        className="w-full min-h-[44px] px-3.5 py-2 rounded-xl text-sm bg-[#191C22] text-[#F1F5F9] border border-white/10"
                       />
                       <textarea
                         rows={5}
                         value={editKnowledgeContent}
                         onChange={(e) => setEditKnowledgeContent(e.target.value)}
-                        className="w-full p-3 rounded-xl text-sm bg-[#242930] text-white border border-white/10 font-mono"
+                        className="w-full p-3 rounded-xl text-sm bg-[#191C22] text-[#F1F5F9] border border-white/10 font-mono"
                       />
                       <div className="flex justify-end gap-2">
                         <button
                           type="button"
                           onClick={() => setEditingKnowledgeId(null)}
-                          className="min-h-[44px] px-4 rounded-xl text-xs font-semibold text-[#9CA3AF] hover:text-white"
+                          className="min-h-[44px] px-4 rounded-xl text-xs font-semibold text-[#94A3B8] hover:text-white cursor-pointer"
                         >
                           Abbrechen
                         </button>
@@ -443,7 +464,7 @@ export const KnowledgeView: React.FC<KnowledgeViewProps> = ({
                             setEditingKnowledgeId(null);
                             onNotify('Wissenseintrag aktualisiert.');
                           }}
-                          className="min-h-[44px] px-5 rounded-xl text-xs font-bold text-white shadow-md"
+                          className="min-h-[44px] px-5 rounded-xl text-xs font-bold text-white shadow-md cursor-pointer"
                           style={{ backgroundColor: themeColors.primary }}
                         >
                           Speichern
@@ -452,14 +473,14 @@ export const KnowledgeView: React.FC<KnowledgeViewProps> = ({
                     </div>
                   ) : (
                     <>
-                      <div className="text-sm text-[#F8F9FA] leading-relaxed whitespace-pre-line py-2">
+                      <div className="text-sm text-[#F1F5F9] leading-relaxed whitespace-pre-line py-2">
                         {item.content}
                       </div>
 
-                      {/* KI-Bestätigung falls aiTouched */}
+                      {/* KI-Bestätigung falls aiTouched in Honig-Gold */}
                       {item.aiTouched && (
-                        <div className="p-2.5 rounded-xl bg-red-950/30 border border-red-500/30 flex items-center justify-between">
-                          <span className="text-xs text-red-200">
+                        <div className="p-3 rounded-xl bg-[#E5A93C]/10 border border-[#E5A93C]/30 flex items-center justify-between gap-2">
+                          <span className="text-xs text-[#E5A93C] font-medium">
                             KI-Änderung prüfen: {item.changeReason || 'KI-Zuordnung'}
                           </span>
                           <button
@@ -471,7 +492,7 @@ export const KnowledgeView: React.FC<KnowledgeViewProps> = ({
                                 item.id
                               )
                             }
-                            className="min-h-[44px] px-3 rounded-lg bg-red-500/20 text-red-200 text-xs font-bold hover:bg-red-500/30 transition"
+                            className="min-h-[44px] px-3.5 rounded-lg bg-[#E5A93C] text-[#111317] text-xs font-bold hover:bg-[#E5A93C]/90 transition cursor-pointer"
                           >
                             Bestätigen
                           </button>
@@ -490,11 +511,12 @@ export const KnowledgeView: React.FC<KnowledgeViewProps> = ({
                                 handleSpeakKnowledge(item);
                               }
                             }}
-                            className={`min-h-[44px] px-3.5 rounded-xl text-xs font-semibold flex items-center gap-2 border border-white/5 active:scale-95 transition ${
+                            className={`min-h-[44px] px-3.5 rounded-xl text-xs font-semibold flex items-center gap-2 border border-white/5 active:scale-95 transition cursor-pointer ${
                               isSpeaking
-                                ? 'bg-[#0A9396] text-white border-[#14B8A6] animate-pulse'
-                                : 'bg-[#242930] hover:bg-[#2A3038] text-[#14B8A6] hover:text-white'
+                                ? 'text-white border-white/20 animate-pulse'
+                                : 'bg-[#191C22] hover:bg-[#22262F] text-[#14B8A6] hover:text-white'
                             }`}
+                            style={isSpeaking ? { backgroundColor: themeColors.primary } : {}}
                             title={
                               item.kind === 'explanation'
                                 ? 'Freihändigen Audio-Guide starten'
@@ -524,7 +546,7 @@ export const KnowledgeView: React.FC<KnowledgeViewProps> = ({
                               triggerHapticFeedback(10);
                               onNotify('Wissenseintrag in die Zwischenablage kopiert.');
                             }}
-                            className="min-h-[44px] px-3.5 rounded-xl bg-[#242930] hover:bg-[#2A3038] text-white hover:text-[#14B8A6] text-xs font-semibold flex items-center gap-2 border border-white/5 active:scale-95 transition"
+                            className="min-h-[44px] px-3.5 rounded-xl bg-[#191C22] hover:bg-[#22262F] text-[#F1F5F9] hover:text-[#14B8A6] text-xs font-semibold flex items-center gap-2 border border-white/5 active:scale-95 transition cursor-pointer"
                           >
                             <Copy className="w-4 h-4 text-[#14B8A6]" />
                             <span>Kopieren</span>
@@ -538,7 +560,7 @@ export const KnowledgeView: React.FC<KnowledgeViewProps> = ({
                               setEditKnowledgeTitle(item.title);
                               setEditKnowledgeContent(item.content);
                             }}
-                            className="min-h-[44px] px-3.5 rounded-xl bg-[#242930] hover:bg-[#2A3038] text-[#9CA3AF] hover:text-white text-xs font-semibold flex items-center gap-2 border border-white/5 active:scale-95 transition"
+                            className="min-h-[44px] px-3.5 rounded-xl bg-[#191C22] hover:bg-[#22262F] text-[#94A3B8] hover:text-white text-xs font-semibold flex items-center gap-2 border border-white/5 active:scale-95 transition cursor-pointer"
                           >
                             <Edit3 className="w-4 h-4" />
                             <span>Bearbeiten</span>
@@ -548,15 +570,9 @@ export const KnowledgeView: React.FC<KnowledgeViewProps> = ({
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
-                              const prompt = `Wissenseintrag "${item.title}":\n${item.content}`;
-                              if (onAskAi) {
-                                onAskAi(prompt);
-                              } else {
-                                navigator.clipboard.writeText(prompt);
-                                onNotify('Wissen für KI-Assistenten kopiert.');
-                              }
+                              handleAskAiClick(item);
                             }}
-                            className="min-h-[44px] px-3.5 rounded-xl bg-[#242930] hover:bg-[#2A3038] text-[#14B8A6] hover:text-white text-xs font-semibold flex items-center gap-2 border border-white/5 active:scale-95 transition"
+                            className="min-h-[44px] px-3.5 rounded-xl bg-[#191C22] hover:bg-[#22262F] text-[#14B8A6] hover:text-white text-xs font-semibold flex items-center gap-2 border border-white/5 active:scale-95 transition cursor-pointer"
                             title="Diesen Eintrag direkt an die KI übergeben"
                           >
                             <Sparkles className="w-4 h-4" />
@@ -599,7 +615,7 @@ export const KnowledgeView: React.FC<KnowledgeViewProps> = ({
                                 onMoveKnowledge?.(activeProject.id, e.target.value, item.id);
                               }
                             }}
-                            className="w-full min-h-[44px] px-3.5 py-2 rounded-xl text-xs bg-[#181A1B] text-white border border-white/10 focus:outline-none focus:border-[#14B8A6] cursor-pointer"
+                            className="w-full min-h-[44px] px-3.5 py-2 rounded-xl text-xs bg-[#111317] text-[#F1F5F9] border border-white/10 focus:outline-none focus:border-[#14B8A6] cursor-pointer"
                           >
                             <option value="" disabled>
                               In anderes Projekt verschieben...
@@ -621,12 +637,12 @@ export const KnowledgeView: React.FC<KnowledgeViewProps> = ({
                           <div
                             key={att.id}
                             onClick={() => onPreviewAttachment(att)}
-                            className="min-h-[48px] p-3 rounded-xl bg-[#242930] hover:bg-[#2A3038] border border-white/5 flex items-center justify-between text-xs cursor-pointer active:scale-[0.99] transition"
+                            className="min-h-[48px] p-3 rounded-xl bg-[#191C22] hover:bg-[#22262F] border border-white/5 flex items-center justify-between text-xs cursor-pointer active:scale-[0.99] transition"
                           >
-                            <span className="text-white font-medium truncate">
+                            <span className="text-[#F1F5F9] font-medium truncate">
                               {att.name}
                             </span>
-                            <span className="text-xs font-semibold text-[#14B8A6] ml-2 shrink-0">
+                            <span className="text-xs font-semibold text-[#14B8A6] ml-2 shrink-0 font-mono">
                               Öffnen / Maß-Pin ({att.size})
                             </span>
                           </div>
@@ -641,11 +657,11 @@ export const KnowledgeView: React.FC<KnowledgeViewProps> = ({
       </div>
 
       {/* BEREICHS-EINSTELLUNGEN */}
-      <div className="pt-2 border-t border-white/5">
+      <div className="pt-2">
         <button
           type="button"
           onClick={() => onOpenSettings?.()}
-          className="w-full min-h-[44px] py-2.5 px-4 rounded-xl text-xs font-semibold text-[#9CA3AF] hover:text-white bg-[#242930]/60 hover:bg-[#242930] border border-white/5 flex items-center justify-center gap-2 active:scale-95 transition cursor-pointer"
+          className="w-full min-h-[44px] py-2.5 px-4 rounded-xl text-xs font-semibold text-[#94A3B8] hover:text-white bg-[#191C22]/60 hover:bg-[#191C22] border border-white/5 flex items-center justify-center gap-2 active:scale-95 transition cursor-pointer"
         >
           <Settings className="w-4 h-4 text-[#14B8A6]" />
           <span>Wissen-Einstellungen &amp; Sprachausgabe</span>

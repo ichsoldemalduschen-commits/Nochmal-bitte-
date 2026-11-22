@@ -7,7 +7,6 @@ import {
   Crosshair,
   Edit3,
   Eye,
-  MoreHorizontal,
   Plus,
   RotateCcw,
   Settings,
@@ -43,6 +42,8 @@ interface TasksViewProps {
   onUpdatePrefs: (patch: Partial<BanditUserPreferences>) => void;
   onOpenSettings?: () => void;
   onNotify: (msg: string) => void;
+  onRegisterUndo?: (action: { message: string; undo: () => void }) => void;
+  onConfigMissing?: (msg: string) => void;
 }
 
 export const TasksView: React.FC<TasksViewProps> = ({
@@ -64,7 +65,9 @@ export const TasksView: React.FC<TasksViewProps> = ({
   onResetChecklistForDeployment,
   onUpdatePrefs,
   onOpenSettings,
-  onNotify
+  onNotify,
+  onRegisterUndo,
+  onConfigMissing: _onConfigMissing
 }) => {
   const [isAddingTask, setIsAddingTask] = useState(false);
   const [newTaskTitle, setNewTaskTitle] = useState('');
@@ -73,25 +76,14 @@ export const TasksView: React.FC<TasksViewProps> = ({
   const [editTaskTitle, setEditTaskTitle] = useState('');
   const [editTaskGroup, setEditTaskGroup] = useState('');
   const [singleFocusActive, setSingleFocusActive] = useState(false);
-  const [selectedAssemblyGroup, setSelectedAssemblyGroup] = useState<string>('ALL');
+  const [selectedAssemblyGroup] = useState<string>('ALL');
   const [expandedActionCards, setExpandedActionCards] = useState<Record<string, boolean>>({});
+  const [glowTaskId, setGlowTaskId] = useState<string | null>(null);
 
   const toggleActionCard = (id: string) => {
     triggerHapticFeedback(10);
     setExpandedActionCards((prev) => ({ ...prev, [id]: !prev[id] }));
   };
-
-  const assemblyGroups = useMemo(() => {
-    const groups = new Set<string>();
-    activeProject.tasks.forEach((t) => {
-      if (t.assemblyGroup) groups.add(t.assemblyGroup);
-      else {
-        const bracketMatch = t.title.match(/^\[(.*?)\]/);
-        if (bracketMatch) groups.add(bracketMatch[1]);
-      }
-    });
-    return Array.from(groups);
-  }, [activeProject]);
 
   const sortedTasks = useMemo(() => {
     const filtered = [...activeProject.tasks]
@@ -106,30 +98,74 @@ export const TasksView: React.FC<TasksViewProps> = ({
         }
         return true;
       })
-      .sort((a, b) => Number(a.completed) - Number(b.completed));
+      .sort((a, b) => {
+        // While glowing, keep item at its current position to prevent jump
+        if (a.id === glowTaskId) return -1;
+        if (b.id === glowTaskId) return 1;
+        return Number(a.completed) - Number(b.completed);
+      });
 
     if (prefs.adhdMasterEnabled && prefs.adhdSingleTaskMode && singleFocusActive) {
       const nextOpen = filtered.find((t) => !t.completed);
       return nextOpen ? [nextOpen] : filtered.slice(0, 1);
     }
     return filtered;
-  }, [activeProject, searchQuery, selectedAssemblyGroup, prefs, singleFocusActive]);
+  }, [activeProject, searchQuery, selectedAssemblyGroup, prefs, singleFocusActive, glowTaskId]);
+
+  const handleSoftToggle = (e: React.MouseEvent, task: TaskItem) => {
+    e.stopPropagation();
+    triggerHapticFeedback([15, 40, 20]);
+
+    if (!task.completed) {
+      // 400-500ms soft glow before re-sorting
+      setGlowTaskId(task.id);
+      setTimeout(() => {
+        onToggleTask(activeProject.id, task.id);
+        setGlowTaskId(null);
+        const bracketMatch = task.title.match(/^\[(.*?)\]\s*(.*)$/);
+        const titleToDisplay = bracketMatch ? bracketMatch[2] : task.title;
+        onRegisterUndo?.({
+          message: `„${titleToDisplay}“ erledigt`,
+          undo: () => onToggleTask(activeProject.id, task.id)
+        });
+      }, 450);
+    } else {
+      onToggleTask(activeProject.id, task.id);
+      const bracketMatch = task.title.match(/^\[(.*?)\]\s*(.*)$/);
+      const titleToDisplay = bracketMatch ? bracketMatch[2] : task.title;
+      onRegisterUndo?.({
+        message: `„${titleToDisplay}“ wieder offen`,
+        undo: () => onToggleTask(activeProject.id, task.id)
+      });
+    }
+  };
+
+  const handleDeleteWithUndo = (task: TaskItem) => {
+    const taskBackup = { ...task };
+    onDeleteTask(activeProject.id, task.id);
+    onRegisterUndo?.({
+      message: 'Aufgabe gelöscht',
+      undo: () => {
+        onAddTask(activeProject.id, taskBackup.title, taskBackup.priority, taskBackup.estimatedMinutes);
+        onNotify('Aufgabe wiederhergestellt.');
+      }
+    });
+    onNotify('Aufgabe gelöscht.');
+  };
 
   return (
-    <section
-      className="rounded-3xl border border-white/5 p-5 space-y-4 shadow-xl transition-all"
-      style={{ backgroundColor: '#1C2026' }}
-    >
-      <div className="flex items-center justify-between gap-3">
+    <section className="space-y-3.5">
+      {/* Sektions-Kopf ohne äußeren Kasten */}
+      <div className="flex items-center justify-between gap-3 px-1">
         <div className="flex items-center gap-2.5">
           <CheckSquare
             className="w-5 h-5"
             style={{ color: themeColors.highlight }}
           />
-          <h3 className="text-base font-bold text-white tracking-wide">
+          <h3 className="text-base font-bold text-[#F1F5F9] tracking-wide">
             Tasks
           </h3>
-          <span className="text-xs font-semibold text-[#9CA3AF] px-2 py-0.5 rounded-full bg-[#242930]">
+          <span className="text-xs font-semibold text-[#94A3B8] px-2 py-0.5 rounded-full bg-[#191C22] border border-white/5 font-mono">
             {activeProject.tasks.filter((t) => !t.completed).length} offen
           </span>
         </div>
@@ -138,10 +174,10 @@ export const TasksView: React.FC<TasksViewProps> = ({
           <button
             type="button"
             onClick={() => setIsAddingTask((v) => !v)}
-            className={`w-11 h-11 min-h-[44px] min-w-[44px] rounded-2xl border flex items-center justify-center transition active:scale-95 ${
+            className={`w-11 h-11 min-h-[44px] min-w-[44px] rounded-2xl border flex items-center justify-center transition active:scale-95 cursor-pointer ${
               isAddingTask
                 ? 'text-white border-white/30'
-                : 'bg-[#242930] hover:bg-[#2A3038] text-white border-white/5'
+                : 'bg-[#191C22] hover:bg-[#22262F] text-white border-white/5'
             }`}
             style={isAddingTask ? { backgroundColor: themeColors.primary } : {}}
             aria-label="Aufgabe hinzufügen"
@@ -154,14 +190,12 @@ export const TasksView: React.FC<TasksViewProps> = ({
             <button
               type="button"
               onClick={() => setSingleFocusActive((s) => !s)}
-              className={`min-h-[44px] px-3.5 rounded-xl text-xs font-bold border flex items-center gap-1.5 transition active:scale-95 ${
+              className={`min-h-[44px] px-3.5 rounded-xl text-xs font-bold border flex items-center gap-1.5 transition active:scale-95 cursor-pointer ${
                 singleFocusActive
                   ? 'text-white border-white/30'
-                  : 'bg-[#242930] text-[#9CA3AF] border-white/5'
+                  : 'bg-[#191C22] text-[#94A3B8] border-white/5'
               }`}
-              style={
-                singleFocusActive ? { backgroundColor: themeColors.primary } : {}
-              }
+              style={singleFocusActive ? { backgroundColor: themeColors.primary } : {}}
               title="Blendet alle Punkte bis auf die nächste einzelne Aufgabe aus"
             >
               <Eye className="w-3.5 h-3.5" />
@@ -177,7 +211,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
                 else if (onResetChecklistForDeployment)
                   onResetChecklistForDeployment(activeProject.id);
               }}
-              className="min-h-[44px] px-3.5 rounded-xl bg-[#242930] text-xs font-semibold text-[#9CA3AF] hover:text-white border border-white/5 flex items-center gap-1.5 active:scale-95 transition"
+              className="min-h-[44px] px-3.5 rounded-xl bg-[#191C22] text-xs font-semibold text-[#94A3B8] hover:text-white border border-white/5 flex items-center gap-1.5 active:scale-95 transition cursor-pointer"
               title="Erledigte Aufgaben zurücksetzen"
             >
               <RotateCcw className="w-3.5 h-3.5" />
@@ -202,7 +236,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
             setIsAddingTask(false);
             onNotify('Aufgabe hinzugefügt.');
           }}
-          className="p-4 rounded-2xl bg-[#242930] border border-white/10 space-y-3 shadow-inner"
+          className="p-4 rounded-2xl bg-[#191C22] border border-white/10 space-y-3 shadow-lg"
         >
           <div className="flex flex-col sm:flex-row gap-2">
             <input
@@ -211,14 +245,14 @@ export const TasksView: React.FC<TasksViewProps> = ({
               value={newTaskTitle}
               onChange={(e) => setNewTaskTitle(e.target.value)}
               placeholder="Neue Aufgabe beschreiben..."
-              className="flex-1 min-h-[44px] px-3.5 py-2.5 rounded-xl text-sm bg-[#1C2026] text-white border border-white/10 placeholder-[#9CA3AF] focus:outline-none focus:border-white/20"
+              className="flex-1 min-h-[44px] px-3.5 py-2.5 rounded-xl text-sm bg-[#111317] text-[#F1F5F9] border border-white/10 placeholder-[#94A3B8] focus:outline-none focus:border-white/20"
             />
             <input
               type="text"
               value={newTaskGroup}
               onChange={(e) => setNewTaskGroup(e.target.value)}
               placeholder="Baugruppe (optional)"
-              className="sm:w-44 min-h-[44px] px-3.5 py-2.5 rounded-xl text-sm bg-[#1C2026] text-white border border-white/10 placeholder-[#9CA3AF] focus:outline-none focus:border-white/20"
+              className="sm:w-44 min-h-[44px] px-3.5 py-2.5 rounded-xl text-sm bg-[#111317] text-[#F1F5F9] border border-white/10 placeholder-[#94A3B8] focus:outline-none focus:border-white/20"
             />
           </div>
           <div className="flex justify-end gap-2 pt-1">
@@ -229,14 +263,14 @@ export const TasksView: React.FC<TasksViewProps> = ({
                 setNewTaskTitle('');
                 setNewTaskGroup('');
               }}
-              className="min-h-[44px] px-4 rounded-xl text-xs font-semibold text-[#9CA3AF] hover:text-white transition"
+              className="min-h-[44px] px-4 rounded-xl text-xs font-semibold text-[#94A3B8] hover:text-white transition cursor-pointer"
             >
               Abbrechen
             </button>
             <button
               type="submit"
               disabled={!newTaskTitle.trim()}
-              className="min-h-[44px] px-5 rounded-xl text-xs font-bold text-white shadow-md active:scale-95 transition disabled:opacity-40"
+              className="min-h-[44px] px-5 rounded-xl text-xs font-bold text-white shadow-md active:scale-95 transition disabled:opacity-40 cursor-pointer"
               style={{ backgroundColor: themeColors.primary }}
             >
               Speichern
@@ -245,11 +279,13 @@ export const TasksView: React.FC<TasksViewProps> = ({
         </form>
       )}
 
-      {/* Tasks-Liste */}
-      <div className="space-y-2">
+      {/* Tasks-Liste: Zwei-Zonen-Karten direkt auf dem Canvas */}
+      <div className="space-y-2.5">
         {sortedTasks.map((task) => {
           const isAnchored = prefs.activeFocusTaskId === task.id;
           const isTrayOpen = !!expandedActionCards[task.id];
+          const isGlowing = glowTaskId === task.id;
+          const isEffectivelyCompleted = task.completed || isGlowing;
           const bracketMatch = task.title.match(/^\[(.*?)\]\s*(.*)$/);
           const displayTitle = bracketMatch ? bracketMatch[2] : task.title;
           const displayGroup = task.assemblyGroup || (bracketMatch ? bracketMatch[1] : null);
@@ -258,117 +294,118 @@ export const TasksView: React.FC<TasksViewProps> = ({
             <div
               key={task.id}
               id={`item-card-${task.id}`}
-              className={`rounded-2xl border transition-all duration-200 overflow-hidden shadow-sm ${
-                task.completed ? 'opacity-75' : ''
+              className={`rounded-2xl border transition-all duration-300 overflow-hidden shadow-sm ${
+                task.completed && !isGlowing ? 'opacity-65' : ''
               }`}
               style={{
-                backgroundColor: '#242930',
-                borderColor:
-                  isAnchored || highlightedItemId === task.id
-                    ? themeColors.highlight
-                    : 'rgba(255,255,255,0.05)'
+                backgroundColor: '#191C22',
+                borderColor: isAnchored || highlightedItemId === task.id
+                  ? themeColors.highlight
+                  : isGlowing
+                  ? `${themeColors.primary}99`
+                  : 'rgba(255,255,255,0.04)',
+                boxShadow: isGlowing
+                  ? `0 0 16px ${themeColors.primary}44`
+                  : undefined
               }}
             >
-              {/* Karten-Ruhezustand */}
-              <div className="p-4 flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2 flex-1 min-w-0">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      triggerHapticFeedback([15, 40, 20]);
-                      onToggleTask(activeProject.id, task.id);
-                    }}
-                    className="min-w-[44px] min-h-[44px] flex items-center justify-center -ml-2 shrink-0 cursor-pointer"
-                    aria-label={task.completed ? 'Als unerledigt markieren' : 'Als erledigt markieren'}
-                  >
-                    <div
-                      className="w-5 h-5 rounded-md flex items-center justify-center border transition-all active:scale-90"
-                      style={{
-                        backgroundColor: task.completed
-                          ? `${themeColors.primary}33`
-                          : 'rgba(28,32,38,0.8)',
-                        borderColor: task.completed ? themeColors.highlight : '#6B7280'
-                      }}
-                    >
-                      {task.completed && (
-                        <Check className="w-3.5 h-3.5 text-white stroke-[2.5]" />
-                      )}
-                    </div>
-                  </button>
-
-                  <div
-                    onClick={() => toggleActionCard(task.id)}
-                    className="flex-1 min-w-0 cursor-pointer select-none"
-                  >
-                    <span
-                      className={`text-base font-semibold leading-snug block break-words transition-colors ${
-                        task.completed
-                          ? 'line-through text-white/50 decoration-white/30'
-                          : 'text-white'
-                      }`}
-                    >
-                      {displayTitle}
-                    </span>
-
-                    <div className="flex items-center gap-2 mt-1 flex-wrap">
-                      {task.aiTouched && (
-                        <span className="inline-flex items-center gap-1 text-xs font-bold text-red-300 bg-red-500/20 px-2 py-0.5 rounded-md border border-red-500/30">
-                          <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
-                          KI-Vorschlag
-                        </span>
-                      )}
-
-                      {displayGroup && (
-                        <span className="text-xs font-medium text-[#9CA3AF] px-2 py-0.5 rounded-md bg-[#1C2026]">
-                          {displayGroup}
-                        </span>
-                      )}
-
-                      {prefs.adhdMasterEnabled &&
-                        prefs.adhdTimeBufferAndHaptics &&
-                        task.estimatedMinutes && (
-                          <span className="text-xs font-mono text-[#9CA3AF]">
-                            {Math.round(task.estimatedMinutes * 1.25)} Min.
-                          </span>
-                        )}
-                    </div>
-                  </div>
-                </div>
-
+              {/* Karten-Ruhezustand: ZWEI ZONEN OHNE ••• BUTTON */}
+              <div className="p-3.5 flex items-start gap-1">
+                {/* ZONE 1 (LINKS): Striktes Abhaken (mind. 44x44 Touch-Fläche mit stopPropagation) */}
                 <button
                   type="button"
-                  onClick={() => toggleActionCard(task.id)}
-                  className="min-w-[44px] min-h-[44px] flex items-center justify-center -mr-2 rounded-xl text-[#9CA3AF] hover:text-white hover:bg-white/5 active:scale-95 transition cursor-pointer shrink-0"
-                  aria-label="Aktionsmenü öffnen"
+                  onClick={(e) => handleSoftToggle(e, task)}
+                  className="min-w-[44px] min-h-[44px] w-11 h-11 flex items-center justify-center -ml-1 shrink-0 cursor-pointer"
+                  aria-label={task.completed ? 'Als unerledigt markieren' : 'Als erledigt markieren'}
                 >
-                  <MoreHorizontal className="w-5 h-5" />
+                  <div
+                    className="w-5 h-5 rounded-md flex items-center justify-center border transition-all duration-300 active:scale-90"
+                    style={{
+                      backgroundColor: isEffectivelyCompleted
+                        ? `${themeColors.primary}33`
+                        : 'rgba(17,19,23,0.8)',
+                      borderColor: isEffectivelyCompleted
+                        ? themeColors.highlight
+                        : '#6B7280',
+                      boxShadow: isGlowing
+                        ? `0 0 8px ${themeColors.highlight}`
+                        : undefined
+                    }}
+                  >
+                    {isEffectivelyCompleted && (
+                      <Check className="w-3.5 h-3.5 text-white stroke-[2.5] animate-fadeIn" />
+                    )}
+                  </div>
                 </button>
+
+                {/* ZONE 2 (REST DER KARTE): Volle Breite für Titel & In-Place Aufklappen */}
+                <div
+                  onClick={() => toggleActionCard(task.id)}
+                  className="flex-1 min-w-0 pt-2.5 pb-1 pr-1 cursor-pointer select-none"
+                >
+                  <span
+                    className={`text-base font-semibold leading-snug block break-words transition-colors duration-300 ${
+                      task.completed && !isGlowing
+                        ? 'line-through text-[#94A3B8]/60 decoration-[#94A3B8]/40'
+                        : 'text-[#F1F5F9]'
+                    }`}
+                  >
+                    {displayTitle}
+                  </span>
+
+                  <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                    {/* KI-Hinweis: Warmes Honig-Gold #E5A93C ohne grelles Alarm-Rot */}
+                    {task.aiTouched && (
+                      <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#E5A93C] bg-[#E5A93C]/10 px-2 py-0.5 rounded-md border border-[#E5A93C]/20">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#E5A93C] animate-pulse" />
+                        KI-Hinweis
+                      </span>
+                    )}
+
+                    {displayGroup && (
+                      <span className="text-xs font-medium text-[#94A3B8] px-2 py-0.5 rounded-md bg-[#111317]">
+                        {displayGroup}
+                      </span>
+                    )}
+
+                    {task.estimatedMinutes && (
+                      <span className="text-xs font-mono text-[#94A3B8]">
+                        {Math.round(
+                          task.estimatedMinutes *
+                            (prefs.adhdMasterEnabled && prefs.adhdTimeBufferAndHaptics ? 1.25 : 1)
+                        )}{' '}
+                        Min.
+                      </span>
+                    )}
+                  </div>
+                </div>
               </div>
 
-              {/* Ausklappbare Aktionsleiste */}
+              {/* In-Place aufgeklappter Bereich (Kontext-Infos + Kompakte Aktionsleiste) */}
               {isTrayOpen && (
-                <div className="px-4 pb-4 pt-3 border-t border-white/5 space-y-2.5 bg-[#1C2026]/80 animate-fadeIn">
+                <div className="px-4 pb-4 pt-2.5 border-t border-white/5 space-y-3 bg-[#111317]/80 animate-fadeIn">
+                  {/* Inline-Bearbeitung */}
                   {editingTaskId === task.id ? (
-                    <div className="p-3 rounded-2xl bg-[#242930] border border-white/10 space-y-2.5">
-                      <div className="text-xs font-bold text-white">Aufgabe bearbeiten</div>
+                    <div className="p-3 rounded-2xl bg-[#191C22] border border-white/10 space-y-2.5">
+                      <div className="text-xs font-bold text-[#F1F5F9]">Aufgabe bearbeiten</div>
                       <input
                         type="text"
                         value={editTaskTitle}
                         onChange={(e) => setEditTaskTitle(e.target.value)}
-                        className="w-full min-h-[44px] px-3.5 py-2 rounded-xl text-sm bg-[#1C2026] text-white border border-white/10 focus:outline-none focus:border-[#14B8A6]"
+                        className="w-full min-h-[44px] px-3.5 py-2 rounded-xl text-sm bg-[#111317] text-[#F1F5F9] border border-white/10 focus:outline-none focus:border-[#14B8A6]"
                       />
                       <input
                         type="text"
                         value={editTaskGroup}
                         onChange={(e) => setEditTaskGroup(e.target.value)}
                         placeholder="Baugruppe (optional)"
-                        className="w-full min-h-[44px] px-3.5 py-2 rounded-xl text-xs bg-[#1C2026] text-white border border-white/10 focus:outline-none focus:border-[#14B8A6]"
+                        className="w-full min-h-[44px] px-3.5 py-2 rounded-xl text-xs bg-[#111317] text-[#F1F5F9] border border-white/10 focus:outline-none focus:border-[#14B8A6]"
                       />
                       <div className="flex justify-end gap-2 pt-1">
                         <button
                           type="button"
                           onClick={() => setEditingTaskId(null)}
-                          className="min-h-[44px] px-4 rounded-xl text-xs font-semibold text-[#9CA3AF] hover:text-white"
+                          className="min-h-[44px] px-4 rounded-xl text-xs font-semibold text-[#94A3B8] hover:text-white cursor-pointer"
                         >
                           Abbrechen
                         </button>
@@ -386,7 +423,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
                             setEditingTaskId(null);
                             onNotify('Aufgabe aktualisiert.');
                           }}
-                          className="min-h-[44px] px-4 rounded-xl text-xs font-bold text-white shadow-md active:scale-95 transition"
+                          className="min-h-[44px] px-4 rounded-xl text-xs font-bold text-white shadow-md active:scale-95 transition cursor-pointer"
                           style={{ backgroundColor: themeColors.primary }}
                         >
                           Speichern
@@ -395,6 +432,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
                     </div>
                   ) : null}
 
+                  {/* KI-Bestätigung: Dezent in Honig-Gold #E5A93C */}
                   {task.aiTouched && (
                     <button
                       type="button"
@@ -402,13 +440,14 @@ export const TasksView: React.FC<TasksViewProps> = ({
                         onConfirmRedDot(activeProject.id, 'tasks', task.id);
                         toggleActionCard(task.id);
                       }}
-                      className="w-full min-h-[44px] px-4 rounded-xl text-xs font-bold bg-red-500/20 hover:bg-red-500/30 text-red-200 border border-red-500/30 flex items-center justify-center gap-2 active:scale-95 transition"
+                      className="w-full min-h-[44px] px-4 rounded-xl text-xs font-bold bg-[#E5A93C]/15 hover:bg-[#E5A93C]/25 text-[#E5A93C] border border-[#E5A93C]/30 flex items-center justify-center gap-2 active:scale-95 transition cursor-pointer"
                     >
-                      <span className="w-2 h-2 rounded-full bg-red-400" />
-                      <span>KI-Änderung bestätigen &amp; Punkt schließen</span>
+                      <span className="w-2 h-2 rounded-full bg-[#E5A93C]" />
+                      <span>KI-Änderung prüfen &amp; bestätigen</span>
                     </button>
                   )}
 
+                  {/* Kompakte Aktionsleiste (Touch-Ziele >= 44px) */}
                   <div className="grid grid-cols-2 gap-2">
                     <button
                       type="button"
@@ -419,7 +458,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
                         triggerHapticFeedback(10);
                         onNotify('Aufgabe in die Zwischenablage kopiert.');
                       }}
-                      className="min-h-[44px] px-3.5 rounded-xl text-xs font-semibold bg-[#242930] hover:bg-[#2A3038] text-white hover:text-[#14B8A6] border border-white/5 flex items-center justify-center gap-2 active:scale-95 transition"
+                      className="min-h-[44px] px-3.5 rounded-xl text-xs font-semibold bg-[#191C22] hover:bg-[#22262F] text-[#F1F5F9] hover:text-[#14B8A6] border border-white/5 flex items-center justify-center gap-2 active:scale-95 transition cursor-pointer"
                     >
                       <Copy className="w-4 h-4 text-[#14B8A6]" />
                       <span>Kopieren</span>
@@ -433,7 +472,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
                         setEditTaskGroup(task.assemblyGroup || (m ? m[1] : ''));
                         setEditingTaskId(task.id);
                       }}
-                      className="min-h-[44px] px-3.5 rounded-xl text-xs font-semibold bg-[#242930] hover:bg-[#2A3038] text-white hover:text-[#14B8A6] border border-white/5 flex items-center justify-center gap-2 active:scale-95 transition"
+                      className="min-h-[44px] px-3.5 rounded-xl text-xs font-semibold bg-[#191C22] hover:bg-[#22262F] text-[#F1F5F9] hover:text-[#14B8A6] border border-white/5 flex items-center justify-center gap-2 active:scale-95 transition cursor-pointer"
                     >
                       <Edit3 className="w-4 h-4 text-[#14B8A6]" />
                       <span>Bearbeiten</span>
@@ -447,7 +486,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
                           '_blank'
                         );
                       }}
-                      className="min-h-[44px] px-3.5 rounded-xl text-xs font-semibold bg-[#242930] hover:bg-[#2A3038] text-white hover:text-[#14B8A6] border border-white/5 flex items-center justify-center gap-2 active:scale-95 transition"
+                      className="min-h-[44px] px-3.5 rounded-xl text-xs font-semibold bg-[#191C22] hover:bg-[#22262F] text-[#F1F5F9] hover:text-[#14B8A6] border border-white/5 flex items-center justify-center gap-2 active:scale-95 transition cursor-pointer"
                     >
                       <Calendar className="w-4 h-4 text-[#14B8A6]" />
                       <span>Google Kalender</span>
@@ -472,7 +511,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
                           toggleActionCard(task.id);
                           onNotify('In Einkaufswagen übernommen.');
                         }}
-                        className="min-h-[44px] px-3.5 rounded-xl text-xs font-semibold bg-[#242930] hover:bg-[#2A3038] text-white border border-white/5 flex items-center justify-center gap-2 active:scale-95 transition"
+                        className="min-h-[44px] px-3.5 rounded-xl text-xs font-semibold bg-[#191C22] hover:bg-[#22262F] text-[#F1F5F9] border border-white/5 flex items-center justify-center gap-2 active:scale-95 transition cursor-pointer"
                       >
                         <ShoppingCart className="w-4 h-4 text-[#14B8A6]" />
                         <span>In Einkaufswagen</span>
@@ -492,14 +531,12 @@ export const TasksView: React.FC<TasksViewProps> = ({
                           });
                           toggleActionCard(task.id);
                         }}
-                        className={`min-h-[44px] px-3.5 rounded-xl text-xs font-semibold border flex items-center justify-center gap-2 active:scale-95 transition ${
+                        className={`min-h-[44px] px-3.5 rounded-xl text-xs font-semibold border flex items-center justify-center gap-2 active:scale-95 transition cursor-pointer ${
                           isAnchored
                             ? 'text-white border-white/20'
-                            : 'bg-[#242930] text-[#9CA3AF] hover:text-white border-white/5'
+                            : 'bg-[#191C22] text-[#94A3B8] hover:text-white border-white/5'
                         }`}
-                        style={
-                          isAnchored ? { backgroundColor: themeColors.primary } : {}
-                        }
+                        style={isAnchored ? { backgroundColor: themeColors.primary } : {}}
                       >
                         <Crosshair className="w-4 h-4" />
                         <span>{isAnchored ? 'Fokus lösen' : 'Als Fokus anpinnen'}</span>
@@ -508,17 +545,15 @@ export const TasksView: React.FC<TasksViewProps> = ({
 
                     <button
                       type="button"
-                      onClick={() => {
-                        onDeleteTask(activeProject.id, task.id);
-                        onNotify('Aufgabe gelöscht.');
-                      }}
-                      className="col-span-2 min-h-[44px] px-3.5 rounded-xl text-xs font-semibold bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 flex items-center justify-center gap-2 active:scale-95 transition"
+                      onClick={() => handleDeleteWithUndo(task)}
+                      className="col-span-2 min-h-[44px] px-3.5 rounded-xl text-xs font-semibold bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 flex items-center justify-center gap-2 active:scale-95 transition cursor-pointer"
                     >
                       <Trash2 className="w-4 h-4" />
                       <span>Löschen</span>
                     </button>
                   </div>
 
+                  {/* Projektverschiebung */}
                   {allProjects.filter((p) => !p.archived && p.id !== activeProject.id).length > 0 && (
                     <div className="pt-1.5 border-t border-white/5">
                       <select
@@ -529,7 +564,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
                             toggleActionCard(task.id);
                           }
                         }}
-                        className="w-full min-h-[44px] px-3.5 py-2 rounded-xl text-xs bg-[#181A1B] text-white border border-white/10 focus:outline-none focus:border-[#14B8A6] cursor-pointer"
+                        className="w-full min-h-[44px] px-3.5 py-2 rounded-xl text-xs bg-[#111317] text-[#F1F5F9] border border-white/10 focus:outline-none focus:border-[#14B8A6] cursor-pointer"
                       >
                         <option value="" disabled>
                           In anderes Projekt verschieben...
@@ -552,11 +587,11 @@ export const TasksView: React.FC<TasksViewProps> = ({
       </div>
 
       {/* BEREICHS-EINSTELLUNGEN */}
-      <div className="pt-2 border-t border-white/5">
+      <div className="pt-2">
         <button
           type="button"
           onClick={() => onOpenSettings?.()}
-          className="w-full min-h-[44px] py-2.5 px-4 rounded-xl text-xs font-semibold text-[#9CA3AF] hover:text-white bg-[#242930]/60 hover:bg-[#242930] border border-white/5 flex items-center justify-center gap-2 active:scale-95 transition cursor-pointer"
+          className="w-full min-h-[44px] py-2.5 px-4 rounded-xl text-xs font-semibold text-[#94A3B8] hover:text-white bg-[#191C22]/60 hover:bg-[#191C22] border border-white/5 flex items-center justify-center gap-2 active:scale-95 transition cursor-pointer"
         >
           <Settings className="w-4 h-4 text-[#14B8A6]" />
           <span>Aufgaben-Einstellungen &amp; ADHS</span>

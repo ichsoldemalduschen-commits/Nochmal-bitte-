@@ -1025,7 +1025,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#121417] flex justify-center">
+    <div className="min-h-screen bg-[#111317] flex justify-center">
       <div
         className="w-full max-w-[440px] min-h-screen flex flex-col relative sm:border-x sm:border-white/5 sm:shadow-2xl"
         style={{ backgroundColor: THEME.bgMain, color: THEME.textMain }}
@@ -1044,6 +1044,7 @@ export default function App() {
             activeProject={activeProject}
             activeTab={activeProjectTab}
             highlightedItemId={highlightedItemId}
+            userApiKey={state.userApiKey}
             onSwitchDomain={(d) => {
               setActiveDomain(d);
               const firstInDomain = state.projects.find(

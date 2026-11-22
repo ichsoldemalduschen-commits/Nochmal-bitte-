@@ -47,27 +47,27 @@ export const BRAND_CONFIG: BrandConfig = {
   defaultProjectId: 'proj-foodtruck',
   defaultWorkspaceId: 'pizza-bandit-main',
   defaultDomain: 'arbeit',
-  defaultAccentColor: '#0A9396',
+  defaultAccentColor: '#0D9488',
   defaultHighlightColor: '#14B8A6',
   domainColors: {
     business: {
-      primary: '#0A9396',
+      primary: '#0D9488',
       highlight: '#14B8A6',
       label: 'ARBEIT / BETRIEB'
     },
     private: {
-      primary: '#4F46E5',
-      highlight: '#818CF8',
+      primary: '#8B7EC8',
+      highlight: '#A498DA',
       label: 'PRIVAT'
     },
     arbeit: {
-      primary: '#0A9396',
+      primary: '#0D9488',
       highlight: '#14B8A6',
       label: 'ARBEIT / BETRIEB'
     },
     privat: {
-      primary: '#4F46E5',
-      highlight: '#818CF8',
+      primary: '#8B7EC8',
+      highlight: '#A498DA',
       label: 'PRIVAT'
     }
   },
@@ -79,7 +79,7 @@ export const BRAND_CONFIG: BrandConfig = {
       domain: 'business',
       lifecycle: 'permanent',
       businessDomain: 'business',
-      accentColor: '#0A9396',
+      accentColor: '#0D9488',
       highlightColor: '#14B8A6',
       domainLabel: 'ARBEIT / BETRIEB',
       customLogoUrl: './raccoon-logo.png',
@@ -95,8 +95,8 @@ export const BRAND_CONFIG: BrandConfig = {
       domain: 'business',
       lifecycle: 'project',
       businessDomain: 'business',
-      accentColor: '#D97706',
-      highlightColor: '#F59E0B',
+      accentColor: '#D96B43',
+      highlightColor: '#E28562',
       domainLabel: 'ARBEIT / BAUSTELLE',
       routingKeywords:
         /(baustelle\s*bäckerei|backstube.*umbau|umbau.*bäckerei|decke|tiefgrund|lüftung|abluft|wickelfalz|trockenbau|fliesen|wände|baustelle)/i,
@@ -110,8 +110,8 @@ export const BRAND_CONFIG: BrandConfig = {
       domain: 'private',
       lifecycle: 'permanent',
       businessDomain: 'private',
-      accentColor: '#4F46E5',
-      highlightColor: '#818CF8',
+      accentColor: '#8B7EC8',
+      highlightColor: '#A498DA',
       domainLabel: 'PRIVAT',
       routingKeywords: /(smart\s*home|zigbee|proxmox|home\s*assistant|sensor|vlan)/i,
       systemPromptContext: 'Proxmox, Zigbee, Home Assistant, Netzwerk und Smarthome-Infrastruktur.'
@@ -123,8 +123,8 @@ export const BRAND_CONFIG: BrandConfig = {
       domain: 'private',
       lifecycle: 'permanent',
       businessDomain: 'private',
-      accentColor: '#10B981',
-      highlightColor: '#34D399',
+      accentColor: '#8B7EC8',
+      highlightColor: '#A498DA',
       domainLabel: 'PRIVAT',
       routingKeywords: /(gewohnheit|routine|mobilität|training|sport)/i,
       systemPromptContext: 'Mobilität, Training, Bewegung und tägliche Routinen.'
@@ -136,8 +136,8 @@ export const BRAND_CONFIG: BrandConfig = {
       domain: 'private',
       lifecycle: 'permanent',
       businessDomain: 'private',
-      accentColor: '#8B5CF6',
-      highlightColor: '#A78BFA',
+      accentColor: '#8B7EC8',
+      highlightColor: '#A498DA',
       domainLabel: 'PRIVAT',
       routingKeywords: /(privat|alltag|haushalt|steuer|auto|wochenende|familie)/i,
       systemPromptContext: 'Alltag, Steuern, Behörden, Auto und persönliche Erledigungen.'
