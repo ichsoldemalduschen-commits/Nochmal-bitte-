@@ -25,6 +25,7 @@ import {
   saveUserPrefs,
   triggerHapticFeedback
 } from '../services/aiRouter';
+import { ZentraleSectionId } from './BackofficeWorkspace';
 import {
   NavigationDrawer,
   FrontHeader,
@@ -101,7 +102,7 @@ interface FrontWorkspaceProps {
   onMoveKnowledge?: (fromProjectId: string, toProjectId: string, itemId: string) => void;
   onUpdateProjectMeta: (projectId: string, patch: CustomMeta) => void;
   onRecordEventSale: (entry: EventSalesLog) => void;
-  onOpenAddonsBackoffice: () => void;
+  onOpenAddonsBackoffice: (section?: ZentraleSectionId) => void;
   onNotify: (msg: string) => void;
 }
 
@@ -160,7 +161,7 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
   const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Zentraler Honig-Gold-Hinweis-Toast State (#E5A93C)
-  const [configNotice, setConfigNotice] = useState<{ message: string; actionLabel: string } | null>(null);
+  const [configNotice, setConfigNotice] = useState<{ message: string; actionLabel: string; section?: ZentraleSectionId } | null>(null);
   const configNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const touchStartXRef = useRef<number | null>(null);
@@ -176,10 +177,10 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
     }, 4000);
   };
 
-  const showConfigNotice = (message: string, actionLabel: string = 'Zentrale') => {
+  const showConfigNotice = (message: string, actionLabel: string = 'Zentrale', section?: ZentraleSectionId) => {
     if (configNoticeTimerRef.current) clearTimeout(configNoticeTimerRef.current);
     triggerHapticFeedback([20, 30]);
-    setConfigNotice({ message, actionLabel });
+    setConfigNotice({ message, actionLabel, section });
     configNoticeTimerRef.current = setTimeout(() => {
       setConfigNotice(null);
     }, 4500);
@@ -347,7 +348,7 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
             type="button"
             onClick={() => {
               setConfigNotice(null);
-              onOpenAddonsBackoffice();
+              onOpenAddonsBackoffice(configNotice.section);
             }}
             className="min-h-[44px] px-3.5 rounded-xl text-xs font-bold text-[#111317] shrink-0 active:scale-95 transition cursor-pointer flex items-center justify-center shadow-sm"
             style={{ backgroundColor: '#E5A93C' }}
@@ -507,10 +508,10 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
               onResetChecklist={onResetChecklist}
               onResetChecklistForDeployment={onResetChecklistForDeployment}
               onUpdatePrefs={updatePrefs}
-              onOpenSettings={onOpenAddonsBackoffice}
+              onOpenSettings={() => onOpenAddonsBackoffice('focus')}
               onNotify={onNotify}
               onRegisterUndo={handleRegisterUndo}
-              onConfigMissing={showConfigNotice}
+              onConfigMissing={(msg) => showConfigNotice(msg, 'Zentrale', 'ai')}
             />
           )}
 
@@ -528,10 +529,10 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
               onUpdateCartItem={onUpdateCartItem}
               onMoveCartItem={onMoveCartItem}
               onConfirmRedDot={onConfirmRedDot}
-              onOpenSettings={onOpenAddonsBackoffice}
+              onOpenSettings={() => onOpenAddonsBackoffice('projects')}
               onNotify={onNotify}
               onRegisterUndo={handleRegisterUndo}
-              onConfigMissing={showConfigNotice}
+              onConfigMissing={(msg) => showConfigNotice(msg, 'Zentrale', 'ai')}
             />
           )}
 
@@ -555,14 +556,14 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
               onConfirmRedDot={onConfirmRedDot}
               onMoveKnowledge={onMoveKnowledge}
               onSetActiveAudioGuideExp={setActiveAudioGuideExp}
-              onOpenSettings={onOpenAddonsBackoffice}
+              onOpenSettings={() => onOpenAddonsBackoffice('projects')}
               onAskAi={(prompt) => {
                 navigator.clipboard?.writeText(prompt);
                 onNotify('In Zwischenablage kopiert & Deep Research geöffnet.');
                 onOpenDeepResearchModal?.();
               }}
               onNotify={onNotify}
-              onConfigMissing={showConfigNotice}
+              onConfigMissing={(msg) => showConfigNotice(msg, 'Zentrale', 'ai')}
             />
           )}
 

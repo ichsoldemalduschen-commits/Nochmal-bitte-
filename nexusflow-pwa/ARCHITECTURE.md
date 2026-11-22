@@ -50,7 +50,7 @@ Atmosphäre & Listenaufbau:
   - Beim Abhaken leuchtet der Status ca. 400–500 ms weich auf, bevor der erledigte Eintrag sanft umsortiert wird.
   - Nach jedem Abhaken oder Löschen erscheint für 4 Sekunden direkt über der unteren Leiste eine ruhige „Rückgängig“-Leiste (`min-h-[44px]`).
 - **KI-Hinweise ohne Alarm-Rot:** Hinweis-/Schultertipp-Farbe ist warmes Honig-Gold `#E5A93C`. Ersetzt jegliches Alarm-/Vorwurfs-Rot (z. B. dezentes Honig-Gold-Badge `#E5A93C` statt grellroter Flächen).
-- **Klare Hinweise bei fehlender Konfiguration:** Keine „toten“, stummen Buttons. Bei fehlendem Gemini-Key, inaktivem Sync oder fehlenden Funktionen erscheint ein zentraler, unaufdringlicher Honig-Gold-Toast (`#E5A93C`) mit direktem Pfad zur Zentrale.
+- **Klare Hinweise bei fehlender Konfiguration:** Keine „toten“, stummen Buttons. Bei fehlendem Gemini-Key, inaktivem Sync oder fehlenden Funktionen erscheint ein zentraler, unaufdringlicher Honig-Gold-Toast (`#E5A93C`) mit direktem Sprung-Link in den passenden Zentrale-Bereich (`projects`, `focus`, `ai` oder `system`).
 - **Progressive Disclosure:** Formulare, Einstellungen und Extras sind standardmäßig eingeklappt und öffnen erst auf Nutzerinteraktion.
 - **Fokus-Anker:** Der „Wo war ich gerade?"-Anker (`adhdFocusAnchor`) bleibt immer sichtbar ganz oben, solange aktiviert.
 
@@ -135,3 +135,20 @@ Die ehemalige Mono-Datei `FrontWorkspace.tsx` (> 2 500 Zeilen) ist in eigenstän
 | `front/index.ts` | Barrel-Reexport aller Module |
 
 > **Regel:** Neue Front-Features gehören in das passende Modul oder ein neues Modul unter `src/core/front/`, nicht zurück in die Shell.
+
+---
+
+## 11  Zentrale (ehemals Backoffice/Einstellungen)
+
+Die gesamte Einstellungs-Ansicht heißt für den Nutzer **„Zentrale"** (intern bleibt der Dateiname `BackofficeWorkspace.tsx` stabil). Die Zentrale ist in **4 Überbereiche** aufgeteilt, die beim Öffnen standardmäßig **alle zugeklappt** sind:
+
+| Nr | Bereich | `ZentraleSectionId` | Inhalt |
+|---|---|---|---|
+| 1 | Projekte & Werkzeuge | `projects` | Projektkarten (390px-Fix: nur Farbpunkt + voller Name + Pfeil), Bild-Tausch, Farb-Presets, Lifecycle, Domain, Module, Plugins, JSON-Export, Archiv |
+| 2 | Fokus, Bedienung & Optik | `focus` | ADHS & Fokus, Personalisierung, Tagesplaner (4 Blöcke & .ics), Cover-Display & Checks |
+| 3 | KI & Stimme „Gisela" | `ai` | Gemini API-Key & Modellwahl, Azure Speech + Gisela-Test + Offline-Fallback |
+| 4 | Daten, Backup & System | `system` | Backup/Export/Import, Vorlagen-Tresor (Blueprints), Aktenschrank, Cloud-Sync, Push, Smart Home |
+
+**Fußzeile (immer sichtbar):** Build-Stempel in `font-mono` + „Neu laden"-Button.
+
+**Deep-Link via `initialSection`:** Honig-Gold-Toasts und View-Settings-Buttons springen direkt zum passenden Bereich (`TasksView` → `focus`, `CartView`/`KnowledgeView` → `projects`, API-Key fehlt → `ai`).

@@ -12,6 +12,7 @@ import {
 import { DomainType, Project, ProjectTabId } from '../../types';
 import { BRAND_CONFIG } from '../../config/brandConfig';
 import { ProjectAvatar } from '../../components/RaccoonAvatar';
+import { ZentraleSectionId } from '../BackofficeWorkspace';
 import { ThemeColors } from './FrontHeader';
 
 interface NavigationDrawerProps {
@@ -27,7 +28,7 @@ interface NavigationDrawerProps {
   onClose: () => void;
   onOpenNewProjectModal: () => void;
   onOpenDeepResearchModal?: () => void;
-  onOpenAddonsBackoffice: () => void;
+  onOpenAddonsBackoffice: (section?: ZentraleSectionId) => void;
   isTabEnabled: (proj: Project | undefined, tab: 'tasks' | 'cart' | 'knowledge' | 'extras') => boolean;
 }
 
@@ -299,7 +300,7 @@ export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({
             style={{ backgroundColor: themeColors.primary }}
           >
             <Settings className="w-4 h-4" />
-            <span>Einstellungen, ADHS &amp; System</span>
+            <span>Zentrale</span>
           </button>
         </div>
       </div>

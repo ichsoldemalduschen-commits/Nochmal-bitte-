@@ -54,7 +54,7 @@ import {
   saveAuditSettings,
   saveAuditWatchlist
 } from './services/deepResearchAndScanner';
-import { BackofficeWorkspace } from './core/BackofficeWorkspace';
+import { BackofficeWorkspace, ZentraleSectionId } from './core/BackofficeWorkspace';
 
 interface PhotoMeasurePin {
   id: string;
@@ -79,6 +79,7 @@ export default function App() {
 
   const [isBackoffice, setIsBackoffice] = useState(false);
   const [backofficeTab, setBackofficeTab] = useState<BackofficeTabId>('analytics');
+  const [zentraleSection, setZentraleSection] = useState<ZentraleSectionId | null>(null);
   const [flip7CoverMode, setFlip7CoverMode] = useState<boolean>(isCoverScreenEnvironment);
 
   const [activeDomain, setActiveDomain] = useState<DomainType>('arbeit');
@@ -404,28 +405,28 @@ export default function App() {
       const nextKnowledge = [newItem, ...(p.knowledge || [])];
       const nextExplanations = kind === 'explanation'
         ? [{
-            id: newItem.id,
-            title,
-            stepsText: content,
-            lastModified: ts,
-            changeReason: 'Manuell erstellt',
-            source: 'Manuell' as const,
-            aiTouched: false,
-            customMeta: {}
-          }, ...p.explanations]
+          id: newItem.id,
+          title,
+          stepsText: content,
+          lastModified: ts,
+          changeReason: 'Manuell erstellt',
+          source: 'Manuell' as const,
+          aiTouched: false,
+          customMeta: {}
+        }, ...p.explanations]
         : p.explanations;
       const nextInfos = kind !== 'explanation'
         ? [{
-            id: newItem.id,
-            title,
-            content,
-            attachments: attachments || [],
-            lastModified: ts,
-            changeReason: 'Manuell erstellt',
-            source: 'Manuell' as const,
-            aiTouched: false,
-            customMeta: {}
-          }, ...p.infos]
+          id: newItem.id,
+          title,
+          content,
+          attachments: attachments || [],
+          lastModified: ts,
+          changeReason: 'Manuell erstellt',
+          source: 'Manuell' as const,
+          aiTouched: false,
+          customMeta: {}
+        }, ...p.infos]
         : p.infos;
 
       return {
@@ -449,13 +450,13 @@ export default function App() {
       const nextKnowledge = (p.knowledge || []).map((k) =>
         k.id === itemId
           ? {
-              ...k,
-              title,
-              content,
-              stepsText: k.kind === 'explanation' ? content : k.stepsText,
-              lastModified: ts,
-              changeReason: 'Bearbeitet'
-            }
+            ...k,
+            title,
+            content,
+            stepsText: k.kind === 'explanation' ? content : k.stepsText,
+            lastModified: ts,
+            changeReason: 'Bearbeitet'
+          }
           : k
       );
       const nextExplanations = p.explanations.map((e) =>
@@ -495,21 +496,21 @@ export default function App() {
         knowledge: (p.knowledge || []).map((k) =>
           k.id === itemId
             ? {
-                ...k,
-                attachments: [...(k.attachments || []), newAtt],
-                lastModified: formatNow(),
-                changeReason: `Foto ${file.name} komprimiert gespeichert`
-              }
+              ...k,
+              attachments: [...(k.attachments || []), newAtt],
+              lastModified: formatNow(),
+              changeReason: `Foto ${file.name} komprimiert gespeichert`
+            }
             : k
         ),
         infos: p.infos.map((inf) =>
           inf.id === itemId
             ? {
-                ...inf,
-                attachments: [...inf.attachments, newAtt],
-                lastModified: formatNow(),
-                changeReason: `Foto ${file.name} komprimiert gespeichert`
-              }
+              ...inf,
+              attachments: [...inf.attachments, newAtt],
+              lastModified: formatNow(),
+              changeReason: `Foto ${file.name} komprimiert gespeichert`
+            }
             : inf
         )
       }));
@@ -535,21 +536,21 @@ export default function App() {
         knowledge: (p.knowledge || []).map((k) =>
           k.id === itemId
             ? {
-                ...k,
-                attachments: [...(k.attachments || []), newAtt],
-                lastModified: formatNow(),
-                changeReason: `Anhang ${file.name}`
-              }
+              ...k,
+              attachments: [...(k.attachments || []), newAtt],
+              lastModified: formatNow(),
+              changeReason: `Anhang ${file.name}`
+            }
             : k
         ),
         infos: p.infos.map((inf) =>
           inf.id === itemId
             ? {
-                ...inf,
-                attachments: [...inf.attachments, newAtt],
-                lastModified: formatNow(),
-                changeReason: `Anhang ${file.name}`
-              }
+              ...inf,
+              attachments: [...inf.attachments, newAtt],
+              lastModified: formatNow(),
+              changeReason: `Anhang ${file.name}`
+            }
             : inf
         )
       }));
@@ -840,21 +841,21 @@ export default function App() {
           p.id !== act.targetProjectId
             ? p
             : {
-                ...p,
-                [act.targetSubTab]: (p[act.targetSubTab] as any[]).filter(
-                  (it) => it.id !== act.targetItemId
-                )
-              }
+              ...p,
+              [act.targetSubTab]: (p[act.targetSubTab] as any[]).filter(
+                (it) => it.id !== act.targetItemId
+              )
+            }
         ),
         aiLogs: prev.aiLogs.map((l) =>
           l.id !== logId
             ? l
             : {
-                ...l,
-                actions: l.actions.map((a) =>
-                  a.actionId === actionId ? { ...a, undone: true } : a
-                )
-              }
+              ...l,
+              actions: l.actions.map((a) =>
+                a.actionId === actionId ? { ...a, undone: true } : a
+              )
+            }
         )
       };
     });
@@ -890,11 +891,11 @@ export default function App() {
           l.id !== logId
             ? l
             : {
-                ...l,
-                actions: l.actions.map((a) =>
-                  a.actionId === actionId ? { ...a, targetProjectId: newProjId } : a
-                )
-              }
+              ...l,
+              actions: l.actions.map((a) =>
+                a.actionId === actionId ? { ...a, targetProjectId: newProjId } : a
+              )
+            }
         )
       };
     });
@@ -1193,7 +1194,8 @@ export default function App() {
                 eventSalesLogs: [entry, ...prev.eventSalesLogs]
               }))
             }
-            onOpenAddonsBackoffice={() => {
+            onOpenAddonsBackoffice={(section?: ZentraleSectionId) => {
+              setZentraleSection(section || null);
               setIsBackoffice(true);
               setBackofficeTab('addons');
             }}
@@ -1210,8 +1212,9 @@ export default function App() {
             realityCheckEnabled={state.realityCheckEnabled}
             haWebhookUrl={state.haWebhookUrl}
             haEmbedUrl={state.haEmbedUrl}
+            initialSection={zentraleSection}
             onChangeTab={setBackofficeTab}
-            onCloseBackoffice={() => setIsBackoffice(false)}
+            onCloseBackoffice={() => { setIsBackoffice(false); setZentraleSection(null); }}
             onJumpToAction={handleJumpToAction}
             onUndoAiAction={handleUndoAiAction}
             onMoveAiAction={handleMoveAiAction}
@@ -1253,110 +1256,119 @@ export default function App() {
                           };
                         })
                       }
-                )
-              }));
-              notify('Aufgaben auf Tagesblöcke verteilt.');
-            }}
-            onTogglePluginForProject={(projId, pluginId) =>
-              updateProject(projId, (p) => ({
-                ...p,
-                enabledPlugins: (p.enabledPlugins || []).includes(pluginId)
-                  ? (p.enabledPlugins || []).filter((id) => id !== pluginId)
-                  : [...(p.enabledPlugins || []), pluginId]
-              }))
-            }
-            onToggleTabForProject={handleToggleTabForProject}
-            onSaveScratchpadToProject={(projId, title, content) => {
-              handleAddKnowledge(projId, 'info', title, content);
-            }}
-            onChangeApiKey={(key) => setState((prev) => ({ ...prev, userApiKey: key }))}
-            onToggleRealityCheck={() =>
-              setState((prev) => ({ ...prev, realityCheckEnabled: !prev.realityCheckEnabled }))
-            }
-            onChangeHaWebhook={(url) => setState((prev) => ({ ...prev, haWebhookUrl: url }))}
-            onOpenFlip7Cover={() => toggleCoverMode(true)}
-            onOpenRealityModal={() => setRealityModalOpen(true)}
-            onOpenSelfCheckModal={() => setSelfCheckModalOpen(true)}
-            onResetProjectStructure={() => {
-              setState((prev) => ({
-                ...INITIAL_APP_SNAPSHOT,
-                userApiKey: prev.userApiKey,
-                aiLogs: prev.aiLogs,
-                selfChecks: prev.selfChecks,
-                eventSalesLogs: prev.eventSalesLogs
-              }));
-              notify('Projektstruktur aktualisiert.');
-            }}
-            onExportFullBackup={() => downloadStateBackupJson(state)}
-            onImportFullBackup={(snap) => {
-              setState(snap);
-              notify('Backup geladen.');
-            }}
-            onNotify={notify}
-          />
-        )}
-      </main>
+                  )
+                }));
+                notify('Aufgaben auf Tagesblöcke verteilt.');
+              }}
+              onTogglePluginForProject={(projId, pluginId) =>
+                updateProject(projId, (p) => ({
+                  ...p,
+                  enabledPlugins: (p.enabledPlugins || []).includes(pluginId)
+                    ? (p.enabledPlugins || []).filter((id) => id !== pluginId)
+                    : [...(p.enabledPlugins || []), pluginId]
+                }))
+              }
+              onToggleTabForProject={handleToggleTabForProject}
+              onSaveScratchpadToProject={(projId, title, content) => {
+                handleAddKnowledge(projId, 'info', title, content);
+              }}
+              onChangeApiKey={(key) => setState((prev) => ({ ...prev, userApiKey: key }))}
+              onToggleRealityCheck={() =>
+                setState((prev) => ({ ...prev, realityCheckEnabled: !prev.realityCheckEnabled }))
+              }
+              onChangeHaWebhook={(url) => setState((prev) => ({ ...prev, haWebhookUrl: url }))}
+              onOpenFlip7Cover={() => toggleCoverMode(true)}
+              onOpenRealityModal={() => setRealityModalOpen(true)}
+              onOpenSelfCheckModal={() => setSelfCheckModalOpen(true)}
+              onResetProjectStructure={() => {
+                setState((prev) => ({
+                  ...INITIAL_APP_SNAPSHOT,
+                  userApiKey: prev.userApiKey,
+                  aiLogs: prev.aiLogs,
+                  selfChecks: prev.selfChecks,
+                  eventSalesLogs: prev.eventSalesLogs
+                }));
+                notify('Projektstruktur aktualisiert.');
+              }}
+              onExportFullBackup={() => downloadStateBackupJson(state)}
+              onImportFullBackup={(snap) => {
+                setState(snap);
+                notify('Backup geladen.');
+              }}
+              onUploadProjectLogo={async (projId, file) => {
+                const { dataUrl } = await compressImageFile(file);
+                updateProject(projId, (p) => ({
+                  ...p,
+                  customLogoUrl: dataUrl
+                }));
+                notify('Projekt-Logo aktualisiert.');
+              }}
+              onResetProjectLogo={(projId) => {
+                updateProject(projId, (p) => ({ ...p, customLogoUrl: './raccoon-logo.png' }));
+                notify('Standard-Logo gesetzt.');
+              }}
+              onNotify={notify}
+            />
+          )}
+        </main>
 
-      {/* UNTERE BANDIT.OS KI-FIRST-LEISTE */}
-      <div className="fixed bottom-3 inset-x-0 z-40 pointer-events-none">
-        <div className="max-w-[440px] mx-auto px-3">
-          <form
-            onSubmit={handleBottomAiSubmit}
-            className="pointer-events-auto rounded-3xl border border-white/10 p-1.5 shadow-2xl flex items-center gap-1.5"
-            style={{ backgroundColor: '#1C2026' }}
-          >
-            <div className="flex-1 relative flex items-center min-h-[44px]">
+        {/* UNTERE BANDIT.OS KI-FIRST-LEISTE */}
+        <div className="fixed bottom-3 inset-x-0 z-40 pointer-events-none">
+          <div className="max-w-[440px] mx-auto px-3">
+            <form
+              onSubmit={handleBottomAiSubmit}
+              className="pointer-events-auto rounded-3xl border border-white/10 p-1.5 shadow-2xl flex items-center gap-1.5"
+              style={{ backgroundColor: '#1C2026' }}
+            >
+              <button
+                type="button"
+                onClick={() => setDeepResearchModalOpen(true)}
+                className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-2xl text-[#94A3B8] hover:text-white bg-[#242930] border border-white/5 active:scale-95 transition shrink-0"
+                aria-label="Deep Research"
+              >
+                <Scale className="w-4 h-4" />
+              </button>
+
               <input
                 type="text"
                 value={bottomAiText}
                 onChange={(e) => setBottomAiText(e.target.value)}
-                placeholder="Frag mich oder sprich…"
-                className="w-full min-h-[44px] pl-3.5 pr-2 py-2 rounded-2xl bg-[#242930] text-xs text-white placeholder-[#9CA3AF] border border-white/5 focus:outline-none focus:border-[#14B8A6]/60 transition"
+                placeholder="Frag mich etwas oder gib einen Befehl..."
+                className="flex-1 min-h-[44px] px-3 py-2 rounded-2xl text-xs bg-transparent text-white placeholder-[#94A3B8] outline-none min-w-0"
               />
-            </div>
 
-            <button
-              type="button"
-              onClick={() => setDeepResearchModalOpen(true)}
-              aria-label="Deep Research &amp; Cloud"
-              title="Deep Research, Scanner &amp; Cloud"
-              className="min-h-[44px] min-w-[44px] w-11 h-11 rounded-2xl bg-[#242930] hover:bg-[#2A3038] text-[#14B8A6] hover:text-white border border-white/5 flex items-center justify-center shrink-0 active:scale-95 transition"
-            >
-              <Scale className="w-4 h-4" />
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                if (bottomAiText.trim()) {
-                  handleBottomAiSubmit();
-                } else {
-                  setAutoStartMicOnOpen(true);
-                  setVoiceModalOpen(true);
-                }
-              }}
-              aria-label={bottomAiText.trim() ? 'Befehl senden' : 'Sofort sprechen'}
-              className="min-h-[44px] min-w-[44px] px-3.5 py-2.5 rounded-2xl text-white font-bold text-xs flex items-center justify-center gap-1.5 shrink-0 active:scale-95 transition shadow-lg"
-              style={{
-                backgroundColor: activeVisualTheme.primary,
-                boxShadow: `0 4px 16px ${activeVisualTheme.glow}`
-              }}
-            >
-              {bottomAiText.trim() ? (
-                <>
-                  <Send className="w-4 h-4" />
-                  <span className="hidden sm:inline">Senden</span>
-                </>
-              ) : (
-                <>
-                  <Mic className="w-4 h-4" />
-                  <span>Sprechen</span>
-                </>
-              )}
-            </button>
-          </form>
+              <button
+                type="button"
+                onClick={() => {
+                  if (bottomAiText.trim()) {
+                    handleBottomAiSubmit();
+                  } else {
+                    setAutoStartMicOnOpen(true);
+                    setVoiceModalOpen(true);
+                  }
+                }}
+                aria-label={bottomAiText.trim() ? 'Befehl senden' : 'Sofort sprechen'}
+                className="min-h-[44px] min-w-[44px] px-3.5 py-2.5 rounded-2xl text-white font-bold text-xs flex items-center justify-center gap-1.5 shrink-0 active:scale-95 transition shadow-lg"
+                style={{
+                  backgroundColor: activeVisualTheme.primary,
+                  boxShadow: `0 4px 16px ${activeVisualTheme.glow}`
+                }}
+              >
+                {bottomAiText.trim() ? (
+                  <>
+                    <Send className="w-4 h-4" />
+                    <span className="hidden sm:inline">Senden</span>
+                  </>
+                ) : (
+                  <>
+                    <Mic className="w-4 h-4" />
+                    <span>Sprechen</span>
+                  </>
+                )}
+              </button>
+            </form>
+          </div>
         </div>
-      </div>
 
       {/* KI-KONTEXT-SCHUBLADE */}
       <VoiceModal
@@ -1742,7 +1754,7 @@ export default function App() {
           <span className="truncate">{toast}</span>
         </div>
       )}
-      </div>
     </div>
+    </div >
   );
 }

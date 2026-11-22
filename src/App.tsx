@@ -6,12 +6,14 @@ import {
   AppStateSnapshot,
   Attachment,
   BackofficeTabId,
+  CartItem,
   DomainType,
   KnowledgeItem,
   KnowledgeKind,
   Project,
   ProjectTabId,
   PriorityType,
+  TaskItem,
   THEME
 } from './types';
 import { BRAND_CONFIG } from './config/brandConfig';
@@ -52,7 +54,7 @@ import {
   saveAuditSettings,
   saveAuditWatchlist
 } from './services/deepResearchAndScanner';
-import { BackofficeWorkspace } from './core/BackofficeWorkspace';
+import { BackofficeWorkspace, ZentraleSectionId } from './core/BackofficeWorkspace';
 
 interface PhotoMeasurePin {
   id: string;
@@ -77,6 +79,7 @@ export default function App() {
 
   const [isBackoffice, setIsBackoffice] = useState(false);
   const [backofficeTab, setBackofficeTab] = useState<BackofficeTabId>('analytics');
+  const [zentraleSection, setZentraleSection] = useState<ZentraleSectionId | null>(null);
   const [flip7CoverMode, setFlip7CoverMode] = useState<boolean>(isCoverScreenEnvironment);
 
   const [activeDomain, setActiveDomain] = useState<DomainType>('arbeit');
@@ -175,8 +178,10 @@ export default function App() {
     }
   };
 
+  const isPrivateDomain = (d?: string) => d === 'privat' || d === 'private';
+
   const domainProjects = useMemo(
-    () => state.projects.filter((p) => !p.archived && p.domain === activeDomain),
+    () => state.projects.filter((p) => !p.archived && isPrivateDomain(p.domain) === isPrivateDomain(activeDomain)),
     [state.projects, activeDomain]
   );
 
@@ -189,9 +194,9 @@ export default function App() {
   );
 
   const activeVisualTheme = useMemo(() => {
-    if (activeDomain === 'privat') {
+    if (isPrivateDomain(activeDomain)) {
       return {
-        primary: BRAND_CONFIG.domainColors.privat,
+        primary: BRAND_CONFIG.domainColors.private.primary,
         highlight: '#818CF8',
         glow: 'rgba(79, 70, 229, 0.35)'
       };
@@ -246,6 +251,135 @@ export default function App() {
     notify('Modul-Einstellung aktualisiert.');
   };
 
+  const handleUpdateTask = (projId: string, taskId: string, patch: Partial<TaskItem>) => {
+    const ts = formatNow();
+    updateProject(projId, (p) => ({
+      ...p,
+      tasks: p.tasks.map((t) => (t.id === taskId ? { ...t, ...patch, lastModified: ts } : t))
+    }));
+    notify('Aufgabe aktualisiert.');
+  };
+
+  const handleMoveTask = (fromProjId: string, toProjId: string, taskId: string) => {
+    if (fromProjId === toProjId) return;
+    const ts = formatNow();
+    const fromProj = state.projects.find((p) => p.id === fromProjId);
+    const taskToMove = fromProj?.tasks.find((t) => t.id === taskId);
+    if (!taskToMove) return;
+
+    setState((prev) => ({
+      ...prev,
+      projects: prev.projects.map((p) => {
+        if (p.id === fromProjId) {
+          return { ...p, tasks: p.tasks.filter((t) => t.id !== taskId) };
+        }
+        if (p.id === toProjId) {
+          return {
+            ...p,
+            tasks: [{ ...taskToMove, lastModified: ts, changeReason: 'Verschoben' }, ...p.tasks]
+          };
+        }
+        return p;
+      })
+    }));
+    notify('Aufgabe in anderes Projekt verschoben.');
+  };
+
+  const handleUpdateCartItem = (projId: string, cartId: string, patch: Partial<CartItem>) => {
+    const ts = formatNow();
+    updateProject(projId, (p) => ({
+      ...p,
+      cart: p.cart.map((c) => (c.id === cartId ? { ...c, ...patch, lastModified: ts } : c))
+    }));
+    notify('Einkaufs-Artikel aktualisiert.');
+  };
+
+  const handleMoveCartItem = (fromProjId: string, toProjId: string, cartId: string) => {
+    if (fromProjId === toProjId) return;
+    const ts = formatNow();
+    const fromProj = state.projects.find((p) => p.id === fromProjId);
+    const itemToMove = fromProj?.cart.find((c) => c.id === cartId);
+    if (!itemToMove) return;
+
+    setState((prev) => ({
+      ...prev,
+      projects: prev.projects.map((p) => {
+        if (p.id === fromProjId) {
+          return { ...p, cart: p.cart.filter((c) => c.id !== cartId) };
+        }
+        if (p.id === toProjId) {
+          return {
+            ...p,
+            cart: [{ ...itemToMove, lastModified: ts, changeReason: 'Verschoben' }, ...p.cart]
+          };
+        }
+        return p;
+      })
+    }));
+    notify('Artikel in anderes Projekt verschoben.');
+  };
+
+  const handleMoveKnowledge = (fromProjId: string, toProjId: string, itemId: string) => {
+    if (fromProjId === toProjId) return;
+    const ts = formatNow();
+    const fromProj = state.projects.find((p) => p.id === fromProjId);
+    const itemToMove = fromProj?.knowledge?.find((k) => k.id === itemId);
+    if (!itemToMove) return;
+
+    setState((prev) => ({
+      ...prev,
+      projects: prev.projects.map((p) => {
+        if (p.id === fromProjId) {
+          const nextK = (p.knowledge || []).filter((k) => k.id !== itemId);
+          return {
+            ...p,
+            knowledge: nextK,
+            explanations: (p.explanations || []).filter((e) => e.id !== itemId),
+            infos: (p.infos || []).filter((i) => i.id !== itemId)
+          };
+        }
+        if (p.id === toProjId) {
+          const nextK = [{ ...itemToMove, lastModified: ts, changeReason: 'Verschoben' }, ...(p.knowledge || [])];
+          return {
+            ...p,
+            knowledge: nextK,
+            explanations: nextK.filter((k) => k.kind === 'explanation').map((k) => ({
+              id: k.id,
+              title: k.title,
+              stepsText: k.content,
+              lastModified: k.lastModified,
+              changeReason: k.changeReason,
+              source: k.source,
+              aiTouched: k.aiTouched,
+              customMeta: k.customMeta
+            })),
+            infos: nextK.filter((k) => k.kind !== 'explanation').map((k) => ({
+              id: k.id,
+              title: k.title,
+              content: k.content,
+              attachments: k.attachments || [],
+              lastModified: k.lastModified,
+              changeReason: k.changeReason,
+              source: k.source,
+              aiTouched: k.aiTouched,
+              customMeta: k.customMeta
+            }))
+          };
+        }
+        return p;
+      })
+    }));
+    notify('Wissenseintrag in anderes Projekt verschoben.');
+  };
+
+  const handleUpdateProject = (projId: string, patch: Partial<Project>) => {
+    updateProject(projId, (p) => ({
+      ...p,
+      ...patch
+    }));
+    notify('Projektdaten gespeichert.');
+  };
+
   const handleAddKnowledge = (
     projId: string,
     kind: KnowledgeKind,
@@ -271,28 +405,28 @@ export default function App() {
       const nextKnowledge = [newItem, ...(p.knowledge || [])];
       const nextExplanations = kind === 'explanation'
         ? [{
-            id: newItem.id,
-            title,
-            stepsText: content,
-            lastModified: ts,
-            changeReason: 'Manuell erstellt',
-            source: 'Manuell' as const,
-            aiTouched: false,
-            customMeta: {}
-          }, ...p.explanations]
+          id: newItem.id,
+          title,
+          stepsText: content,
+          lastModified: ts,
+          changeReason: 'Manuell erstellt',
+          source: 'Manuell' as const,
+          aiTouched: false,
+          customMeta: {}
+        }, ...p.explanations]
         : p.explanations;
       const nextInfos = kind !== 'explanation'
         ? [{
-            id: newItem.id,
-            title,
-            content,
-            attachments: attachments || [],
-            lastModified: ts,
-            changeReason: 'Manuell erstellt',
-            source: 'Manuell' as const,
-            aiTouched: false,
-            customMeta: {}
-          }, ...p.infos]
+          id: newItem.id,
+          title,
+          content,
+          attachments: attachments || [],
+          lastModified: ts,
+          changeReason: 'Manuell erstellt',
+          source: 'Manuell' as const,
+          aiTouched: false,
+          customMeta: {}
+        }, ...p.infos]
         : p.infos;
 
       return {
@@ -316,13 +450,13 @@ export default function App() {
       const nextKnowledge = (p.knowledge || []).map((k) =>
         k.id === itemId
           ? {
-              ...k,
-              title,
-              content,
-              stepsText: k.kind === 'explanation' ? content : k.stepsText,
-              lastModified: ts,
-              changeReason: 'Bearbeitet'
-            }
+            ...k,
+            title,
+            content,
+            stepsText: k.kind === 'explanation' ? content : k.stepsText,
+            lastModified: ts,
+            changeReason: 'Bearbeitet'
+          }
           : k
       );
       const nextExplanations = p.explanations.map((e) =>
@@ -362,21 +496,21 @@ export default function App() {
         knowledge: (p.knowledge || []).map((k) =>
           k.id === itemId
             ? {
-                ...k,
-                attachments: [...(k.attachments || []), newAtt],
-                lastModified: formatNow(),
-                changeReason: `Foto ${file.name} komprimiert gespeichert`
-              }
+              ...k,
+              attachments: [...(k.attachments || []), newAtt],
+              lastModified: formatNow(),
+              changeReason: `Foto ${file.name} komprimiert gespeichert`
+            }
             : k
         ),
         infos: p.infos.map((inf) =>
           inf.id === itemId
             ? {
-                ...inf,
-                attachments: [...inf.attachments, newAtt],
-                lastModified: formatNow(),
-                changeReason: `Foto ${file.name} komprimiert gespeichert`
-              }
+              ...inf,
+              attachments: [...inf.attachments, newAtt],
+              lastModified: formatNow(),
+              changeReason: `Foto ${file.name} komprimiert gespeichert`
+            }
             : inf
         )
       }));
@@ -402,21 +536,21 @@ export default function App() {
         knowledge: (p.knowledge || []).map((k) =>
           k.id === itemId
             ? {
-                ...k,
-                attachments: [...(k.attachments || []), newAtt],
-                lastModified: formatNow(),
-                changeReason: `Anhang ${file.name}`
-              }
+              ...k,
+              attachments: [...(k.attachments || []), newAtt],
+              lastModified: formatNow(),
+              changeReason: `Anhang ${file.name}`
+            }
             : k
         ),
         infos: p.infos.map((inf) =>
           inf.id === itemId
             ? {
-                ...inf,
-                attachments: [...inf.attachments, newAtt],
-                lastModified: formatNow(),
-                changeReason: `Anhang ${file.name}`
-              }
+              ...inf,
+              attachments: [...inf.attachments, newAtt],
+              lastModified: formatNow(),
+              changeReason: `Anhang ${file.name}`
+            }
             : inf
         )
       }));
@@ -429,15 +563,20 @@ export default function App() {
   const handleDistributeVoiceCommand = async (
     rawText: string,
     attachment: Attachment | null,
-    requestedMode?: 'flash' | 'research'
+    requestedMode?: 'flash' | 'research',
+    chatHistory?: Array<{ role: 'user' | 'assistant'; text: string }>
   ) => {
+    const activeProjects = state.projects.filter((p) => !p.archived);
     const defaultProjId = BRAND_CONFIG.defaultProjectId;
+    const effectiveDefaultProjId = (!activeProject || activeProject.archived)
+      ? (activeProjects.find((p) => p.id === defaultProjId)?.id || activeProjects[0]?.id || defaultProjId)
+      : activeProject.id;
     const { plan, engine, autoUpscaledToPro } = await routeVoiceCommand(
       rawText,
       state.userApiKey,
-      activeProject?.id || defaultProjId,
-      state.projects,
-      undefined,
+      effectiveDefaultProjId,
+      activeProjects,
+      chatHistory,
       attachment,
       requestedMode
     );
@@ -673,7 +812,7 @@ export default function App() {
       });
 
       const targetProj = state.projects.find((p) => p.id === firstTargetProjectId);
-      if (targetProj) {
+      if (targetProj && !targetProj.archived) {
         setActiveDomain(targetProj.domain);
         setSelectedProjectId(targetProj.id);
         setActiveProjectTab(firstTab);
@@ -702,21 +841,21 @@ export default function App() {
           p.id !== act.targetProjectId
             ? p
             : {
-                ...p,
-                [act.targetSubTab]: (p[act.targetSubTab] as any[]).filter(
-                  (it) => it.id !== act.targetItemId
-                )
-              }
+              ...p,
+              [act.targetSubTab]: (p[act.targetSubTab] as any[]).filter(
+                (it) => it.id !== act.targetItemId
+              )
+            }
         ),
         aiLogs: prev.aiLogs.map((l) =>
           l.id !== logId
             ? l
             : {
-                ...l,
-                actions: l.actions.map((a) =>
-                  a.actionId === actionId ? { ...a, undone: true } : a
-                )
-              }
+              ...l,
+              actions: l.actions.map((a) =>
+                a.actionId === actionId ? { ...a, undone: true } : a
+              )
+            }
         )
       };
     });
@@ -752,11 +891,11 @@ export default function App() {
           l.id !== logId
             ? l
             : {
-                ...l,
-                actions: l.actions.map((a) =>
-                  a.actionId === actionId ? { ...a, targetProjectId: newProjId } : a
-                )
-              }
+              ...l,
+              actions: l.actions.map((a) =>
+                a.actionId === actionId ? { ...a, targetProjectId: newProjId } : a
+              )
+            }
         )
       };
     });
@@ -887,7 +1026,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#121417] flex justify-center">
+    <div className="min-h-screen bg-[#111317] flex justify-center">
       <div
         className="w-full max-w-[440px] min-h-screen flex flex-col relative sm:border-x sm:border-white/5 sm:shadow-2xl"
         style={{ backgroundColor: THEME.bgMain, color: THEME.textMain }}
@@ -906,9 +1045,12 @@ export default function App() {
             activeProject={activeProject}
             activeTab={activeProjectTab}
             highlightedItemId={highlightedItemId}
+            userApiKey={state.userApiKey}
             onSwitchDomain={(d) => {
               setActiveDomain(d);
-              const firstInDomain = state.projects.find((p) => !p.archived && p.domain === d);
+              const firstInDomain = state.projects.find(
+                (p) => !p.archived && isPrivateDomain(p.domain) === isPrivateDomain(d)
+              );
               if (firstInDomain) setSelectedProjectId(firstInDomain.id);
             }}
             onSelectProject={(id) => setSelectedProjectId(id)}
@@ -976,6 +1118,8 @@ export default function App() {
                 tasks: p.tasks.filter((t) => t.id !== taskId)
               }))
             }
+            onUpdateTask={handleUpdateTask}
+            onMoveTask={handleMoveTask}
             onResetChecklistForDeployment={(projId) => {
               const ts = formatNow();
               updateProject(projId, (p) => ({
@@ -1035,6 +1179,9 @@ export default function App() {
                 cart: p.cart.filter((c) => c.id !== cartId)
               }))
             }
+            onUpdateCartItem={handleUpdateCartItem}
+            onMoveCartItem={handleMoveCartItem}
+            onMoveKnowledge={handleMoveKnowledge}
             onUpdateProjectMeta={(projId, patch) =>
               updateProject(projId, (p) => ({
                 ...p,
@@ -1047,7 +1194,8 @@ export default function App() {
                 eventSalesLogs: [entry, ...prev.eventSalesLogs]
               }))
             }
-            onOpenAddonsBackoffice={() => {
+            onOpenAddonsBackoffice={(section?: ZentraleSectionId) => {
+              setZentraleSection(section || null);
               setIsBackoffice(true);
               setBackofficeTab('addons');
             }}
@@ -1064,8 +1212,9 @@ export default function App() {
             realityCheckEnabled={state.realityCheckEnabled}
             haWebhookUrl={state.haWebhookUrl}
             haEmbedUrl={state.haEmbedUrl}
+            initialSection={zentraleSection}
             onChangeTab={setBackofficeTab}
-            onCloseBackoffice={() => setIsBackoffice(false)}
+            onCloseBackoffice={() => { setIsBackoffice(false); setZentraleSection(null); }}
             onJumpToAction={handleJumpToAction}
             onUndoAiAction={handleUndoAiAction}
             onMoveAiAction={handleMoveAiAction}
@@ -1078,6 +1227,7 @@ export default function App() {
               }));
               notify('Archiv-Status aktualisiert.');
             }}
+            onUpdateProject={handleUpdateProject}
             onAssignDayBlock={(projId, taskId, block) =>
               updateProject(projId, (p) => ({
                 ...p,
@@ -1106,110 +1256,119 @@ export default function App() {
                           };
                         })
                       }
-                )
-              }));
-              notify('Aufgaben auf Tagesblöcke verteilt.');
-            }}
-            onTogglePluginForProject={(projId, pluginId) =>
-              updateProject(projId, (p) => ({
-                ...p,
-                enabledPlugins: (p.enabledPlugins || []).includes(pluginId)
-                  ? (p.enabledPlugins || []).filter((id) => id !== pluginId)
-                  : [...(p.enabledPlugins || []), pluginId]
-              }))
-            }
-            onToggleTabForProject={handleToggleTabForProject}
-            onSaveScratchpadToProject={(projId, title, content) => {
-              handleAddKnowledge(projId, 'info', title, content);
-            }}
-            onChangeApiKey={(key) => setState((prev) => ({ ...prev, userApiKey: key }))}
-            onToggleRealityCheck={() =>
-              setState((prev) => ({ ...prev, realityCheckEnabled: !prev.realityCheckEnabled }))
-            }
-            onChangeHaWebhook={(url) => setState((prev) => ({ ...prev, haWebhookUrl: url }))}
-            onOpenFlip7Cover={() => toggleCoverMode(true)}
-            onOpenRealityModal={() => setRealityModalOpen(true)}
-            onOpenSelfCheckModal={() => setSelfCheckModalOpen(true)}
-            onResetProjectStructure={() => {
-              setState((prev) => ({
-                ...INITIAL_APP_SNAPSHOT,
-                userApiKey: prev.userApiKey,
-                aiLogs: prev.aiLogs,
-                selfChecks: prev.selfChecks,
-                eventSalesLogs: prev.eventSalesLogs
-              }));
-              notify('Projektstruktur aktualisiert.');
-            }}
-            onExportFullBackup={() => downloadStateBackupJson(state)}
-            onImportFullBackup={(snap) => {
-              setState(snap);
-              notify('Backup geladen.');
-            }}
-            onNotify={notify}
-          />
-        )}
-      </main>
+                  )
+                }));
+                notify('Aufgaben auf Tagesblöcke verteilt.');
+              }}
+              onTogglePluginForProject={(projId, pluginId) =>
+                updateProject(projId, (p) => ({
+                  ...p,
+                  enabledPlugins: (p.enabledPlugins || []).includes(pluginId)
+                    ? (p.enabledPlugins || []).filter((id) => id !== pluginId)
+                    : [...(p.enabledPlugins || []), pluginId]
+                }))
+              }
+              onToggleTabForProject={handleToggleTabForProject}
+              onSaveScratchpadToProject={(projId, title, content) => {
+                handleAddKnowledge(projId, 'info', title, content);
+              }}
+              onChangeApiKey={(key) => setState((prev) => ({ ...prev, userApiKey: key }))}
+              onToggleRealityCheck={() =>
+                setState((prev) => ({ ...prev, realityCheckEnabled: !prev.realityCheckEnabled }))
+              }
+              onChangeHaWebhook={(url) => setState((prev) => ({ ...prev, haWebhookUrl: url }))}
+              onOpenFlip7Cover={() => toggleCoverMode(true)}
+              onOpenRealityModal={() => setRealityModalOpen(true)}
+              onOpenSelfCheckModal={() => setSelfCheckModalOpen(true)}
+              onResetProjectStructure={() => {
+                setState((prev) => ({
+                  ...INITIAL_APP_SNAPSHOT,
+                  userApiKey: prev.userApiKey,
+                  aiLogs: prev.aiLogs,
+                  selfChecks: prev.selfChecks,
+                  eventSalesLogs: prev.eventSalesLogs
+                }));
+                notify('Projektstruktur aktualisiert.');
+              }}
+              onExportFullBackup={() => downloadStateBackupJson(state)}
+              onImportFullBackup={(snap) => {
+                setState(snap);
+                notify('Backup geladen.');
+              }}
+              onUploadProjectLogo={async (projId, file) => {
+                const { dataUrl } = await compressImageFile(file);
+                updateProject(projId, (p) => ({
+                  ...p,
+                  customLogoUrl: dataUrl
+                }));
+                notify('Projekt-Logo aktualisiert.');
+              }}
+              onResetProjectLogo={(projId) => {
+                updateProject(projId, (p) => ({ ...p, customLogoUrl: './raccoon-logo.png' }));
+                notify('Standard-Logo gesetzt.');
+              }}
+              onNotify={notify}
+            />
+          )}
+        </main>
 
-      {/* UNTERE BANDIT.OS KI-FIRST-LEISTE */}
-      <div className="fixed bottom-3 inset-x-0 z-40 pointer-events-none">
-        <div className="max-w-[440px] mx-auto px-3">
-          <form
-            onSubmit={handleBottomAiSubmit}
-            className="pointer-events-auto rounded-3xl border border-white/10 p-1.5 shadow-2xl flex items-center gap-1.5"
-            style={{ backgroundColor: '#1C2026' }}
-          >
-            <div className="flex-1 relative flex items-center min-h-[44px]">
+        {/* UNTERE BANDIT.OS KI-FIRST-LEISTE */}
+        <div className="fixed bottom-3 inset-x-0 z-40 pointer-events-none">
+          <div className="max-w-[440px] mx-auto px-3">
+            <form
+              onSubmit={handleBottomAiSubmit}
+              className="pointer-events-auto rounded-3xl border border-white/10 p-1.5 shadow-2xl flex items-center gap-1.5"
+              style={{ backgroundColor: '#1C2026' }}
+            >
+              <button
+                type="button"
+                onClick={() => setDeepResearchModalOpen(true)}
+                className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-2xl text-[#94A3B8] hover:text-white bg-[#242930] border border-white/5 active:scale-95 transition shrink-0"
+                aria-label="Deep Research"
+              >
+                <Scale className="w-4 h-4" />
+              </button>
+
               <input
                 type="text"
                 value={bottomAiText}
                 onChange={(e) => setBottomAiText(e.target.value)}
-                placeholder="Frag mich oder gib mir Aufgaben..."
-                className="w-full min-h-[44px] pl-3.5 pr-2 py-2 rounded-2xl bg-[#242930] text-xs text-white placeholder-[#9CA3AF] border border-white/5 focus:outline-none focus:border-[#14B8A6]/60 transition"
+                placeholder="Frag mich etwas oder gib einen Befehl..."
+                className="flex-1 min-h-[44px] px-3 py-2 rounded-2xl text-xs bg-transparent text-white placeholder-[#94A3B8] outline-none min-w-0"
               />
-            </div>
 
-            <button
-              type="button"
-              onClick={() => setDeepResearchModalOpen(true)}
-              aria-label="Deep Research &amp; Cloud"
-              title="Deep Research, Scanner &amp; Cloud"
-              className="min-h-[44px] min-w-[44px] w-11 h-11 rounded-2xl bg-[#242930] hover:bg-[#2A3038] text-[#14B8A6] hover:text-white border border-white/5 flex items-center justify-center shrink-0 active:scale-95 transition"
-            >
-              <Scale className="w-4 h-4" />
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                if (bottomAiText.trim()) {
-                  handleBottomAiSubmit();
-                } else {
-                  setAutoStartMicOnOpen(true);
-                  setVoiceModalOpen(true);
-                }
-              }}
-              aria-label={bottomAiText.trim() ? 'Befehl senden' : 'Sofort sprechen'}
-              className="min-h-[44px] min-w-[44px] px-3.5 py-2.5 rounded-2xl text-white font-bold text-xs flex items-center justify-center gap-1.5 shrink-0 active:scale-95 transition shadow-lg"
-              style={{
-                backgroundColor: activeVisualTheme.primary,
-                boxShadow: `0 4px 16px ${activeVisualTheme.glow}`
-              }}
-            >
-              {bottomAiText.trim() ? (
-                <>
-                  <Send className="w-4 h-4" />
-                  <span className="hidden sm:inline">Senden</span>
-                </>
-              ) : (
-                <>
-                  <Mic className="w-4 h-4" />
-                  <span>Sprechen</span>
-                </>
-              )}
-            </button>
-          </form>
+              <button
+                type="button"
+                onClick={() => {
+                  if (bottomAiText.trim()) {
+                    handleBottomAiSubmit();
+                  } else {
+                    setAutoStartMicOnOpen(true);
+                    setVoiceModalOpen(true);
+                  }
+                }}
+                aria-label={bottomAiText.trim() ? 'Befehl senden' : 'Sofort sprechen'}
+                className="min-h-[44px] min-w-[44px] px-3.5 py-2.5 rounded-2xl text-white font-bold text-xs flex items-center justify-center gap-1.5 shrink-0 active:scale-95 transition shadow-lg"
+                style={{
+                  backgroundColor: activeVisualTheme.primary,
+                  boxShadow: `0 4px 16px ${activeVisualTheme.glow}`
+                }}
+              >
+                {bottomAiText.trim() ? (
+                  <>
+                    <Send className="w-4 h-4" />
+                    <span className="hidden sm:inline">Senden</span>
+                  </>
+                ) : (
+                  <>
+                    <Mic className="w-4 h-4" />
+                    <span>Sprechen</span>
+                  </>
+                )}
+              </button>
+            </form>
+          </div>
         </div>
-      </div>
 
       {/* KI-KONTEXT-SCHUBLADE */}
       <VoiceModal
@@ -1595,7 +1754,7 @@ export default function App() {
           <span className="truncate">{toast}</span>
         </div>
       )}
-      </div>
     </div>
+    </div >
   );
 }
