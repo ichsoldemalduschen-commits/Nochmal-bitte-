@@ -1,5 +1,5 @@
 import { get, set } from 'idb-keyval';
-import { AppStateSnapshot, KnowledgeItem, Project } from '../types';
+import { AmbientLightMode, AppStateSnapshot, KnowledgeItem, Project } from '../types';
 
 export const IDB_STATE_KEY = 'nexusflow_pwa_v1_state';
 export const LS_FALLBACK_KEY = 'nexusflow_pwa_v1_fallback';
@@ -20,7 +20,10 @@ export const STORAGE_KEYS = {
   ACTIVE_AI_MODE: 'banditos_active_ai_mode_v1',
   FIRED_REMINDERS: 'banditos_fired_reminders_v4',
   THUMB_HUB_ENABLED: 'banditos_thumb_hub_enabled_v1',
-  THUMB_HUB_POSITION: 'banditos_thumb_hub_position_v1'
+  THUMB_HUB_POSITION: 'banditos_thumb_hub_position_v1',
+  AMBIENT_LIGHT_MODE: 'banditos_ambient_light_mode_v1',
+  SCANNED_RECEIPTS: 'banditos_scanned_receipts_v1',
+  SAVED_DOSSIERS: 'banditos_saved_dossiers_v1'
 } as const;
 
 // In-Memory-Cache für verzögerungsfreie synchrone UI-Abfragen
@@ -119,6 +122,9 @@ export function normalizeProject(project: Project): Project {
   const legalWatchEnabled = typeof (project as any).legalWatchEnabled === 'boolean'
     ? (project as any).legalWatchEnabled
     : (domain === 'business');
+  const overviewEnabled = typeof (project as any).overviewEnabled === 'boolean'
+    ? (project as any).overviewEnabled
+    : true;
 
   return {
     ...project,
@@ -127,6 +133,7 @@ export function normalizeProject(project: Project): Project {
     businessDomain,
     archived,
     legalWatchEnabled,
+    overviewEnabled,
     enabledTabs,
     knowledge,
     // Alte Arrays für eventuelle Abwärtskompatibilität als gespiegelte Kopien beibehalten
@@ -179,7 +186,10 @@ export async function migrateLocalStorageToIndexedDB(): Promise<void> {
     STORAGE_KEYS.ACTIVE_AI_MODE,
     STORAGE_KEYS.FIRED_REMINDERS,
     STORAGE_KEYS.THUMB_HUB_ENABLED,
-    STORAGE_KEYS.THUMB_HUB_POSITION
+    STORAGE_KEYS.THUMB_HUB_POSITION,
+    STORAGE_KEYS.AMBIENT_LIGHT_MODE,
+    STORAGE_KEYS.SCANNED_RECEIPTS,
+    STORAGE_KEYS.SAVED_DOSSIERS
   ];
 
   for (const key of keysToMigrate) {
@@ -435,4 +445,52 @@ export function getThumbHubPosition(): 'left' | 'center' | 'right' {
 
 export function saveThumbHubPosition(pos: 'left' | 'center' | 'right'): void {
   saveIdbItem(STORAGE_KEYS.THUMB_HUB_POSITION, pos);
+}
+
+export function loadAmbientLightMode(): AmbientLightMode {
+  return getIdbItemSync<AmbientLightMode>(STORAGE_KEYS.AMBIENT_LIGHT_MODE, 'shimmer');
+}
+
+export function saveAmbientLightMode(mode: AmbientLightMode): void {
+  saveIdbItem(STORAGE_KEYS.AMBIENT_LIGHT_MODE, mode);
+}
+
+export interface SavedScannedReceipt {
+  id: string;
+  projectId: string;
+  projectName: string;
+  storeName: string;
+  purchaseDate: string;
+  totalAmount: string;
+  items: Array<{ title: string; quantity: string; price: string }>;
+  createdAt: string;
+  reconciled?: boolean;
+}
+
+export interface SavedDossierItem {
+  id: string;
+  projectId: string;
+  projectName: string;
+  title: string;
+  markdownContent: string;
+  sources: Array<{ title: string; url: string }>;
+  followUpTasks: string[];
+  createdAt: string;
+  modelUsed?: string;
+}
+
+export function loadScannedReceipts(): SavedScannedReceipt[] {
+  return getIdbItemSync<SavedScannedReceipt[]>(STORAGE_KEYS.SCANNED_RECEIPTS, []);
+}
+
+export function saveScannedReceipts(receipts: SavedScannedReceipt[]): void {
+  saveIdbItem(STORAGE_KEYS.SCANNED_RECEIPTS, receipts);
+}
+
+export function loadSavedDossiers(): SavedDossierItem[] {
+  return getIdbItemSync<SavedDossierItem[]>(STORAGE_KEYS.SAVED_DOSSIERS, []);
+}
+
+export function saveSavedDossiers(dossiers: SavedDossierItem[]): void {
+  saveIdbItem(STORAGE_KEYS.SAVED_DOSSIERS, dossiers);
 }

@@ -3,6 +3,7 @@ import { CheckCircle2, MessageSquare, Scale, Mic, Plus, X, Send } from 'lucide-r
 import {
   AiExecutedAction,
   AiLogEntry,
+  AmbientLightMode,
   AppStateSnapshot,
   Attachment,
   BackofficeTabId,
@@ -29,6 +30,8 @@ import {
   saveIdbItem,
   saveThumbHubEnabled,
   saveThumbHubPosition,
+  loadAmbientLightMode,
+  saveAmbientLightMode,
   STORAGE_KEYS
 } from './services/storage';
 import {
@@ -124,6 +127,18 @@ export default function App() {
     notify(`Parkplatz auf ${pos === 'left' ? 'Links' : pos === 'right' ? 'Rechts' : 'Mitte'} gesetzt.`);
   };
 
+  const handleChangeAmbientLightMode = (mode: AmbientLightMode) => {
+    setState((prev) => ({ ...prev, ambientLightMode: mode }));
+    saveAmbientLightMode(mode);
+    notify(
+      mode === 'off'
+        ? 'Hintergrundbeleuchtung deaktiviert.'
+        : mode === 'static'
+        ? 'Statische Hintergrundbeleuchtung aktiviert.'
+        : 'Sanftes Schimmern aktiviert.'
+    );
+  };
+
   const notify = (msg: string) => {
     setToast(msg);
     window.setTimeout(() => setToast(null), 3200);
@@ -154,7 +169,8 @@ export default function App() {
     });
 
     // 2. Load persisted app state
-    loadPersistedState(INITIAL_APP_SNAPSHOT).then((loaded) => {
+    loadPersistedState(INITIAL_APP_SNAPSHOT).then(async (loaded) => {
+      const savedAmbientMode = await loadAmbientLightMode();
       const normalizedProjects = (loaded.projects || INITIAL_APP_SNAPSHOT.projects).map((p) => {
         const brandProj = (BRAND_CONFIG.projects as Record<string, any>)[p.id];
         return {
@@ -175,6 +191,7 @@ export default function App() {
       setState({
         ...INITIAL_APP_SNAPSHOT,
         ...loaded,
+        ambientLightMode: savedAmbientMode || (loaded as any).ambientLightMode || 'shimmer',
         thumbHubEnabled: typeof (loaded as any).thumbHubEnabled === 'boolean' ? (loaded as any).thumbHubEnabled : true,
         thumbHubPosition: (loaded as any).thumbHubPosition || 'center',
         projects: normalizedProjects,
@@ -413,6 +430,150 @@ export default function App() {
       ...patch
     }));
     notify('Projektdaten gespeichert.');
+  };
+
+  const handleSaveDossierToProject = (
+    projectId: string,
+    title: string,
+    markdownContent: string,
+    followUpTasks: string[]
+  ) => {
+    updateProject(projectId, (p) => {
+      const newK: KnowledgeItem = {
+        id: `k-dossier-${Date.now()}`,
+        title: enforceMaxSixWords(title, 'Rechts-Dossier'),
+        kind: 'reference',
+        content: markdownContent,
+        attachments: [],
+        lastModified: formatNow(),
+        changeReason: 'Deep Research Beleg',
+        source: 'KI-Recherche',
+        aiTouched: true,
+        customMeta: {}
+      };
+      const newInfo = {
+        id: newK.id,
+        title: newK.title,
+        content: markdownContent,
+        attachments: [],
+        lastModified: formatNow(),
+        changeReason: 'Deep Research Beleg',
+        source: 'KI-Recherche',
+        aiTouched: true,
+        customMeta: {}
+      };
+      const newTasks = (followUpTasks || []).map((tText, idx) => ({
+        id: `task-dossier-${Date.now()}-${idx}`,
+        title: enforceMaxSixWords(tText, 'Recherche To-do'),
+        completed: false,
+        priority: 'high' as PriorityType,
+        estimatedMinutes: 30,
+        dayBlock: null,
+        reminderAt: '',
+        aiTouched: true,
+        lastModified: formatNow(),
+        changeReason: 'Aus Deep Research abgeleitet',
+        source: 'Deep Research',
+        assemblyGroup: '',
+        customMeta: {}
+      }));
+      return {
+        ...p,
+        knowledge: [newK, ...(p.knowledge || [])],
+        infos: [newInfo, ...p.infos],
+        tasks: [...newTasks, ...p.tasks]
+      };
+    });
+    notify('Rechts-Dossier & To-dos im Projekt gespeichert.');
+  };
+
+  const handleReconcileReceiptWithCart = (
+    projectId: string,
+    storeName: string,
+    purchaseDate: string,
+    totalAmount: string,
+    items: Array<{ title: string; quantity: string; price: string }>
+  ) => {
+    updateProject(projectId, (p) => {
+      let updatedCart = [...p.cart];
+      const unmatchedItems: Array<{ title: string; quantity: string; price: string }> = [];
+
+      for (const item of items) {
+        const itemTitleLower = item.title.toLowerCase();
+        const foundIdx = updatedCart.findIndex(
+          (c) =>
+            !c.completed &&
+            (c.title.toLowerCase().includes(itemTitleLower) ||
+              itemTitleLower.includes(c.title.toLowerCase()))
+        );
+        if (foundIdx !== -1) {
+          updatedCart[foundIdx] = {
+            ...updatedCart[foundIdx],
+            completed: true,
+            price: item.price ? `${item.price} €` : updatedCart[foundIdx].price,
+            lastModified: formatNow(),
+            changeReason: `Kassenbon ${storeName} (${purchaseDate})`
+          };
+        } else {
+          unmatchedItems.push(item);
+        }
+      }
+
+      const newCartItems = unmatchedItems.map((item, idx) => ({
+        id: `cart-receipt-${Date.now()}-${idx}`,
+        title: enforceMaxSixWords(item.title, 'Beleg-Artikel'),
+        quantity: item.quantity || '1x',
+        price: item.price ? `${item.price} €` : '',
+        completed: true,
+        lastModified: formatNow(),
+        changeReason: `Aus Kassenbon ${storeName}`,
+        source: 'Beleg-Scanner',
+        aiTouched: true,
+        customMeta: {}
+      }));
+
+      const receiptContent = `Kassenbon / Rechnung von ${storeName}\nDatum: ${purchaseDate}\nGesamtbetrag: ${totalAmount} €\n\nErfasste Positionen:\n${items
+        .map((it) => `- ${it.quantity} ${it.title}: ${it.price} €`)
+        .join('\n')}`;
+
+      const receiptK: KnowledgeItem = {
+        id: `k-receipt-${Date.now()}`,
+        title: enforceMaxSixWords(`Beleg ${storeName} ${totalAmount} €`, 'Kassenbon'),
+        kind: 'info',
+        content: receiptContent,
+        attachments: [],
+        lastModified: formatNow(),
+        changeReason: 'Kassenbon gescannt & abgeglichen',
+        source: 'Beleg-Scanner',
+        aiTouched: true,
+        customMeta: { totalAmount, storeName, purchaseDate }
+      };
+
+      const receiptInfo = {
+        id: receiptK.id,
+        title: receiptK.title,
+        content: receiptContent,
+        attachments: [],
+        lastModified: formatNow(),
+        changeReason: 'Kassenbon gescannt & abgeglichen',
+        source: 'Beleg-Scanner',
+        aiTouched: true,
+        customMeta: { totalAmount, storeName, purchaseDate }
+      };
+
+      return {
+        ...p,
+        knowledge: [receiptK, ...(p.knowledge || [])],
+        cart: [...newCartItems, ...updatedCart],
+        infos: [receiptInfo, ...p.infos]
+      };
+    });
+    notify(`Kassenbon (${totalAmount} €) verbucht & Einkaufswagen abgeglichen!`);
+  };
+
+  const handleReplaceFullStateFromCloud = (newState: AppStateSnapshot) => {
+    setState(newState);
+    notify('Datenstand aus der Cloud übernommen.');
   };
 
   const handleAddKnowledge = (
@@ -1230,6 +1391,9 @@ export default function App() {
               setIsBackoffice(true);
               setBackofficeTab('addons');
             }}
+            ambientLightMode={state.ambientLightMode || 'shimmer'}
+            onSaveDossierToProject={handleSaveDossierToProject}
+            onReconcileReceiptWithCart={handleReconcileReceiptWithCart}
             onNotify={notify}
           />
         ) : (
@@ -1244,6 +1408,10 @@ export default function App() {
             haWebhookUrl={state.haWebhookUrl}
             haEmbedUrl={state.haEmbedUrl}
             initialSection={zentraleSection}
+            ambientLightMode={state.ambientLightMode || 'shimmer'}
+            onChangeAmbientLightMode={handleChangeAmbientLightMode}
+            fullState={state}
+            onReplaceFullStateFromCloud={handleReplaceFullStateFromCloud}
             onChangeTab={setBackofficeTab}
             onCloseBackoffice={() => { setIsBackoffice(false); setZentraleSection(null); }}
             onJumpToAction={handleJumpToAction}
@@ -1517,136 +1685,9 @@ export default function App() {
         userApiKey={state.userApiKey}
         fullState={state}
         onClose={() => setDeepResearchModalOpen(false)}
-        onSaveDossierToProject={(projectId, title, markdownContent, followUpTasks) => {
-          updateProject(projectId, (p) => {
-            const newK: KnowledgeItem = {
-              id: `k-dossier-${Date.now()}`,
-              title: enforceMaxSixWords(title, 'Rechts-Dossier'),
-              kind: 'reference',
-              content: markdownContent,
-              attachments: [],
-              lastModified: formatNow(),
-              changeReason: 'Deep Research Beleg',
-              source: 'KI-Recherche',
-              aiTouched: true,
-              customMeta: {}
-            };
-            const newInfo = {
-              id: newK.id,
-              title: newK.title,
-              content: markdownContent,
-              attachments: [],
-              lastModified: formatNow(),
-              changeReason: 'Deep Research Beleg',
-              source: 'KI-Recherche',
-              aiTouched: true,
-              customMeta: {}
-            };
-            const newTasks = (followUpTasks || []).map((tText, idx) => ({
-              id: `task-dossier-${Date.now()}-${idx}`,
-              title: enforceMaxSixWords(tText, 'Recherche To-do'),
-              completed: false,
-              priority: 'high' as PriorityType,
-              estimatedMinutes: 30,
-              dayBlock: null,
-              reminderAt: '',
-              aiTouched: true,
-              lastModified: formatNow(),
-              changeReason: 'Aus Deep Research abgeleitet',
-              source: 'Deep Research',
-              assemblyGroup: '',
-              customMeta: {}
-            }));
-            return {
-              ...p,
-              knowledge: [newK, ...(p.knowledge || [])],
-              infos: [newInfo, ...p.infos],
-              tasks: [...newTasks, ...p.tasks]
-            };
-          });
-          notify('Rechts-Dossier & To-dos im Projekt gespeichert.');
-        }}
-        onReconcileReceiptWithCart={(projectId, storeName, purchaseDate, totalAmount, items) => {
-          updateProject(projectId, (p) => {
-            let updatedCart = [...p.cart];
-            const unmatchedItems: Array<{ title: string; quantity: string; price: string }> = [];
-
-            for (const item of items) {
-              const itemTitleLower = item.title.toLowerCase();
-              const foundIdx = updatedCart.findIndex(
-                (c) =>
-                  !c.completed &&
-                  (c.title.toLowerCase().includes(itemTitleLower) ||
-                    itemTitleLower.includes(c.title.toLowerCase()))
-              );
-              if (foundIdx !== -1) {
-                updatedCart[foundIdx] = {
-                  ...updatedCart[foundIdx],
-                  completed: true,
-                  price: item.price ? `${item.price} €` : updatedCart[foundIdx].price,
-                  lastModified: formatNow(),
-                  changeReason: `Kassenbon ${storeName} (${purchaseDate})`
-                };
-              } else {
-                unmatchedItems.push(item);
-              }
-            }
-
-            const newCartItems = unmatchedItems.map((item, idx) => ({
-              id: `cart-receipt-${Date.now()}-${idx}`,
-              title: enforceMaxSixWords(item.title, 'Beleg-Artikel'),
-              quantity: item.quantity || '1x',
-              price: item.price ? `${item.price} €` : '',
-              completed: true,
-              lastModified: formatNow(),
-              changeReason: `Aus Kassenbon ${storeName}`,
-              source: 'Beleg-Scanner',
-              aiTouched: true,
-              customMeta: {}
-            }));
-
-            const receiptContent = `Kassenbon / Rechnung von ${storeName}\nDatum: ${purchaseDate}\nGesamtbetrag: ${totalAmount} €\n\nErfasste Positionen:\n${items
-              .map((it) => `- ${it.quantity} ${it.title}: ${it.price} €`)
-              .join('\n')}`;
-
-            const receiptK: KnowledgeItem = {
-              id: `k-receipt-${Date.now()}`,
-              title: enforceMaxSixWords(`Beleg ${storeName} ${totalAmount} €`, 'Kassenbon'),
-              kind: 'info',
-              content: receiptContent,
-              attachments: [],
-              lastModified: formatNow(),
-              changeReason: 'Kassenbon gescannt & abgeglichen',
-              source: 'Beleg-Scanner',
-              aiTouched: true,
-              customMeta: { totalAmount, storeName, purchaseDate }
-            };
-
-            const receiptInfo = {
-              id: receiptK.id,
-              title: receiptK.title,
-              content: receiptContent,
-              attachments: [],
-              lastModified: formatNow(),
-              changeReason: 'Kassenbon gescannt & abgeglichen',
-              source: 'Beleg-Scanner',
-              aiTouched: true,
-              customMeta: { totalAmount, storeName, purchaseDate }
-            };
-
-            return {
-              ...p,
-              knowledge: [receiptK, ...(p.knowledge || [])],
-              cart: [...newCartItems, ...updatedCart],
-              infos: [receiptInfo, ...p.infos]
-            };
-          });
-          notify(`Kassenbon (${totalAmount} €) verbucht & Einkaufswagen abgeglichen!`);
-        }}
-        onReplaceFullStateFromCloud={(newState) => {
-          setState(newState);
-          notify('Datenstand aus der Cloud übernommen.');
-        }}
+        onSaveDossierToProject={handleSaveDossierToProject}
+        onReconcileReceiptWithCart={handleReconcileReceiptWithCart}
+        onReplaceFullStateFromCloud={handleReplaceFullStateFromCloud}
         onNotify={notify}
       />
 

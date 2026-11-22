@@ -1,5 +1,6 @@
 import React from 'react';
 import {
+  Camera,
   ChevronRight,
   FolderPlus,
   LayoutGrid,
@@ -7,6 +8,7 @@ import {
   Scale,
   Settings,
   ShoppingCart,
+  Sparkles,
   X
 } from 'lucide-react';
 import { DomainType, Project, ProjectTabId } from '../../types';
@@ -49,6 +51,15 @@ export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({
   isTabEnabled
 }) => {
   const renderProjectList = (projects: Project[], domainColorKey: 'arbeit' | 'privat') => {
+    const getFirstActiveTab = (p: Project): ProjectTabId => {
+      const tabs = p.enabledTabs || ['tasks', 'cart', 'knowledge', 'extras'];
+      if (tabs.includes('tasks')) return 'tasks';
+      if (tabs.includes('knowledge')) return 'knowledge';
+      if (tabs.includes('cart')) return 'cart';
+      if (tabs.includes('extras')) return 'extras';
+      return 'tasks';
+    };
+
     return projects.map((proj) => {
       const isActive = activeProject?.id === proj.id;
       const pColor =
@@ -67,7 +78,12 @@ export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({
         >
           <button
             type="button"
-            onClick={() => onSelectProjectAndSection(proj, 'ALL')}
+            onClick={() =>
+              onSelectProjectAndSection(
+                proj,
+                proj.overviewEnabled !== false ? 'ALL' : getFirstActiveTab(proj)
+              )
+            }
             className="w-full min-h-[50px] p-3.5 flex items-center justify-between text-left active:bg-white/5 transition"
             style={isActive ? { backgroundColor: `${pColor}22` } : {}}
           >
@@ -82,19 +98,21 @@ export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({
 
           {isActive && (
             <div className="p-2.5 pt-1.5 grid grid-cols-2 gap-2 border-t border-white/5 bg-[#111317]/80">
-              <button
-                type="button"
-                onClick={() => onSelectProjectAndSection(proj, 'ALL')}
-                className={`min-h-[44px] px-3 py-2 rounded-xl text-xs font-semibold text-left flex items-center justify-between ${
-                  viewAllSections
-                    ? 'text-white'
-                    : 'bg-[#242930] text-[#9CA3AF] hover:text-white'
-                }`}
-                style={viewAllSections ? { backgroundColor: pColor } : {}}
-              >
-                <span>Gesamt</span>
-                <LayoutGrid className="w-3.5 h-3.5" />
-              </button>
+              {proj.overviewEnabled !== false && (
+                <button
+                  type="button"
+                  onClick={() => onSelectProjectAndSection(proj, 'ALL')}
+                  className={`min-h-[44px] px-3 py-2 rounded-xl text-xs font-semibold text-left flex items-center justify-between ${
+                    viewAllSections
+                      ? 'text-white'
+                      : 'bg-[#242930] text-[#9CA3AF] hover:text-white'
+                  }`}
+                  style={viewAllSections ? { backgroundColor: pColor } : {}}
+                >
+                  <span>Gesamt</span>
+                  <LayoutGrid className="w-3.5 h-3.5" />
+                </button>
+              )}
               {isTabEnabled(proj, 'tasks') && (
                 <button
                   type="button"
@@ -195,8 +213,8 @@ export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({
             : 'translateX(-100%)'
         }}
       >
-        <div className="p-5 space-y-6">
-          <div className="flex items-center justify-between border-b border-white/10 pb-4">
+        <div className="p-4 space-y-5">
+          <div className="flex items-center justify-between border-b border-white/10 pb-3.5">
             <div>
               <div className="text-sm font-extrabold uppercase tracking-wider text-white">
                 BANDIT.OS Navigation
@@ -208,45 +226,72 @@ export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="w-11 h-11 rounded-2xl text-[#9CA3AF] hover:text-white bg-[#242930] flex items-center justify-center border border-white/5 active:scale-95 transition"
+              className="w-11 h-11 min-h-[44px] min-w-[44px] rounded-2xl text-[#9CA3AF] hover:text-white bg-[#242930] flex items-center justify-center border border-white/5 active:scale-95 transition cursor-pointer"
+              aria-label="Navigation schließen"
             >
               <X className="w-5 h-5" />
             </button>
           </div>
 
-          {/* ZENTRALER GLOBALER EINKAUFSWAGEN */}
-          <button
-            type="button"
-            onClick={() => {
-              const target = activeProject || workProjects[0] || privateProjects[0];
-              if (target) {
-                onSelectProjectAndSection(target, 'cart');
-              }
-              onClose();
-            }}
-            className={`w-full min-h-[48px] p-3.5 rounded-2xl border flex items-center justify-between transition-all shadow-sm active:scale-95 cursor-pointer ${
-              !viewAllSections && activeTab === 'cart'
-                ? 'bg-[#0D9488]/20 border-[#0D9488] text-white'
-                : 'bg-[#191C22] hover:bg-[#22262F] text-white border-white/5'
-            }`}
-          >
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="w-9 h-9 rounded-xl bg-[#14B8A6]/20 border border-[#14B8A6]/40 flex items-center justify-center text-[#14B8A6] shrink-0">
-                <ShoppingCart className="w-4 h-4" />
-              </div>
-              <div className="text-left min-w-0">
-                <div className="text-sm font-bold text-white leading-tight">
-                  Zentraler Einkaufswagen
-                </div>
-                <div className="text-xs text-[#9CA3AF] truncate">
-                  Projektübergreifender Materialpool
-                </div>
-              </div>
-            </div>
-            <span className="font-mono text-xs px-2 py-1 rounded-lg bg-black/40 text-[#14B8A6] font-bold shrink-0 ml-2">
-              {totalOpenCartCount} offen
-            </span>
-          </button>
+          {/* 3ER-ICON-SCHNELLLEISTE */}
+          <div role="toolbar" aria-label="Schnellzugriff" className="grid grid-cols-3 gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                const target = activeProject || workProjects[0] || privateProjects[0];
+                if (target) {
+                  onSelectProjectAndSection(target, 'cart');
+                }
+                onClose();
+              }}
+              className={`min-h-[56px] p-2 rounded-2xl border flex flex-col items-center justify-center gap-1 active:scale-95 transition cursor-pointer ${
+                !viewAllSections && activeTab === 'cart'
+                  ? 'bg-[#0D9488]/20 border-[#0D9488] text-white shadow-sm'
+                  : 'bg-[#191C22] hover:bg-[#22262F] text-[#94A3B8] hover:text-white border-white/5'
+              }`}
+            >
+              <ShoppingCart className="w-5 h-5 text-[#14B8A6]" />
+              <span className="text-xs font-semibold leading-none truncate">Einkauf</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                const target = activeProject || workProjects[0] || privateProjects[0];
+                if (target) {
+                  onSelectProjectAndSection(target, 'receipt');
+                }
+                onClose();
+              }}
+              className={`min-h-[56px] p-2 rounded-2xl border flex flex-col items-center justify-center gap-1 active:scale-95 transition cursor-pointer ${
+                !viewAllSections && activeTab === 'receipt'
+                  ? 'bg-[#0D9488]/20 border-[#0D9488] text-white shadow-sm'
+                  : 'bg-[#191C22] hover:bg-[#22262F] text-[#94A3B8] hover:text-white border-white/5'
+              }`}
+            >
+              <Camera className="w-5 h-5 text-[#14B8A6]" />
+              <span className="text-xs font-semibold leading-none truncate">Beleg-Scan</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                const target = activeProject || workProjects[0] || privateProjects[0];
+                if (target) {
+                  onSelectProjectAndSection(target, 'research');
+                }
+                onClose();
+              }}
+              className={`min-h-[56px] p-2 rounded-2xl border flex flex-col items-center justify-center gap-1 active:scale-95 transition cursor-pointer ${
+                !viewAllSections && activeTab === 'research'
+                  ? 'bg-[#0D9488]/20 border-[#0D9488] text-white shadow-sm'
+                  : 'bg-[#191C22] hover:bg-[#22262F] text-[#94A3B8] hover:text-white border-white/5'
+              }`}
+            >
+              <Sparkles className="w-5 h-5 text-[#14B8A6]" />
+              <span className="text-xs font-semibold leading-none truncate">Deep Research</span>
+            </button>
+          </div>
 
           {/* ARBEIT */}
           <div className="space-y-3">
@@ -265,7 +310,7 @@ export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({
           </div>
         </div>
 
-        <div className="p-5 border-t border-white/10 space-y-2.5 bg-[#181A1E]">
+        <div className="p-4 border-t border-white/10 space-y-2 bg-[#181A1E]">
           <button
             type="button"
             onClick={() => {
@@ -276,18 +321,6 @@ export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({
           >
             <FolderPlus className="w-4 h-4 text-[#14B8A6]" />
             <span>Neues Projekt anlegen</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              onClose();
-              onOpenDeepResearchModal?.();
-            }}
-            className="w-full min-h-[48px] py-2.5 px-4 rounded-2xl text-xs font-semibold bg-[#242930] text-white border border-white/10 flex items-center gap-2.5 hover:bg-[#2A3038] active:scale-95 transition"
-          >
-            <Scale className="w-4 h-4 text-[#14B8A6]" />
-            <span>Deep Research, Scanner &amp; Cloud</span>
           </button>
 
           <button

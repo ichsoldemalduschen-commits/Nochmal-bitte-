@@ -3,6 +3,7 @@ import { CheckCircle2, MessageSquare, Scale, Mic, Plus, X, Send } from 'lucide-r
 import {
   AiExecutedAction,
   AiLogEntry,
+  AmbientLightMode,
   AppStateSnapshot,
   Attachment,
   BackofficeTabId,
@@ -29,6 +30,8 @@ import {
   saveIdbItem,
   saveThumbHubEnabled,
   saveThumbHubPosition,
+  loadAmbientLightMode,
+  saveAmbientLightMode,
   STORAGE_KEYS
 } from './services/storage';
 import {
@@ -124,6 +127,18 @@ export default function App() {
     notify(`Parkplatz auf ${pos === 'left' ? 'Links' : pos === 'right' ? 'Rechts' : 'Mitte'} gesetzt.`);
   };
 
+  const handleChangeAmbientLightMode = (mode: AmbientLightMode) => {
+    setState((prev) => ({ ...prev, ambientLightMode: mode }));
+    saveAmbientLightMode(mode);
+    notify(
+      mode === 'off'
+        ? 'Hintergrundbeleuchtung deaktiviert.'
+        : mode === 'static'
+        ? 'Statische Hintergrundbeleuchtung aktiviert.'
+        : 'Sanftes Schimmern aktiviert.'
+    );
+  };
+
   const notify = (msg: string) => {
     setToast(msg);
     window.setTimeout(() => setToast(null), 3200);
@@ -154,7 +169,8 @@ export default function App() {
     });
 
     // 2. Load persisted app state
-    loadPersistedState(INITIAL_APP_SNAPSHOT).then((loaded) => {
+    loadPersistedState(INITIAL_APP_SNAPSHOT).then(async (loaded) => {
+      const savedAmbientMode = await loadAmbientLightMode();
       const normalizedProjects = (loaded.projects || INITIAL_APP_SNAPSHOT.projects).map((p) => {
         const brandProj = (BRAND_CONFIG.projects as Record<string, any>)[p.id];
         return {
@@ -175,6 +191,7 @@ export default function App() {
       setState({
         ...INITIAL_APP_SNAPSHOT,
         ...loaded,
+        ambientLightMode: savedAmbientMode || (loaded as any).ambientLightMode || 'shimmer',
         thumbHubEnabled: typeof (loaded as any).thumbHubEnabled === 'boolean' ? (loaded as any).thumbHubEnabled : true,
         thumbHubPosition: (loaded as any).thumbHubPosition || 'center',
         projects: normalizedProjects,
@@ -413,6 +430,150 @@ export default function App() {
       ...patch
     }));
     notify('Projektdaten gespeichert.');
+  };
+
+  const handleSaveDossierToProject = (
+    projectId: string,
+    title: string,
+    markdownContent: string,
+    followUpTasks: string[]
+  ) => {
+    updateProject(projectId, (p) => {
+      const newK: KnowledgeItem = {
+        id: `k-dossier-${Date.now()}`,
+        title: enforceMaxSixWords(title, 'Rechts-Dossier'),
+        kind: 'reference',
+        content: markdownContent,
+        attachments: [],
+        lastModified: formatNow(),
+        changeReason: 'Deep Research Beleg',
+        source: 'KI-Recherche',
+        aiTouched: true,
+        customMeta: {}
+      };
+      const newInfo = {
+        id: newK.id,
+        title: newK.title,
+        content: markdownContent,
+        attachments: [],
+        lastModified: formatNow(),
+        changeReason: 'Deep Research Beleg',
+        source: 'KI-Recherche',
+        aiTouched: true,
+        customMeta: {}
+      };
+      const newTasks = (followUpTasks || []).map((tText, idx) => ({
+        id: `task-dossier-${Date.now()}-${idx}`,
+        title: enforceMaxSixWords(tText, 'Recherche To-do'),
+        completed: false,
+        priority: 'high' as PriorityType,
+        estimatedMinutes: 30,
+        dayBlock: null,
+        reminderAt: '',
+        aiTouched: true,
+        lastModified: formatNow(),
+        changeReason: 'Aus Deep Research abgeleitet',
+        source: 'Deep Research',
+        assemblyGroup: '',
+        customMeta: {}
+      }));
+      return {
+        ...p,
+        knowledge: [newK, ...(p.knowledge || [])],
+        infos: [newInfo, ...p.infos],
+        tasks: [...newTasks, ...p.tasks]
+      };
+    });
+    notify('Rechts-Dossier & To-dos im Projekt gespeichert.');
+  };
+
+  const handleReconcileReceiptWithCart = (
+    projectId: string,
+    storeName: string,
+    purchaseDate: string,
+    totalAmount: string,
+    items: Array<{ title: string; quantity: string; price: string }>
+  ) => {
+    updateProject(projectId, (p) => {
+      let updatedCart = [...p.cart];
+      const unmatchedItems: Array<{ title: string; quantity: string; price: string }> = [];
+
+      for (const item of items) {
+        const itemTitleLower = item.title.toLowerCase();
+        const foundIdx = updatedCart.findIndex(
+          (c) =>
+            !c.completed &&
+            (c.title.toLowerCase().includes(itemTitleLower) ||
+              itemTitleLower.includes(c.title.toLowerCase()))
+        );
+        if (foundIdx !== -1) {
+          updatedCart[foundIdx] = {
+            ...updatedCart[foundIdx],
+            completed: true,
+            price: item.price ? `${item.price} €` : updatedCart[foundIdx].price,
+            lastModified: formatNow(),
+            changeReason: `Kassenbon ${storeName} (${purchaseDate})`
+          };
+        } else {
+          unmatchedItems.push(item);
+        }
+      }
+
+      const newCartItems = unmatchedItems.map((item, idx) => ({
+        id: `cart-receipt-${Date.now()}-${idx}`,
+        title: enforceMaxSixWords(item.title, 'Beleg-Artikel'),
+        quantity: item.quantity || '1x',
+        price: item.price ? `${item.price} €` : '',
+        completed: true,
+        lastModified: formatNow(),
+        changeReason: `Aus Kassenbon ${storeName}`,
+        source: 'Beleg-Scanner',
+        aiTouched: true,
+        customMeta: {}
+      }));
+
+      const receiptContent = `Kassenbon / Rechnung von ${storeName}\nDatum: ${purchaseDate}\nGesamtbetrag: ${totalAmount} €\n\nErfasste Positionen:\n${items
+        .map((it) => `- ${it.quantity} ${it.title}: ${it.price} €`)
+        .join('\n')}`;
+
+      const receiptK: KnowledgeItem = {
+        id: `k-receipt-${Date.now()}`,
+        title: enforceMaxSixWords(`Beleg ${storeName} ${totalAmount} €`, 'Kassenbon'),
+        kind: 'info',
+        content: receiptContent,
+        attachments: [],
+        lastModified: formatNow(),
+        changeReason: 'Kassenbon gescannt & abgeglichen',
+        source: 'Beleg-Scanner',
+        aiTouched: true,
+        customMeta: { totalAmount, storeName, purchaseDate }
+      };
+
+      const receiptInfo = {
+        id: receiptK.id,
+        title: receiptK.title,
+        content: receiptContent,
+        attachments: [],
+        lastModified: formatNow(),
+        changeReason: 'Kassenbon gescannt & abgeglichen',
+        source: 'Beleg-Scanner',
+        aiTouched: true,
+        customMeta: { totalAmount, storeName, purchaseDate }
+      };
+
+      return {
+        ...p,
+        knowledge: [receiptK, ...(p.knowledge || [])],
+        cart: [...newCartItems, ...updatedCart],
+        infos: [receiptInfo, ...p.infos]
+      };
+    });
+    notify(`Kassenbon (${totalAmount} €) verbucht & Einkaufswagen abgeglichen!`);
+  };
+
+  const handleReplaceFullStateFromCloud = (newState: AppStateSnapshot) => {
+    setState(newState);
+    notify('Datenstand aus der Cloud übernommen.');
   };
 
   const handleAddKnowledge = (
@@ -1230,6 +1391,9 @@ export default function App() {
               setIsBackoffice(true);
               setBackofficeTab('addons');
             }}
+            ambientLightMode={state.ambientLightMode || 'shimmer'}
+            onSaveDossierToProject={handleSaveDossierToProject}
+            onReconcileReceiptWithCart={handleReconcileReceiptWithCart}
             onNotify={notify}
           />
         ) : (
@@ -1244,6 +1408,10 @@ export default function App() {
             haWebhookUrl={state.haWebhookUrl}
             haEmbedUrl={state.haEmbedUrl}
             initialSection={zentraleSection}
+            ambientLightMode={state.ambientLightMode || 'shimmer'}
+            onChangeAmbientLightMode={handleChangeAmbientLightMode}
+            fullState={state}
+            onReplaceFullStateFromCloud={handleReplaceFullStateFromCloud}
             onChangeTab={setBackofficeTab}
             onCloseBackoffice={() => { setIsBackoffice(false); setZentraleSection(null); }}
             onJumpToAction={handleJumpToAction}
@@ -1437,21 +1605,21 @@ export default function App() {
           )
         )}
 
-      {/* 1-FOKUS-OVERLAY (Lesebrillen-Modus) */}
-      <SingleFocusOverlay
-        open={singleFocusOpen}
-        onClose={() => setSingleFocusOpen(false)}
-        activeProject={activeProject}
-        initialTaskId={singleFocusTaskId}
-        onToggleTask={handleToggleTask}
-        onRegisterUndo={(action) => {
-          notify(action.message);
-        }}
-        themeColors={{
-          primary: activeVisualTheme.primary,
-          highlight: activeVisualTheme.highlight
-        }}
-      />
+        {/* 1-FOKUS-OVERLAY (Lesebrillen-Modus) */}
+        <SingleFocusOverlay
+          open={singleFocusOpen}
+          onClose={() => setSingleFocusOpen(false)}
+          activeProject={activeProject}
+          initialTaskId={singleFocusTaskId}
+          onToggleTask={handleToggleTask}
+          onRegisterUndo={(action) => {
+            notify(action.message);
+          }}
+          themeColors={{
+            primary: activeVisualTheme.primary,
+            highlight: activeVisualTheme.highlight
+          }}
+        />
 
       {/* KI-KONTEXT-SCHUBLADE */}
       <VoiceModal
@@ -1517,327 +1685,200 @@ export default function App() {
         userApiKey={state.userApiKey}
         fullState={state}
         onClose={() => setDeepResearchModalOpen(false)}
-        onSaveDossierToProject={(projectId, title, markdownContent, followUpTasks) => {
-          updateProject(projectId, (p) => {
-            const newK: KnowledgeItem = {
-              id: `k-dossier-${Date.now()}`,
-              title: enforceMaxSixWords(title, 'Rechts-Dossier'),
-              kind: 'reference',
-              content: markdownContent,
-              attachments: [],
-              lastModified: formatNow(),
-              changeReason: 'Deep Research Beleg',
-              source: 'KI-Recherche',
-              aiTouched: true,
-              customMeta: {}
-            };
-            const newInfo = {
-              id: newK.id,
-              title: newK.title,
-              content: markdownContent,
-              attachments: [],
-              lastModified: formatNow(),
-              changeReason: 'Deep Research Beleg',
-              source: 'KI-Recherche',
-              aiTouched: true,
-              customMeta: {}
-            };
-            const newTasks = (followUpTasks || []).map((tText, idx) => ({
-              id: `task-dossier-${Date.now()}-${idx}`,
-              title: enforceMaxSixWords(tText, 'Recherche To-do'),
-              completed: false,
-              priority: 'high' as PriorityType,
-              estimatedMinutes: 30,
-              dayBlock: null,
-              reminderAt: '',
-              aiTouched: true,
-              lastModified: formatNow(),
-              changeReason: 'Aus Deep Research abgeleitet',
-              source: 'Deep Research',
-              assemblyGroup: '',
-              customMeta: {}
-            }));
-            return {
-              ...p,
-              knowledge: [newK, ...(p.knowledge || [])],
-              infos: [newInfo, ...p.infos],
-              tasks: [...newTasks, ...p.tasks]
-            };
-          });
-          notify('Rechts-Dossier & To-dos im Projekt gespeichert.');
-        }}
-        onReconcileReceiptWithCart={(projectId, storeName, purchaseDate, totalAmount, items) => {
-          updateProject(projectId, (p) => {
-            let updatedCart = [...p.cart];
-            const unmatchedItems: Array<{ title: string; quantity: string; price: string }> = [];
-
-            for (const item of items) {
-              const itemTitleLower = item.title.toLowerCase();
-              const foundIdx = updatedCart.findIndex(
-                (c) =>
-                  !c.completed &&
-                  (c.title.toLowerCase().includes(itemTitleLower) ||
-                    itemTitleLower.includes(c.title.toLowerCase()))
-              );
-              if (foundIdx !== -1) {
-                updatedCart[foundIdx] = {
-                  ...updatedCart[foundIdx],
-                  completed: true,
-                  price: item.price ? `${item.price} €` : updatedCart[foundIdx].price,
-                  lastModified: formatNow(),
-                  changeReason: `Kassenbon ${storeName} (${purchaseDate})`
-                };
-              } else {
-                unmatchedItems.push(item);
-              }
-            }
-
-            const newCartItems = unmatchedItems.map((item, idx) => ({
-              id: `cart-receipt-${Date.now()}-${idx}`,
-              title: enforceMaxSixWords(item.title, 'Beleg-Artikel'),
-              quantity: item.quantity || '1x',
-              price: item.price ? `${item.price} €` : '',
-              completed: true,
-              lastModified: formatNow(),
-              changeReason: `Aus Kassenbon ${storeName}`,
-              source: 'Beleg-Scanner',
-              aiTouched: true,
-              customMeta: {}
-            }));
-
-            const receiptContent = `Kassenbon / Rechnung von ${storeName}\nDatum: ${purchaseDate}\nGesamtbetrag: ${totalAmount} €\n\nErfasste Positionen:\n${items
-              .map((it) => `- ${it.quantity} ${it.title}: ${it.price} €`)
-              .join('\n')}`;
-
-            const receiptK: KnowledgeItem = {
-              id: `k-receipt-${Date.now()}`,
-              title: enforceMaxSixWords(`Beleg ${storeName} ${totalAmount} €`, 'Kassenbon'),
-              kind: 'info',
-              content: receiptContent,
-              attachments: [],
-              lastModified: formatNow(),
-              changeReason: 'Kassenbon gescannt & abgeglichen',
-              source: 'Beleg-Scanner',
-              aiTouched: true,
-              customMeta: { totalAmount, storeName, purchaseDate }
-            };
-
-            const receiptInfo = {
-              id: receiptK.id,
-              title: receiptK.title,
-              content: receiptContent,
-              attachments: [],
-              lastModified: formatNow(),
-              changeReason: 'Kassenbon gescannt & abgeglichen',
-              source: 'Beleg-Scanner',
-              aiTouched: true,
-              customMeta: { totalAmount, storeName, purchaseDate }
-            };
-
-            return {
-              ...p,
-              knowledge: [receiptK, ...(p.knowledge || [])],
-              cart: [...newCartItems, ...updatedCart],
-              infos: [receiptInfo, ...p.infos]
-            };
-          });
-          notify(`Kassenbon (${totalAmount} €) verbucht & Einkaufswagen abgeglichen!`);
-        }}
-        onReplaceFullStateFromCloud={(newState) => {
-          setState(newState);
-          notify('Datenstand aus der Cloud übernommen.');
-        }}
+        onSaveDossierToProject={handleSaveDossierToProject}
+        onReconcileReceiptWithCart={handleReconcileReceiptWithCart}
+        onReplaceFullStateFromCloud={handleReplaceFullStateFromCloud}
         onNotify={notify}
       />
 
-      <RealityCheckModal open={realityModalOpen} onClose={() => setRealityModalOpen(false)} />
+        <RealityCheckModal open={realityModalOpen} onClose={() => setRealityModalOpen(false)} />
 
-      <SelfCheckModal
-        open={selfCheckModalOpen}
-        onClose={() => setSelfCheckModalOpen(false)}
-        onSave={(entry) => {
-          setState((prev) => ({ ...prev, selfChecks: [entry, ...prev.selfChecks] }));
-          notify('Selbst-Check gespeichert.');
-        }}
-      />
+        <SelfCheckModal
+          open={selfCheckModalOpen}
+          onClose={() => setSelfCheckModalOpen(false)}
+          onSave={(entry) => {
+            setState((prev) => ({ ...prev, selfChecks: [entry, ...prev.selfChecks] }));
+            notify('Selbst-Check gespeichert.');
+          }}
+        />
 
-      {newProjectModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div
-            className="max-w-sm w-full rounded-2xl border border-white/15 p-5 space-y-3"
-            style={{ backgroundColor: THEME.bgCard }}
-          >
-            <h3 className="text-sm font-bold text-white">Neues Projekt ({activeDomain})</h3>
-            <input
-              type="text"
-              value={newProjName}
-              onChange={(e) => setNewProjName(e.target.value)}
-              placeholder="Projektname..."
-              className="w-full px-3 py-2 rounded-lg text-xs bg-[#181A1B] text-white border border-white/10"
-            />
-            <input
-              type="text"
-              value={newProjSubtitle}
-              onChange={(e) => setNewProjSubtitle(e.target.value)}
-              placeholder="Kurzbeschreibung..."
-              className="w-full px-3 py-2 rounded-lg text-xs bg-[#181A1B] text-white border border-white/10"
-            />
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setNewProjectModalOpen(false)}
-                className="px-3 py-1.5 text-xs text-[#9CA3AF]"
-              >
-                Abbrechen
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  if (!newProjName.trim()) return;
-                  const id = `proj-${Date.now()}`;
-                  setState((prev) => ({
-                    ...prev,
-                    projects: [
-                      ...prev.projects,
-                      {
-                        id,
-                        domain: activeDomain,
-                        name: newProjName.trim(),
-                        subtitle: newProjSubtitle.trim() || 'Eigenes Projekt',
-                        icon: 'FolderKanban',
-                        customLogoUrl: null,
-                        accentColor: activeVisualTheme.primary,
-                        archived: false,
-                        customMeta: {},
-                        enabledPlugins: [],
-                        enabledTabs: ['tasks', 'cart', 'knowledge', 'extras'],
-                        tasks: [],
-                        explanations: [],
-                        infos: [],
-                        knowledge: [],
-                        cart: []
-                      }
-                    ]
-                  }));
-                  setSelectedProjectId(id);
-                  setNewProjName('');
-                  setNewProjSubtitle('');
-                  setNewProjectModalOpen(false);
-                  notify('Projekt angelegt.');
-                }}
-                className="px-4 py-1.5 rounded-lg text-xs font-bold text-white"
-                style={{ backgroundColor: activeVisualTheme.primary }}
-              >
-                Anlegen
-              </button>
+        {newProjectModalOpen && (
+          <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+            <div
+              className="max-w-sm w-full rounded-2xl border border-white/15 p-5 space-y-3"
+              style={{ backgroundColor: THEME.bgCard }}
+            >
+              <h3 className="text-sm font-bold text-white">Neues Projekt ({activeDomain})</h3>
+              <input
+                type="text"
+                value={newProjName}
+                onChange={(e) => setNewProjName(e.target.value)}
+                placeholder="Projektname..."
+                className="w-full px-3 py-2 rounded-lg text-xs bg-[#181A1B] text-white border border-white/10"
+              />
+              <input
+                type="text"
+                value={newProjSubtitle}
+                onChange={(e) => setNewProjSubtitle(e.target.value)}
+                placeholder="Kurzbeschreibung..."
+                className="w-full px-3 py-2 rounded-lg text-xs bg-[#181A1B] text-white border border-white/10"
+              />
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setNewProjectModalOpen(false)}
+                  className="px-3 py-1.5 text-xs text-[#9CA3AF]"
+                >
+                  Abbrechen
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!newProjName.trim()) return;
+                    const id = `proj-${Date.now()}`;
+                    setState((prev) => ({
+                      ...prev,
+                      projects: [
+                        ...prev.projects,
+                        {
+                          id,
+                          domain: activeDomain,
+                          name: newProjName.trim(),
+                          subtitle: newProjSubtitle.trim() || 'Eigenes Projekt',
+                          icon: 'FolderKanban',
+                          customLogoUrl: null,
+                          accentColor: activeVisualTheme.primary,
+                          archived: false,
+                          customMeta: {},
+                          enabledPlugins: [],
+                          enabledTabs: ['tasks', 'cart', 'knowledge', 'extras'],
+                          tasks: [],
+                          explanations: [],
+                          infos: [],
+                          knowledge: [],
+                          cart: []
+                        }
+                      ]
+                    }));
+                    setSelectedProjectId(id);
+                    setNewProjName('');
+                    setNewProjSubtitle('');
+                    setNewProjectModalOpen(false);
+                    notify('Projekt angelegt.');
+                  }}
+                  className="px-4 py-1.5 rounded-lg text-xs font-bold text-white"
+                  style={{ backgroundColor: activeVisualTheme.primary }}
+                >
+                  Anlegen
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {previewAttachment && (
-        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4">
-          <div
-            className="max-w-2xl w-full rounded-2xl border border-white/15 overflow-hidden shadow-2xl flex flex-col max-h-[90vh]"
-            style={{ backgroundColor: THEME.bgCard }}
-          >
-            <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between">
-              <span className="text-xs font-bold text-white truncate">
-                {previewAttachment.name} ({previewAttachment.size})
-              </span>
-              <button
-                type="button"
-                onClick={() => setPreviewAttachment(null)}
-                className="p-1 text-[#9CA3AF] hover:text-white"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {previewAttachment.type === 'image' && (
-              <div className="px-4 py-2 border-b border-white/10 bg-[#181A1B] flex items-center gap-2">
-                <input
-                  type="text"
-                  value={newPinLabel}
-                  onChange={(e) => setNewPinLabel(e.target.value)}
-                  placeholder="Maß-Label (z.B. 'Breite: 85cm')... dann Foto anklicken"
-                  className="flex-1 px-3 py-1.5 rounded-lg text-xs bg-[#24292E] text-white border border-white/10 placeholder-[#9CA3AF]"
-                />
-                <span className="text-xs text-[#9CA3AF] shrink-0">Klick = Pin setzen</span>
-              </div>
-            )}
-
-            <div className="p-4 overflow-y-auto flex-1">
-              {previewAttachment.type === 'image' && previewAttachment.dataUrl && (
-                <div
-                  className="relative inline-block mx-auto cursor-crosshair select-none"
-                  onClick={handleImageClickForMeasurePin}
+        {previewAttachment && (
+          <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4">
+            <div
+              className="max-w-2xl w-full rounded-2xl border border-white/15 overflow-hidden shadow-2xl flex flex-col max-h-[90vh]"
+              style={{ backgroundColor: THEME.bgCard }}
+            >
+              <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between">
+                <span className="text-xs font-bold text-white truncate">
+                  {previewAttachment.name} ({previewAttachment.size})
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setPreviewAttachment(null)}
+                  className="p-1 text-[#9CA3AF] hover:text-white"
                 >
-                  <img
-                    src={previewAttachment.dataUrl}
-                    alt={previewAttachment.name}
-                    className="max-h-[60vh] mx-auto rounded-lg block"
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {previewAttachment.type === 'image' && (
+                <div className="px-4 py-2 border-b border-white/10 bg-[#181A1B] flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={newPinLabel}
+                    onChange={(e) => setNewPinLabel(e.target.value)}
+                    placeholder="Maß-Label (z.B. 'Breite: 85cm')... dann Foto anklicken"
+                    className="flex-1 px-3 py-1.5 rounded-lg text-xs bg-[#24292E] text-white border border-white/10 placeholder-[#9CA3AF]"
                   />
-                  {(photoPins[previewAttachment.id] || []).map((pin) => (
-                    <div
-                      key={pin.id}
-                      className="absolute -translate-x-1/2 -translate-y-1/2 px-2 py-0.5 rounded-md text-xs font-bold text-white shadow-lg flex items-center gap-1 border border-white/30"
-                      style={{
-                        left: `${pin.xPercent}%`,
-                        top: `${pin.yPercent}%`,
-                        backgroundColor: activeVisualTheme.primary
-                      }}
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <span>{pin.label}</span>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          const current = photoPins[previewAttachment.id] || [];
-                          const next = {
-                            ...photoPins,
-                            [previewAttachment.id]: current.filter((p) => p.id !== pin.id)
-                          };
-                          setPhotoPins(next);
-                          saveIdbItem(STORAGE_KEYS.PHOTO_PINS, next);
-                          notify('Pin entfernt.');
-                        }}
-                        className="text-white/70 hover:text-white ml-0.5"
-                      >
-                        ×
-                      </button>
-                    </div>
-                  ))}
+                  <span className="text-xs text-[#9CA3AF] shrink-0">Klick = Pin setzen</span>
                 </div>
               )}
-              {previewAttachment.type === 'pdf' && previewAttachment.dataUrl && (
-                <iframe
-                  src={previewAttachment.dataUrl}
-                  title={previewAttachment.name}
-                  className="w-full h-[65vh] rounded-lg border border-white/10"
-                />
-              )}
-              {previewAttachment.type === 'text' && (
-                <pre className="p-3 rounded-lg bg-[#181A1B] text-xs font-mono text-white whitespace-pre-wrap">
-                  {previewAttachment.textContent || 'Kein Textinhalt.'}
-                </pre>
-              )}
+
+              <div className="p-4 overflow-y-auto flex-1">
+                {previewAttachment.type === 'image' && previewAttachment.dataUrl && (
+                  <div
+                    className="relative inline-block mx-auto cursor-crosshair select-none"
+                    onClick={handleImageClickForMeasurePin}
+                  >
+                    <img
+                      src={previewAttachment.dataUrl}
+                      alt={previewAttachment.name}
+                      className="max-h-[60vh] mx-auto rounded-lg block"
+                    />
+                    {(photoPins[previewAttachment.id] || []).map((pin) => (
+                      <div
+                        key={pin.id}
+                        className="absolute -translate-x-1/2 -translate-y-1/2 px-2 py-0.5 rounded-md text-xs font-bold text-white shadow-lg flex items-center gap-1 border border-white/30"
+                        style={{
+                          left: `${pin.xPercent}%`,
+                          top: `${pin.yPercent}%`,
+                          backgroundColor: activeVisualTheme.primary
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <span>{pin.label}</span>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const current = photoPins[previewAttachment.id] || [];
+                            const next = {
+                              ...photoPins,
+                              [previewAttachment.id]: current.filter((p) => p.id !== pin.id)
+                            };
+                            setPhotoPins(next);
+                            saveIdbItem(STORAGE_KEYS.PHOTO_PINS, next);
+                            notify('Pin entfernt.');
+                          }}
+                          className="text-white/70 hover:text-white ml-0.5"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {previewAttachment.type === 'pdf' && previewAttachment.dataUrl && (
+                  <iframe
+                    src={previewAttachment.dataUrl}
+                    title={previewAttachment.name}
+                    className="w-full h-[65vh] rounded-lg border border-white/10"
+                  />
+                )}
+                {previewAttachment.type === 'text' && (
+                  <pre className="p-3 rounded-lg bg-[#181A1B] text-xs font-mono text-white whitespace-pre-wrap">
+                    {previewAttachment.textContent || 'Kein Textinhalt.'}
+                  </pre>
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {toast && (
-        <div
-          className="fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-full text-white text-xs font-bold shadow-2xl flex items-center gap-2 border border-white/20 max-w-[90vw]"
-          style={{ backgroundColor: activeVisualTheme.primary }}
-        >
-          <CheckCircle2 className="w-4 h-4 shrink-0" />
-          <span className="truncate">{toast}</span>
-        </div>
-      )}
-    </div>
+        {toast && (
+          <div
+            className="fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-full text-white text-xs font-bold shadow-2xl flex items-center gap-2 border border-white/20 max-w-[90vw]"
+            style={{ backgroundColor: activeVisualTheme.primary }}
+          >
+            <CheckCircle2 className="w-4 h-4 shrink-0" />
+            <span className="truncate">{toast}</span>
+          </div>
+        )}
+      </div>
     </div >
   );
 }

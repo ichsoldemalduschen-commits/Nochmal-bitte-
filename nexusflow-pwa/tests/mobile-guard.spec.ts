@@ -86,7 +86,7 @@ test.describe('Block C: Mobile-Guard 390×844 px Gesamt-Schutznetz', () => {
     await assertNoHorizontalOverflow(page, 'Station 1 – Start & Kopfleiste');
   });
 
-  test('Station 2 – NavigationDrawer: Öffnet im Vordergrund, genau 1 zentraler Einkaufswagen, Punkt „Zentrale“', async ({ page }) => {
+  test('Station 2 – NavigationDrawer: 3er-Icon-Schnellleiste (Einkauf, Beleg-Scan, Deep Research), Beleg-Scan & Deep Research Ansichten, Punkt „Zentrale“', async ({ page }) => {
     await page.goto('./');
     await page.waitForLoadState('domcontentloaded');
 
@@ -99,14 +99,23 @@ test.describe('Block C: Mobile-Guard 390×844 px Gesamt-Schutznetz', () => {
     const drawerTitle = page.locator('text=BANDIT.OS Navigation');
     await expect(drawerTitle).toBeVisible();
 
-    // Genau EIN zentraler Einkaufswagen (nicht pro Projekt)
-    const centralCartBtn = page.locator('button:has-text("Zentraler Einkaufswagen")');
-    await expect(centralCartBtn).toHaveCount(1);
-    await expect(centralCartBtn).toBeVisible();
+    // 3er-Icon-Schnellleiste oben vorhanden (min-h-[56px], Einkauf, Beleg-Scan, Deep Research)
+    const quickBar = page.locator('div[role="toolbar"][aria-label="Schnellzugriff"]');
+    await expect(quickBar).toBeVisible();
+    const quickBarButtons = quickBar.locator('button');
+    await expect(quickBarButtons).toHaveCount(3);
 
-    // Prüfen, dass in den Projekten (ARBEIT/PRIVAT) keine separaten Warenkorb-Buttons liegen
-    const subCartButtons = page.locator('div.space-y-3 button:has(svg.lucide-shopping-cart)');
-    await expect(subCartButtons).toHaveCount(0);
+    const cartQuickBtn = quickBar.locator('button:has-text("Einkauf")');
+    const scanQuickBtn = quickBar.locator('button:has-text("Beleg-Scan")');
+    const researchQuickBtn = quickBar.locator('button:has-text("Deep Research")');
+
+    await expect(cartQuickBtn).toBeVisible();
+    await expect(scanQuickBtn).toBeVisible();
+    await expect(researchQuickBtn).toBeVisible();
+
+    // Alter Zeileneintrag "Zentraler Einkaufswagen" und alter Cloud-Eintrag existieren nicht mehr im Seitenmenü
+    await expect(page.locator('button:has-text("Zentraler Einkaufswagen")')).toHaveCount(0);
+    await expect(page.locator('div.space-y-3 button:has(svg.lucide-cloud)')).toHaveCount(0);
 
     // Punkt „Zentrale“ im Footer des Drawers vorhanden
     const zentraleBtn = page.getByRole('button', { name: 'Zentrale', exact: true });
@@ -115,13 +124,28 @@ test.describe('Block C: Mobile-Guard 390×844 px Gesamt-Schutznetz', () => {
     // Überlauf im geöffneten Drawer prüfen
     await assertNoHorizontalOverflow(page, 'Station 2 – NavigationDrawer offen');
 
-    // Drawer schließen
-    const closeBtn = page.locator('button:has(svg.lucide-x)').first();
-    await closeBtn.click();
-    await expect(page.locator('.fixed.inset-0.z-\\[55\\]')).toHaveClass(/opacity-0/);
+    // 1. Klick auf Beleg-Scan öffnet eigenständige Beleg-Scan-Kartenansicht
+    await scanQuickBtn.click();
+    const scanHeading = page.locator('h3:has-text("Beleg-Scan")');
+    await expect(scanHeading).toBeVisible();
+    await assertNoHorizontalOverflow(page, 'Station 2 – Beleg-Scan-Ansicht geöffnet');
+
+    // 2. Erneut Drawer öffnen und Deep Research aufrufen
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    await page.locator('div[role="toolbar"][aria-label="Schnellzugriff"] button:has-text("Deep Research")').click();
+    const researchHeading = page.locator('h3:has-text("Deep Research")');
+    await expect(researchHeading).toBeVisible();
+    await assertNoHorizontalOverflow(page, 'Station 2 – Deep-Research-Ansicht geöffnet');
+
+    // 3. Erneut Drawer öffnen und Einkauf aufrufen
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    await page.locator('div[role="toolbar"][aria-label="Schnellzugriff"] button:has-text("Einkauf")').click();
+    const cartHeading = page.locator('h3:has-text("Einkaufswagen")');
+    await expect(cartHeading).toBeVisible();
+    await assertNoHorizontalOverflow(page, 'Station 2 – Einkaufswagen über Schnellleiste');
   });
 
-  test('Station 3 – Aufgaben (TasksView): Keine alten •••-Buttons, In-Place Details/Kopieren, 4-Sekunden-Rückgängig, kein Überlauf', async ({ page }) => {
+  test('Station 3 – Aufgaben (TasksView): Kopfzeile mit + und ⋮-Menü, 1-Fokus & Reset im Menü, flache Zwei-Zonen-Karten, 4-Sekunden-Rückgängig', async ({ page }) => {
     await page.goto('./');
     await page.waitForLoadState('domcontentloaded');
 
@@ -129,13 +153,32 @@ test.describe('Block C: Mobile-Guard 390×844 px Gesamt-Schutznetz', () => {
     const tasksHeading = page.locator('h3:has-text("Tasks")');
     await expect(tasksHeading).toBeVisible();
 
+    // Kopfzeile beruhigt: Nur genau zwei Buttons (+ und ⋮) rechts neben Tasks
+    const addTaskBtn = page.locator('button[aria-label="Aufgabe hinzufügen"]');
+    const moreMenuBtn = page.locator('button[aria-label="Weitere Aufgaben-Aktionen"]');
+    await expect(addTaskBtn).toBeVisible();
+    await expect(moreMenuBtn).toBeVisible();
+
+    // ⋮-Menü öffnen
+    await moreMenuBtn.click();
+    const overflowMenu = page.locator('div[role="menu"][aria-label="Aufgaben-Aktionen"]');
+    await expect(overflowMenu).toBeVisible();
+    await expect(overflowMenu.locator('button:has-text("1-Fokus")')).toBeVisible();
+    await expect(overflowMenu.locator('button:has-text("Checkliste zurücksetzen")')).toBeVisible();
+    await expect(overflowMenu.locator('button:has-text("Aufgaben-Einstellungen & ADHS")')).toBeVisible();
+    await assertNoHorizontalOverflow(page, 'Station 3 – Tasks ⋮-Menü geöffnet');
+
+    // Menü per Klick außerhalb / Escape schließen
+    await page.keyboard.press('Escape');
+    await expect(overflowMenu).toBeHidden();
+
     // Erste Task-Karte ansteuern
     const firstTaskCard = page.locator('div[id^="item-card-"]').first();
     await expect(firstTaskCard).toBeVisible();
 
     // Keine alten ••• Buttons auf der Karte
-    const moreMenuBtn = firstTaskCard.locator('button:has-text("•••"), button:has-text("...")');
-    await expect(moreMenuBtn).toHaveCount(0);
+    const moreBtn = firstTaskCard.locator('button:has-text("•••"), button:has-text("...")');
+    await expect(moreBtn).toHaveCount(0);
 
     // Antippen der Karte klappt In-Place Details & Aktionen auf (Zone 2)
     const cardTitleArea = firstTaskCard.locator('.cursor-pointer').nth(1);
@@ -184,9 +227,9 @@ test.describe('Block C: Mobile-Guard 390×844 px Gesamt-Schutznetz', () => {
     await page.goto('./');
     await page.waitForLoadState('domcontentloaded');
 
-    // Über Drawer in Zentralen Einkaufswagen navigieren
+    // Über Drawer 3er-Schnellleiste in Einkauf navigieren
     await page.locator('button[aria-label="Navigation öffnen"]').click();
-    await page.locator('button:has-text("Zentraler Einkaufswagen")').click();
+    await page.locator('div[role="toolbar"][aria-label="Schnellzugriff"] button:has-text("Einkauf")').click();
 
     // Einkaufswagen Ansicht sichtbar
     const cartHeading = page.locator('h3:has-text("Einkaufswagen")');
@@ -409,6 +452,11 @@ test.describe('Block C: Mobile-Guard 390×844 px Gesamt-Schutznetz', () => {
     await pizzaCard.click();
     await assertNoHorizontalOverflow(page, 'Station 7 – Projekt Pizza Bandit aufgeklappt');
 
+    // Schalter „Gesamt-Übersicht“ prüfen
+    const overviewToggle = page.locator('button[aria-label="Gesamt-Übersicht für dieses Projekt umschalten"]');
+    await expect(overviewToggle).toBeVisible();
+    await expect(overviewToggle).toContainText('Aktiviert');
+
     // Farb-Presets, Bild-Tausch, enabledTabs/Module, JSON-Export, Archivieren, Vorschriften-Wächter Schalter vorhanden
     await expect(page.locator('text=Akzentfarbe:')).toBeVisible();
     await expect(page.locator('button:has-text("Bild ändern")')).toBeVisible();
@@ -424,6 +472,15 @@ test.describe('Block C: Mobile-Guard 390×844 px Gesamt-Schutznetz', () => {
     // Sechskant-Daumenmodul & Parkplatz
     await expect(page.locator('text=Sechskant-Daumenmodul (Einhand-Steuerung)')).toBeVisible();
     await expect(page.locator('text=Parkplatz für Einhand-Bedienung:')).toBeVisible();
+
+    // 3-Stufen Hintergrundbeleuchtung
+    await expect(page.locator('text=Organische Hintergrundbeleuchtung')).toBeVisible();
+    const ambientOffBtn = page.locator('button[aria-label="Hintergrundbeleuchtung Aus"]');
+    const ambientStaticBtn = page.locator('button[aria-label="Hintergrundbeleuchtung Statisch"]');
+    const ambientShimmerBtn = page.locator('button[aria-label="Hintergrundbeleuchtung Sanftes Schimmern"]');
+    await expect(ambientOffBtn).toBeVisible();
+    await expect(ambientStaticBtn).toBeVisible();
+    await expect(ambientShimmerBtn).toBeVisible();
 
     // ADHS & Fokus
     await expect(page.locator('text=ADHS- & Fokus-Unterstützung')).toBeVisible();
@@ -459,6 +516,13 @@ test.describe('Block C: Mobile-Guard 390×844 px Gesamt-Schutznetz', () => {
     await section4Btn.click();
     await assertNoHorizontalOverflow(page, 'Station 7 – Bereich 4 geöffnet');
 
+    // Cloud-Sync & Push-Konfiguration
+    await expect(page.locator('text=Cloud-Synchronisation & Push-Zentrale')).toBeVisible();
+    await expect(page.locator('input[placeholder*="https://sync.example.com"]')).toBeVisible();
+    await expect(page.locator('input[placeholder*="ws_bandit_geheim"]')).toBeVisible();
+    await expect(page.locator('button:has-text("Jetzt hochladen")')).toBeVisible();
+    await expect(page.locator('button:has-text("Jetzt herunterladen")')).toBeVisible();
+
     // Backup, Export & Import
     await expect(page.locator('text=Backup, Export & Import')).toBeVisible();
     await expect(page.locator('button:has-text("Backup speichern")')).toBeVisible();
@@ -473,11 +537,15 @@ test.describe('Block C: Mobile-Guard 390×844 px Gesamt-Schutznetz', () => {
     await expect(zentraleTitle).toBeHidden();
   });
 
-  test('Station 8 – Deep-Links: Unterer Bereichs-Button in Tasks öffnet gezielt die Zentrale mit Bereich „Fokus, Bedienung & Optik“', async ({ page }) => {
+  test('Station 8 – Deep-Links & Gesamt-Schalter: Aufgaben-⋮-Menü öffnet gezielt Fokus in Zentrale & Gesamt-Schalter verbirgt Gesamt-Tab', async ({ page }) => {
     await page.goto('./');
     await page.waitForLoadState('domcontentloaded');
 
-    // Unten in den Tasks den Bereichs-Einstellungs-Button klicken
+    // 1. Im Tasks-⋮-Menü den Button "Aufgaben-Einstellungen & ADHS" anklicken
+    const moreMenuBtn = page.locator('button[aria-label="Weitere Aufgaben-Aktionen"]');
+    await expect(moreMenuBtn).toBeVisible();
+    await moreMenuBtn.click();
+
     const taskSettingsBtn = page.locator('button:has-text("Aufgaben-Einstellungen & ADHS")');
     await expect(taskSettingsBtn).toBeVisible();
     await taskSettingsBtn.click();
@@ -492,5 +560,29 @@ test.describe('Block C: Mobile-Guard 390×844 px Gesamt-Schutznetz', () => {
 
     // Kein Überlauf
     await assertNoHorizontalOverflow(page, 'Station 8 – Deep-Link Zentrale Fokus');
+
+    // 2. Gesamt-Schalter in Bereich 1 testen: Wenn deaktiviert, verschwindet der Gesamt-Tab
+    await page.locator('button:has-text("Projekte & Werkzeuge")').click();
+    const pizzaCard = page.locator('button:has-text("Pizza Bandit")').first();
+    await pizzaCard.click();
+
+    const overviewToggle = page.locator('button[aria-label="Gesamt-Übersicht für dieses Projekt umschalten"]');
+    await expect(overviewToggle).toBeVisible();
+    await expect(overviewToggle).toContainText('Aktiviert');
+
+    // Ausschalten
+    await overviewToggle.click();
+    await expect(overviewToggle).toContainText('Deaktiviert');
+
+    // Zurück zur Hauptansicht
+    await page.locator('button:has-text("Zurück")').click();
+
+    // Drawer öffnen und prüfen, dass "Gesamt" für Pizza Bandit nicht mehr sichtbar ist
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    const gesamtTabBtn = page.locator('div.space-y-3 button:has-text("Gesamt")');
+    await expect(gesamtTabBtn).toHaveCount(0);
+
+    // Drawer wieder schließen
+    await page.locator('button:has(svg.lucide-x)').first().click();
   });
 });

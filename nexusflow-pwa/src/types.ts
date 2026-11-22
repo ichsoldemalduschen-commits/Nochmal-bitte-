@@ -1,8 +1,9 @@
 export type DomainType = 'business' | 'private' | 'arbeit' | 'privat';
 export type PriorityType = 'Hoch' | 'Mittel' | 'Niedrig';
 export type DayBlockId = 'morning' | 'focus' | 'errands' | 'evening' | null;
-export type ProjectTabId = 'tasks' | 'cart' | 'knowledge' | 'extras' | 'explanations' | 'infos';
+export type ProjectTabId = 'tasks' | 'cart' | 'knowledge' | 'extras' | 'explanations' | 'infos' | 'receipt' | 'research';
 export type BackofficeTabId = 'analytics' | 'planner' | 'addons' | 'system';
+export type AmbientLightMode = 'off' | 'static' | 'shimmer';
 
 export const THEME = {
   bgMain: '#111317',
@@ -124,6 +125,8 @@ export interface Project {
   archivedAt?: string;
   /** Vorschriften-Wächter (⚖️) im Daumen-Fächer anzeigen */
   legalWatchEnabled?: boolean;
+  /** Gesamt-Übersicht im Menü ein- oder ausblenden. Default: true */
+  overviewEnabled?: boolean;
   customMeta: CustomMeta;
   enabledPlugins: string[];
   enabledTabs?: ('tasks' | 'cart' | 'knowledge' | 'extras')[];
@@ -213,6 +216,7 @@ export interface AppStateSnapshot {
   haEmbedUrl: string;
   thumbHubEnabled?: boolean;
   thumbHubPosition?: 'left' | 'center' | 'right';
+  ambientLightMode?: AmbientLightMode;
 }
 
 export interface PluginContextProps {

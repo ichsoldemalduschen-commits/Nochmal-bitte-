@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Crosshair,
   RotateCcw,
@@ -14,7 +14,8 @@ import {
   PriorityType,
   Project,
   ProjectTabId,
-  TaskItem
+  TaskItem,
+  AmbientLightMode
 } from '../types';
 import { BRAND_CONFIG } from '../config/brandConfig';
 import { StepByStepAudioGuide } from '../components/StepByStepAudioGuide';
@@ -25,6 +26,7 @@ import {
   saveUserPrefs,
   triggerHapticFeedback
 } from '../services/aiRouter';
+import { loadAmbientLightMode } from '../services/storage';
 import { ZentraleSectionId } from './BackofficeWorkspace';
 import {
   NavigationDrawer,
@@ -32,7 +34,9 @@ import {
   TasksView,
   CartView,
   KnowledgeView,
-  ExtrasView
+  ExtrasView,
+  ReceiptScanView,
+  DeepResearchView
 } from './front';
 
 interface FrontWorkspaceProps {
@@ -43,6 +47,20 @@ interface FrontWorkspaceProps {
   activeTab: ProjectTabId;
   highlightedItemId: string | null;
   userApiKey?: string;
+  ambientLightMode?: AmbientLightMode;
+  onSaveDossierToProject?: (
+    projectId: string,
+    title: string,
+    markdownContent: string,
+    followUpTasks: string[]
+  ) => void;
+  onReconcileReceiptWithCart?: (
+    projectId: string,
+    storeName: string,
+    purchaseDate: string,
+    totalAmount: string,
+    items: Array<{ title: string; quantity: string; price: string }>
+  ) => void;
   onSwitchDomain: (d: DomainType) => void;
   onSelectProject: (id: string) => void;
   onChangeTab: (tab: ProjectTabId) => void;
@@ -149,6 +167,9 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
   onRecordEventSale,
   onOpenSingleFocus,
   onOpenAddonsBackoffice,
+  ambientLightMode = 'shimmer',
+  onSaveDossierToProject,
+  onReconcileReceiptWithCart,
   onNotify
 }) => {
   const [prefs, setPrefs] = useState<BanditUserPreferences>(loadUserPrefs);
@@ -275,11 +296,35 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
     return tabs.includes(tab);
   };
 
+  const getFirstActiveTab = (proj?: Project): ProjectTabId => {
+    if (!proj) return 'tasks';
+    const tabs = proj.enabledTabs || ['tasks', 'cart', 'knowledge', 'extras'];
+    if (tabs.includes('tasks')) return 'tasks';
+    if (tabs.includes('knowledge')) return 'knowledge';
+    if (tabs.includes('cart')) return 'cart';
+    if (tabs.includes('extras')) return 'extras';
+    return 'tasks';
+  };
+
+  // Sicherheits-Fallback: Wenn Gesamt deaktiviert wird, während der Nutzer sich gerade darauf befindet
+  useEffect(() => {
+    if (activeProject && activeProject.overviewEnabled === false && viewAllSections) {
+      setViewAllSections(false);
+      onChangeTab(getFirstActiveTab(activeProject));
+    }
+  }, [activeProject, viewAllSections, onChangeTab]);
+
   const selectProjectAndSection = (proj: Project, tab: ProjectTabId | 'ALL') => {
     if (proj.domain !== activeDomain) onSwitchDomain(proj.domain);
     onSelectProject(proj.id);
-    if (tab === 'ALL') setViewAllSections(true);
-    else {
+    if (tab === 'ALL') {
+      if (proj.overviewEnabled === false) {
+        setViewAllSections(false);
+        onChangeTab(getFirstActiveTab(proj));
+      } else {
+        setViewAllSections(true);
+      }
+    } else {
       setViewAllSections(false);
       onChangeTab(tab);
     }
@@ -298,6 +343,8 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
     isTabEnabled(activeProject, 'knowledge');
   const showExtrasSection =
     (!viewAllSections && activeTab === 'extras') && isTabEnabled(activeProject, 'extras');
+  const showReceiptSection = !viewAllSections && activeTab === 'receipt';
+  const showResearchSection = !viewAllSections && activeTab === 'research';
 
   return (
     <div
@@ -314,14 +361,37 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
         />
       )}
 
-      {/* Hauchfeiner Ambient-Glow oben am Bildschirmrand (ca. 16 % Deckkraft in Projektfarbe) */}
-      <div
-        className="pointer-events-none fixed top-0 left-1/2 -translate-x-1/2 w-full max-w-[500px] h-48 blur-3xl opacity-16 transition-all duration-700 z-0"
-        style={{
-          background: `radial-gradient(ellipse at 50% 0%, ${themeColors.primary} 0%, transparent 75%)`
-        }}
-        aria-hidden="true"
-      />
+      {/* ORGANISCHE HINTERGRUNDBELEUCHTUNG */}
+      {ambientLightMode === 'static' && (
+        <div
+          className="pointer-events-none fixed top-0 left-1/2 -translate-x-1/2 w-full max-w-[650px] h-[450px] blur-[120px] opacity-10 transition-all duration-700 z-0 rounded-full"
+          style={{ backgroundColor: themeColors.primary }}
+          aria-hidden="true"
+        />
+      )}
+
+      {ambientLightMode === 'shimmer' && (
+        <div
+          className="pointer-events-none fixed inset-0 overflow-hidden z-0"
+          aria-hidden="true"
+        >
+          {/* Blob 1: Oben links */}
+          <div
+            className="absolute -top-[10%] -left-[10%] w-[480px] h-[480px] rounded-full blur-[130px] ambient-shimmer-blob-1"
+            style={{ backgroundColor: themeColors.primary }}
+          />
+          {/* Blob 2: Rechts mittig */}
+          <div
+            className="absolute top-[28%] -right-[15%] w-[520px] h-[520px] rounded-full blur-[140px] ambient-shimmer-blob-2"
+            style={{ backgroundColor: themeColors.primary }}
+          />
+          {/* Blob 3: Unten links */}
+          <div
+            className="absolute bottom-[10%] -left-[5%] w-[440px] h-[440px] rounded-full blur-[130px] ambient-shimmer-blob-3"
+            style={{ backgroundColor: themeColors.primary }}
+          />
+        </div>
+      )}
 
       {/* Weicher dunkler Fade-Out-Verlauf am unteren Bildschirmrand (transparent → #111317) */}
       <div
@@ -578,6 +648,47 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
               onUpdateProjectMeta={onUpdateProjectMeta}
               onAddCartItems={onAddCartItems}
               onRecordEventSale={onRecordEventSale}
+              onNotify={onNotify}
+            />
+          )}
+
+          {/* SEKTION: BELEG-SCAN */}
+          {showReceiptSection && (
+            <ReceiptScanView
+              activeProject={activeProject}
+              allProjects={allProjects.length > 0 ? allProjects : domainProjects}
+              themeColors={themeColors}
+              userApiKey={userApiKey}
+              onReconcileReceiptWithCart={
+                onReconcileReceiptWithCart ||
+                ((projectId, storeName, purchaseDate, totalAmount, items) => {
+                  onAddCartItems(
+                    projectId,
+                    items.map((it) => ({
+                      title: it.title,
+                      quantity: it.quantity,
+                      price: it.price,
+                      reason: `Aus Kassenbon ${storeName}`
+                    }))
+                  );
+                })
+              }
+              onOpenSettings={(sec) => onOpenAddonsBackoffice(sec || 'ai')}
+              onNotify={onNotify}
+            />
+          )}
+
+          {/* SEKTION: DEEP RESEARCH */}
+          {showResearchSection && (
+            <DeepResearchView
+              activeProject={activeProject}
+              allProjects={allProjects.length > 0 ? allProjects : domainProjects}
+              themeColors={themeColors}
+              userApiKey={userApiKey}
+              onSaveDossierToProject={onSaveDossierToProject}
+              onAddTask={onAddTask}
+              onAddKnowledge={onAddKnowledge}
+              onOpenSettings={(sec) => onOpenAddonsBackoffice(sec || 'ai')}
               onNotify={onNotify}
             />
           )}

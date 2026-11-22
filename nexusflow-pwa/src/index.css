@@ -26,3 +26,60 @@ code, kbd, samp, pre, .font-mono {
 ::-webkit-scrollbar-thumb:hover {
   background: #0D9488;
 }
+
+/* Sanftes organisches Schimmern (GPU-Animation, 18–22s langsamer Zyklus) */
+@keyframes ambient-shimmer-1 {
+  0%, 100% {
+    transform: translate3d(0, 0, 0) scale(1);
+    opacity: 0.08;
+  }
+  50% {
+    transform: translate3d(6vw, 4vh, 0) scale(1.12);
+    opacity: 0.10;
+  }
+}
+
+@keyframes ambient-shimmer-2 {
+  0%, 100% {
+    transform: translate3d(0, 0, 0) scale(1.1);
+    opacity: 0.06;
+  }
+  50% {
+    transform: translate3d(-5vw, 6vh, 0) scale(0.96);
+    opacity: 0.09;
+  }
+}
+
+@keyframes ambient-shimmer-3 {
+  0%, 100% {
+    transform: translate3d(0, 0, 0) scale(1);
+    opacity: 0.07;
+  }
+  50% {
+    transform: translate3d(4vw, -5vh, 0) scale(1.08);
+    opacity: 0.095;
+  }
+}
+
+.ambient-shimmer-blob-1 {
+  animation: ambient-shimmer-1 19s ease-in-out infinite alternate;
+  will-change: transform, opacity;
+}
+
+.ambient-shimmer-blob-2 {
+  animation: ambient-shimmer-2 22s ease-in-out infinite alternate;
+  will-change: transform, opacity;
+}
+
+.ambient-shimmer-blob-3 {
+  animation: ambient-shimmer-3 18s ease-in-out infinite alternate;
+  will-change: transform, opacity;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ambient-shimmer-blob-1,
+  .ambient-shimmer-blob-2,
+  .ambient-shimmer-blob-3 {
+    animation: none !important;
+  }
+}

@@ -36,13 +36,20 @@ Standard-Projektfarben (Defaults):
 
 Atmosphäre & Listenaufbau:
 - **Weg mit „Kasten-in-Kasten“:** Keine unnötigen äußeren Container-Rahmen um Listen. Karten sitzen direkt mit ruhigem Abstand auf dem `#111317`-Canvas.
-- **Ambient-Glow:** Hauchfeiner Glow (ca. 14–18 % Deckkraft der aktuellen Projektfarbe) oben am Bildschirmrand.
+- **Ambient-Glow & 3-Stufen-Hintergrundbeleuchtung (`ambientLightMode`):**
+  - `'off'`: Ruhiger `#111317`-Canvas ohne zusätzliche Lichtelemente.
+  - `'static'`: Dezenter, großflächiger Grundschimmer (~8–10 % Deckkraft) in aktiver Projektfarbe ohne Bewegung.
+  - `'shimmer'` (Standard): Drei weichgezeichnete GPU-Farbflächen (blur, Deckkraft 6–10 %) in Projektfarbe, die sich in einem langsamen 18–22s-Zyklus hinter den Karten bewegen (`pointer-events-none`, `@media (prefers-reduced-motion: reduce)`-konform).
 - **Dunkler Fade-Out:** Weicher Verlauf (`transparent → #111317`) am unteren Bildschirmrand vor der Aktionsleiste.
 
 ---
 
 ## 3  ADHS-Regeln & Karten-Bedienung
 
+- **Tasks-Kopfzeile beruhigt:**
+  - Rechts neben „Tasks“ stehen genau zwei kompakte Buttons: `+` (Aufgabe anlegen, einziger direkter 1-Tipp-Button) und `⋮` (Mehr-Aktionen).
+  - Das `⋮`-Menü (`min-h-[44px] min-w-[44px]`, ruhiges Dropdown mit `rounded-2xl bg-[#191C22] border border-white/10 shadow-xl`) bündelt 1-Fokus, Checkliste zurücksetzen und Aufgaben-Einstellungen (Deep-Link in Zentrale Bereich `focus`).
+  - Doppelter Einstellungsbutton am Listenende entfällt.
 - **Einheitliche Zwei-Zonen-Karten ohne „•••“:**
   - **Linke Abhak-Zone (mind. 44×44 px, `e.stopPropagation()`):** Tippen hakt NUR ab bzw. streicht zart durch (`line-through text-[#94A3B8]/60`) – klappt die Karte niemals auf.
   - **Rest der Karte (Titel & Fläche):** Tippen klappt die Karte In-Place auf. Oben Kontext-Infos (Beschreibung, Baugruppe, Preis/Händler, Link, Zeit), darunter die kompakte Aktionsleiste (Bearbeiten, Verschieben, Kopieren, Löschen).
@@ -125,12 +132,14 @@ Die ehemalige Mono-Datei `FrontWorkspace.tsx` (> 2 500 Zeilen) ist in eigenstän
 | Modul | Verantwortung |
 |---|---|
 | `FrontWorkspace.tsx` (Shell) | Shared State (Prefs, Drawer, Theme), Touch-Handler, Layout-Orchestrierung |
-| `front/NavigationDrawer.tsx` | Linker Swipe-Drawer mit Projekt-/Domain-Navigation |
+| `front/NavigationDrawer.tsx` | Linker Swipe-Drawer mit Projekt-/Domain-Navigation & 3er-Schnellleiste |
 | `front/FrontHeader.tsx` | Projekt-Kopfzeile, Suche, Logo-Upload |
-| `front/TasksView.tsx` | Task-Liste, Hinzufügen, Sortierung, ADHS-Features |
+| `front/TasksView.tsx` | Task-Liste, Kopfzeile (+ & ⋮-Menü), Sortierung, ADHS-Features |
 | `front/CartView.tsx` | Einkaufswagen-Sektion |
 | `front/KnowledgeView.tsx` | Wissens-Sektion (Erklärungen, Infos, Attachments) |
 | `front/ExtrasView.tsx` | Plugin-Rendering |
+| `front/ReceiptScanView.tsx` | Beleg-Scan-Kartenansicht (Kamera/Upload, Erkennung, Abgleich mit Einkaufswagen) |
+| `front/DeepResearchView.tsx` | Deep-Research-Kartenansicht (Recherche-Start, Dossier-Karten, Quellen, To-do-Übernahme) |
 | `front/AiBottomBar.tsx` | Untere KI-Eingabeleiste |
 | `front/HexThumbHub.tsx` | Sechskant-Daumenmodul & Daumen-Fächer (Block D) |
 | `front/SingleFocusOverlay.tsx` | 1-Fokus Lesebrillen-Overlay (Block D) |
@@ -146,14 +155,14 @@ Die gesamte Einstellungs-Ansicht heißt für den Nutzer **„Zentrale"** (intern
 
 | Nr | Bereich | `ZentraleSectionId` | Inhalt |
 |---|---|---|---|
-| 1 | Projekte & Werkzeuge | `projects` | Projektkarten (390px-Fix: nur Farbpunkt + voller Name + Pfeil), Bild-Tausch, Farb-Presets, Lifecycle, Domain, Module, Plugins, JSON-Export, Archiv |
-| 2 | Fokus, Bedienung & Optik | `focus` | ADHS & Fokus, Personalisierung, Tagesplaner (4 Blöcke & .ics), Cover-Display & Checks |
+| 1 | Projekte & Werkzeuge | `projects` | Projektkarten (390px-Fix: nur Farbpunkt + voller Name + Pfeil), Gesamt-Übersicht-Schalter (`overviewEnabled`), Bild-Tausch, Farb-Presets, Lifecycle, Domain, Module, Plugins, JSON-Export, Archiv |
+| 2 | Fokus, Bedienung & Optik | `focus` | 3-Stufen-Hintergrundbeleuchtung (`off` / `static` / `shimmer`), ADHS & Fokus, Personalisierung, Tagesplaner (4 Blöcke & .ics), Cover-Display & Checks |
 | 3 | KI & Stimme „Gisela" | `ai` | Gemini API-Key & Modellwahl, Azure Speech + Gisela-Test + Offline-Fallback |
-| 4 | Daten, Backup & System | `system` | Backup/Export/Import, Vorlagen-Tresor (Blueprints), Aktenschrank, Cloud-Sync, Push, Smart Home |
+| 4 | Daten, Backup & System | `system` | Cloud-Synchronisation & Push-Zentrale (URL, Token, Auto-Sync, Manuell Hochladen/Herunterladen), Backup/Export/Import, Vorlagen-Tresor (Blueprints), Aktenschrank, Smart Home |
 
 **Fußzeile (immer sichtbar):** Build-Stempel in `font-mono` + „Neu laden"-Button.
 
-**Deep-Link via `initialSection`:** Honig-Gold-Toasts und View-Settings-Buttons springen direkt zum passenden Bereich (`TasksView` → `focus`, `CartView`/`KnowledgeView` → `projects`, API-Key fehlt → `ai`).
+**Deep-Link via `initialSection`:** Honig-Gold-Toasts und View-Settings-Buttons springen direkt zum passenden Bereich (`TasksView` → `focus`, `CartView`/`KnowledgeView` → `projects`, API-Key fehlt → `ai`, Cloud-Sync / Status → `system`).
 
 ---
 

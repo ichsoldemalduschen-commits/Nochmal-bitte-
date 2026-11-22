@@ -1,12 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import {
   ArrowLeft,
+  Bell,
   Brain,
   CalendarClock,
   Camera,
   CheckCircle2,
   ChevronDown,
   ChevronUp,
+  Cloud,
   Compass,
   Copy,
   Database,
@@ -31,6 +33,7 @@ import {
 import {
   AiExecutedAction,
   AiLogEntry,
+  AmbientLightMode,
   AppStateSnapshot,
   BackofficeTabId,
   DayBlockId,
@@ -46,10 +49,20 @@ import {
   getAzureSpeechKey,
   getAzureSpeechRegion,
   getIdbItemSync,
+  loadAmbientLightMode,
+  saveAmbientLightMode,
   saveAzureSpeechKey,
   saveAzureSpeechRegion,
   saveIdbItem
 } from '../services/storage';
+import {
+  CloudSyncConfig,
+  loadCloudConfig,
+  saveCloudConfig,
+  pushStateToCloud,
+  pullStateFromCloud,
+  requestPushNotificationPermission
+} from '../services/cloudSyncAndPush';
 import {
   BanditUserPreferences,
   getPreferredModelMode,
@@ -110,6 +123,10 @@ interface BackofficeWorkspaceProps {
   thumbHubPosition?: 'left' | 'center' | 'right';
   onToggleThumbHub?: (enabled: boolean) => void;
   onChangeThumbHubPosition?: (pos: 'left' | 'center' | 'right') => void;
+  ambientLightMode?: AmbientLightMode;
+  onChangeAmbientLightMode?: (mode: AmbientLightMode) => void;
+  fullState?: AppStateSnapshot;
+  onReplaceFullStateFromCloud?: (snapshot: AppStateSnapshot) => void;
   onNotify: (msg: string) => void;
 }
 
@@ -151,10 +168,37 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
   thumbHubPosition = 'center',
   onToggleThumbHub,
   onChangeThumbHubPosition,
+  ambientLightMode: ambientLightModeProp = 'shimmer',
+  onChangeAmbientLightMode,
+  fullState,
+  onReplaceFullStateFromCloud,
   onNotify
 }) => {
   const [openSection, setOpenSection] = useState<AccordionSectionId | null>(initialSection || null);
   const [prefs, setPrefs] = useState<BanditUserPreferences>(loadUserPrefs);
+  const [ambientLightMode, setAmbientLightMode] = useState<AmbientLightMode>(() =>
+    ambientLightModeProp || loadAmbientLightMode()
+  );
+
+  const handleAmbientModeChange = (mode: AmbientLightMode) => {
+    setAmbientLightMode(mode);
+    saveAmbientLightMode(mode);
+    onChangeAmbientLightMode?.(mode);
+    onNotify(
+      `Hintergrundbeleuchtung: ${
+        mode === 'off' ? 'Aus' : mode === 'static' ? 'Statisch' : 'Sanftes Schimmern'
+      }`
+    );
+  };
+
+  const [cloudCfg, setCloudCfg] = useState<CloudSyncConfig>(loadCloudConfig);
+  const [isSyncingCloud, setIsSyncingCloud] = useState(false);
+  const [pushGranted, setPushGranted] = useState<boolean>(
+    typeof window !== 'undefined' &&
+      'Notification' in window &&
+      Notification.permission === 'granted'
+  );
+
   const [newQuickCmd, setNewQuickCmd] = useState('');
   const [expandedProjectIds, setExpandedProjectIds] = useState<Record<string, boolean>>({});
 
@@ -605,6 +649,36 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
                           </div>
                         </div>
 
+                        {/* Gesamt-Übersicht Schalter pro Projekt */}
+                        <div className="p-3 rounded-2xl bg-[#181A1B] border border-white/5 flex items-center justify-between gap-3">
+                          <div className="min-w-0 flex-1">
+                            <div className="text-xs font-bold text-white flex items-center gap-1.5">
+                              <span>Gesamt-Übersicht</span>
+                            </div>
+                            <div className="text-xs text-[#94A3B8]">
+                              {proj.overviewEnabled !== false
+                                ? 'Im Menü aktiv (alle Bereiche gemeinsam)'
+                                : 'Ausgeblendet (nur gezielte Einzelbereiche)'}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            aria-label="Gesamt-Übersicht für dieses Projekt umschalten"
+                            onClick={() =>
+                              onUpdateProject?.(proj.id, {
+                                overviewEnabled: !(proj.overviewEnabled !== false)
+                              })
+                            }
+                            className={`min-h-[44px] px-3.5 py-1.5 rounded-xl text-xs font-bold border transition shrink-0 active:scale-95 cursor-pointer ${
+                              proj.overviewEnabled !== false
+                                ? 'bg-[#0A9396] text-white border-[#14B8A6]'
+                                : 'bg-[#242930] text-[#94A3B8] border-white/10 hover:text-white'
+                            }`}
+                          >
+                            {proj.overviewEnabled !== false ? 'Aktiviert' : 'Deaktiviert'}
+                          </button>
+                        </div>
+
                         {/* Vorschriften-Wächter (⚖️) Schalter pro Projekt */}
                         <div className="p-3 rounded-2xl bg-[#181A1B] border border-white/5 flex items-center justify-between gap-3">
                           <div className="min-w-0 flex-1">
@@ -880,20 +954,41 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
                 </div>
               </div>
 
-              <div className="p-3 rounded-2xl bg-[#242930] border border-white/5 flex items-center justify-between">
-                <span className="text-xs text-white font-medium">
-                  Organische Hintergrund-Aura &amp; Wellen-Animation
-                </span>
-                <button
-                  type="button"
-                  onClick={() => updatePrefs({ organicMotion: !prefs.organicMotion })}
-                  className="min-h-[44px] px-4 py-1.5 rounded-xl text-xs font-bold text-white transition active:scale-95"
-                  style={{
-                    backgroundColor: prefs.organicMotion ? THEME.accentPrimary : '#374151'
-                  }}
-                >
-                  {prefs.organicMotion ? 'An' : 'Aus'}
-                </button>
+              <div className="p-3.5 rounded-2xl bg-[#242930] border border-white/5 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="text-xs text-white font-bold">
+                    Organische Hintergrundbeleuchtung
+                  </div>
+                  <span className="text-xs text-[#94A3B8] font-mono">
+                    {ambientLightMode === 'off' ? 'Aus' : ambientLightMode === 'static' ? 'Statisch' : 'Schimmern'}
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {[
+                    { id: 'off' as const, label: 'Aus', ariaLabel: 'Hintergrundbeleuchtung Aus' },
+                    { id: 'static' as const, label: 'Statisch', ariaLabel: 'Hintergrundbeleuchtung Statisch' },
+                    { id: 'shimmer' as const, label: 'Schimmern', ariaLabel: 'Hintergrundbeleuchtung Sanftes Schimmern' }
+                  ].map((m) => (
+                    <button
+                      type="button"
+                      key={m.id}
+                      aria-label={m.ariaLabel}
+                      onClick={() => handleAmbientModeChange(m.id)}
+                      className={`min-h-[44px] py-2 rounded-xl text-xs font-bold border transition active:scale-95 cursor-pointer ${
+                        ambientLightMode === m.id
+                          ? 'bg-[#0A9396] text-white border-[#14B8A6]'
+                          : 'bg-[#181A1B] text-[#94A3B8] border-white/10 hover:text-white'
+                      }`}
+                    >
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="text-[11px] text-[#94A3B8]">
+                  {ambientLightMode === 'off' && 'Komplett ruhiger #111317-Hintergrund ohne Beleuchtung.'}
+                  {ambientLightMode === 'static' && 'Sehr dezenter Grundschimmer (~8–10 % Deckkraft) ohne Bewegung.'}
+                  {ambientLightMode === 'shimmer' && 'Sanft weichgezeichnete Farbflächen im ruhigen GPU-Schimmern (18–22s Zyklus).'}
+                </div>
               </div>
 
               {/* Eigene Quick-Command-Chips verwalten */}
@@ -1292,6 +1387,152 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
                   POS-Abrechnungen als CSV exportieren ({eventSalesLogs.length})
                 </button>
               )}
+            </div>
+
+            {/* ── Unterabschnitt: Cloud-Sync & Push ── */}
+            <div className="space-y-3">
+              <div className="text-xs font-extrabold uppercase tracking-wider text-[#94A3B8] px-1 pt-1">
+                Cloud-Synchronisation &amp; Push-Zentrale
+              </div>
+
+              <div className="p-3.5 rounded-2xl bg-[#242930] border border-white/5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="text-xs font-bold text-white flex items-center gap-2">
+                    <Cloud className="w-4 h-4 text-[#14B8A6]" />
+                    <span>Echtzeit-Cloud-Sync (Galaxy Z Flip 7 &lt;-&gt; PC)</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = {
+                        ...cloudCfg,
+                        enabled: !cloudCfg.enabled,
+                        autoSyncOnChange: !cloudCfg.enabled
+                      };
+                      setCloudCfg(next);
+                      saveCloudConfig(next);
+                      onNotify(next.enabled ? 'Cloud-Sync aktiviert.' : 'Cloud-Sync deaktiviert.');
+                    }}
+                    className="min-h-[44px] px-3.5 py-1.5 rounded-xl text-xs font-bold text-white active:scale-95 transition cursor-pointer"
+                    style={{
+                      backgroundColor: cloudCfg.enabled ? THEME.accentPrimary : '#374151'
+                    }}
+                  >
+                    {cloudCfg.enabled ? 'Aktiv' : 'Aus'}
+                  </button>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="space-y-1">
+                    <label className="text-[11px] text-[#94A3B8] block">Cloud-Endpunkt REST-URL:</label>
+                    <input
+                      type="text"
+                      value={cloudCfg.endpointUrl}
+                      onChange={(e) => {
+                        const next = { ...cloudCfg, endpointUrl: e.target.value };
+                        setCloudCfg(next);
+                        saveCloudConfig(next);
+                      }}
+                      placeholder="https://sync.example.com/api/v1/sync oder Firebase .json"
+                      className="w-full min-h-[44px] px-3.5 py-2 rounded-xl text-xs font-mono bg-[#181A1B] text-white border border-white/10 focus:outline-none focus:border-[#14B8A6]"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[11px] text-[#94A3B8] block">Cloud API-Key / Auth-Token (optional):</label>
+                    <input
+                      type="password"
+                      value={cloudCfg.apiKeyOrToken}
+                      onChange={(e) => {
+                        const next = { ...cloudCfg, apiKeyOrToken: e.target.value };
+                        setCloudCfg(next);
+                        saveCloudConfig(next);
+                      }}
+                      placeholder="ws_bandit_geheim oder Bearer-Token..."
+                      className="w-full min-h-[44px] px-3.5 py-2 rounded-xl text-xs font-mono bg-[#181A1B] text-white border border-white/10 focus:outline-none focus:border-[#14B8A6]"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 pt-1">
+                  <button
+                    type="button"
+                    disabled={isSyncingCloud}
+                    onClick={async () => {
+                      if (!fullState) {
+                        onNotify('Kein Status zum Senden vorhanden.');
+                        return;
+                      }
+                      setIsSyncingCloud(true);
+                      const res = await pushStateToCloud(fullState);
+                      setIsSyncingCloud(false);
+                      setCloudCfg(loadCloudConfig());
+                      onNotify(res.message);
+                    }}
+                    className="min-h-[44px] py-2.5 px-3 rounded-xl text-xs font-bold text-white flex items-center justify-center gap-1.5 active:scale-95 transition cursor-pointer"
+                    style={{ backgroundColor: THEME.accentPrimary }}
+                  >
+                    {isSyncingCloud ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                    <span>Jetzt hochladen</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={isSyncingCloud}
+                    onClick={async () => {
+                      setIsSyncingCloud(true);
+                      const res = await pullStateFromCloud();
+                      setIsSyncingCloud(false);
+                      setCloudCfg(loadCloudConfig());
+                      if (res.ok && res.snapshot && onReplaceFullStateFromCloud) {
+                        onReplaceFullStateFromCloud(res.snapshot);
+                      }
+                      onNotify(res.message);
+                    }}
+                    className="min-h-[44px] py-2.5 px-3 rounded-xl text-xs font-bold bg-[#181A1B] text-[#14B8A6] border border-[#14B8A6]/40 flex items-center justify-center gap-1.5 active:scale-95 transition cursor-pointer"
+                  >
+                    {isSyncingCloud ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                    <span>Jetzt herunterladen</span>
+                  </button>
+                </div>
+
+                {cloudCfg.lastSyncedAt && (
+                  <div className="text-xs text-[#94A3B8] text-center font-mono pt-1">
+                    Zuletzt synchronisiert: {cloudCfg.lastSyncedAt}
+                  </div>
+                )}
+              </div>
+
+              {/* Native Push-Erinnerungen */}
+              <div className="p-3.5 rounded-2xl bg-[#242930] border border-white/5 flex items-center justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs font-bold text-white flex items-center gap-2">
+                    <Bell className="w-4 h-4 text-[#14B8A6]" />
+                    <span>Native Smartphone Push-Erinnerungen</span>
+                  </div>
+                  <div className="text-xs text-[#94A3B8]">
+                    Meldet fällige Aufgaben-Zeiten direkt auf dem Sperrbildschirm
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const ok = await requestPushNotificationPermission();
+                    setPushGranted(ok);
+                    onNotify(
+                      ok
+                        ? 'Push-Benachrichtigungen sind aktiviert!'
+                        : 'Bitte Benachrichtigungen in den Browser-Einstellungen erlauben.'
+                    );
+                  }}
+                  className="min-h-[44px] px-3.5 py-1.5 rounded-xl text-xs font-bold text-white shrink-0 active:scale-95 transition cursor-pointer"
+                  style={{
+                    backgroundColor: pushGranted ? THEME.accentPrimary : '#374151'
+                  }}
+                >
+                  {pushGranted ? 'Aktiv' : 'Freigeben'}
+                </button>
+              </div>
             </div>
 
             {/* ── Unterabschnitt: Vorlagen-Tresor (Blueprints) ── */}
