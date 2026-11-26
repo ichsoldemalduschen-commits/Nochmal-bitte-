@@ -62,12 +62,55 @@ export default defineConfig({
         ],
         shortcuts: [
           {
-            name: 'BANDIT.OS Frontdisplay',
-            short_name: 'Frontdisplay',
-            description: 'Kompaktansicht fuer das Galaxy Z Flip 7 Frontdisplay',
-            url: '/Nochmal-bitte-/?mode=cover'
+            name: 'Sprechen (Gisela)',
+            short_name: 'Sprechen',
+            description: 'Sprach-Begleiter sofort öffnen',
+            url: './?action=voice',
+            icons: [
+              {
+                src: 'pwa-192x192.png',
+                sizes: '192x192',
+                type: 'image/png'
+              }
+            ]
+          },
+          {
+            name: 'Beleg scannen',
+            short_name: 'Beleg-Scan',
+            description: 'Kassenbon oder Rechnung direkt scannen',
+            url: './?action=receipt',
+            icons: [
+              {
+                src: 'pwa-192x192.png',
+                sizes: '192x192',
+                type: 'image/png'
+              }
+            ]
+          },
+          {
+            name: 'Einkaufswagen',
+            short_name: 'Einkauf',
+            description: 'Einkaufsliste direkt öffnen',
+            url: './?action=cart',
+            icons: [
+              {
+                src: 'pwa-192x192.png',
+                sizes: '192x192',
+                type: 'image/png'
+              }
+            ]
           }
-        ]
+        ],
+        share_target: {
+          action: './',
+          method: 'GET',
+          enctype: 'application/x-www-form-urlencoded',
+          params: {
+            title: 'share_title',
+            text: 'share_text',
+            url: 'share_url'
+          }
+        }
       }
     })
   ]

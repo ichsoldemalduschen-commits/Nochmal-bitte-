@@ -181,7 +181,7 @@ Für jede künftige Änderung gilt ein verbindliches E2E-Qualitätsgate auf mobi
 - **Befehl:** `npm run verify` im Verzeichnis `nexusflow-pwa` (führt `npm run build && npm run test:guard` aus).
 - **Pflicht vor jedem Git-Push:**
   1. `npm run build` muss fehlerfrei durchlaufen.
-  2. Playwright Mobile-Guard (`tests/mobile-guard.spec.ts`) muss alle **16 Stationen** (Start & Kopfleiste, NavigationDrawer, TasksView, CartView, KnowledgeView, Block D & VoiceModal, Zentrale mit allen 5 Bereichen, Deep-Links, Werkzeuge/POS, Wissen-Lösch-Undo & konsolidiertes Modal, Sammel-Tasks/`subTasks`, proaktive Erinnerungen, unsichtbare 3-Modi-Erkennung, Sprach-KI Rundum-Sanierung, Zentrale v2 5-Bereiche-Shell, Toggle-Offensive inkl. `uiDensity = large`, IDB-Reload-Persistenz & Smart-Home-Schublade) zu 100 % grün durchlaufen.
+  2. Playwright Mobile-Guard (`tests/mobile-guard.spec.ts`) muss alle **17 Stationen** (Start & Kopfleiste, NavigationDrawer, TasksView, CartView, KnowledgeView, Block D & VoiceModal, Zentrale mit allen 5 Bereichen, Deep-Links, Werkzeuge/POS, Wissen-Lösch-Undo & konsolidiertes Modal, Sammel-Tasks/`subTasks`, proaktive Erinnerungen, unsichtbare 3-Modi-Erkennung, Sprach-KI Rundum-Sanierung, Zentrale v2 5-Bereiche-Shell, Toggle-Offensive inkl. `uiDensity = large`, IDB-Reload-Persistenz & Smart-Home-Schublade, Smartphone-Verfügbarkeit Stufe A inkl. App-Shortcuts, Share-Target & Wake-Lock-Toggles) zu 100 % grün durchlaufen.
   3. Strikte Wächter: 0 ungefangene `pageerror`-Exceptions, 0 unberechtigte `console.error`-Meldungen, 0 horizontale Viewport-Überläufe (`document.documentElement.scrollWidth <= window.innerWidth + 1`).
 
 ---
@@ -298,3 +298,18 @@ Beide Werkzeuge besitzen oben rechts einen ruhigen `⚙`-Button (`min-h-[44px] m
 - **Android-Chrome-STT-Härtung & Satzende-Schutz (`VoiceModal.tsx`, `voiceModeClassifier.ts`, `storage.ts`):**
   - `rec.onend` mit bereits erkanntem Text hält die Sitzung mit `1200 ms` Nachlauf bzw. Sammel-Fortsetzung offen; `accumulatedPrefixRef` bewahrt bisheriges Transkript über Auto-Restarts inkl. Überlappungs- und 1-/2-/3-Wort-Phrasen-Deduplizierung.
   - Offene Satzenden (z. B. *„Notiere mal Aufgabe für“*) blockieren `quick` zuverlässig; `importFullBackupV2` synchronisiert `aiVoiceSettings` konsistent in alle Einzel-Keys (`Station 14`).
+
+---
+
+## 18  Welle 4 / Ticket 4.0 – Smartphone-Verfügbarkeit Stufe A
+
+- **PWA App-Shortcuts & Android Share-Target (`vite.config.ts`):**
+  - Manifest-`shortcuts` bietet 3 relative Direktstarts (`./?action=voice`, `./?action=receipt`, `./?action=cart`) mit `pwa-192x192.png`.
+  - Statisches `share_target` (`method: 'GET'`, `action: './'`, `params: { title: 'share_title', text: 'share_text', url: 'share_url' }`) ohne Umbau auf `injectManifest`.
+- **URL-Action- & Share-Intake (`App.tsx`, `VoiceModal.tsx`):**
+  - Einmalige Auswertung nach abgeschlossener Initial-Hydration: `?action=voice|receipt|cart` (nur bei `appShortcutsEnabled !== false`) und `?share_title`/`?share_text`/`?share_url` (nur bei `shareTargetEnabled !== false`, Öffnung von `VoiceModal` mit `initialPrefillText` und Honig-Gold-Hinweis `#E5A93C` ohne Auto-Send/Auto-Mic).
+  - Bereinigung der verarbeiteten Query-Parameter per `window.history.replaceState` unter Erhalt von `?mode=cover`.
+- **Werkstatt-Wachbleib-Modus (`src/hooks/useWakeLock.ts`, `VoiceModal.tsx`):**
+  - Isolierter, fehlerresistenter `useWakeLock(open && wakeLockEnabled && voicePhase !== 'IDLE')`-Hook mit automatischer Freigabe und `visibilitychange`-Re-Acquire (ruhiges `Display wach`-Label bei aktivem Lock).
+- **Zentrale v2 Bereich 2 & Station 17 (`FocusAndSmartphoneSection.tsx`, `storage.ts`, `tests/mobile-guard.spec.ts`):**
+  - 3 direkt schaltbare, in IndexedDB & Voll-Backup v2 persistierte `ZentraleToggleRow`-Schalter (`wakeLockEnabled`, `shareTargetEnabled`, `appShortcutsEnabled`) sowie E2E-Absicherung in **Station 17**.

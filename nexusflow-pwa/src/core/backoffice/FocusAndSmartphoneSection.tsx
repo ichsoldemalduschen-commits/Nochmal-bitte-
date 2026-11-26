@@ -408,6 +408,42 @@ export const FocusAndSmartphoneSection: React.FC<FocusAndSmartphoneSectionProps>
           testId="toggle-flip-cover-auto-detect"
         />
 
+        <ZentraleToggleRow
+          title="Werkstatt-Wachbleib-Modus (Screen Wake Lock)"
+          description="Hält das Smartphone-Display beim aktiven Sprechen und Zuhören automatisch wach"
+          checked={prefs.wakeLockEnabled !== false}
+          onToggle={() =>
+            onUpdatePrefs({ wakeLockEnabled: !(prefs.wakeLockEnabled !== false) })
+          }
+          onLabel="An"
+          offLabel="Aus"
+          testId="toggle-wake-lock"
+        />
+
+        <ZentraleToggleRow
+          title="Geteilte Inhalte annehmen (Teilen → BANDIT.OS)"
+          description="Übernimmt geteilte Texte oder Links aus anderen Apps direkt in das Eingabefeld"
+          checked={prefs.shareTargetEnabled !== false}
+          onToggle={() =>
+            onUpdatePrefs({ shareTargetEnabled: !(prefs.shareTargetEnabled !== false) })
+          }
+          onLabel="An"
+          offLabel="Aus"
+          testId="toggle-share-target"
+        />
+
+        <ZentraleToggleRow
+          title="Homescreen-Schnellstarts (?action=…)"
+          description="Aktiviert Direktstarts über das App-Icon für Sprechen, Beleg-Scan und Einkauf"
+          checked={prefs.appShortcutsEnabled !== false}
+          onToggle={() =>
+            onUpdatePrefs({ appShortcutsEnabled: !(prefs.appShortcutsEnabled !== false) })
+          }
+          onLabel="An"
+          offLabel="Aus"
+          testId="toggle-app-shortcuts"
+        />
+
         {onToggleRealityCheck && (
           <ZentraleToggleRow
             title="Reality-Check aktivieren"

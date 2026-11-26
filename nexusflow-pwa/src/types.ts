@@ -28,6 +28,9 @@ export interface BanditUserPreferences {
   flipCoverAutoDetect?: boolean;
   reminderSystemPushEnabled?: boolean;
   smartHomeEnabled?: boolean;
+  appShortcutsEnabled?: boolean;
+  shareTargetEnabled?: boolean;
+  wakeLockEnabled?: boolean;
   quickCommands: string[];
   activeFocusTaskId: string | null;
   activeFocusTaskTitle: string | null;

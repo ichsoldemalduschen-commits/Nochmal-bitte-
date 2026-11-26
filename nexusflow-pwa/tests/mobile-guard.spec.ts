@@ -1328,4 +1328,86 @@ test.describe('Block C: Mobile-Guard 390×844 px Gesamt-Schutznetz', () => {
     await expect(haEmbedInput).toHaveCount(0);
     await assertNoHorizontalOverflow(page, 'Station 16 – Smart Home geschlossen');
   });
+
+  test('Station 17 – Smartphone-Verfügbarkeit Stufe A: App-Shortcut ?action=receipt, Share-Target-Übernahme & Zentrale-Schalter inkl. Reload-Sperre', async ({ page }) => {
+    // 1. Aufruf mit ?action=receipt -> Beleg-Scanner direkt sichtbar, ?action=receipt bereinigt
+    await page.goto('./?action=receipt');
+    await page.waitForLoadState('domcontentloaded');
+
+    await expect(page.locator('h3:has-text("Beleg-Scan")')).toBeVisible({ timeout: 10000 });
+    await expect.poll(() => page.url()).not.toContain('action=receipt');
+    await assertNoHorizontalOverflow(page, 'Station 17 – ?action=receipt');
+
+    // 2. Aufruf mit ?share_title & ?share_text -> VoiceModal öffnet mit vorbefülltem Text, Honig-Gold-Hinweis & URL bereinigt
+    await page.goto('./?share_title=Bauhaus&share_text=2x+Silikon+fuer+Pizza+Bandit');
+    await page.waitForLoadState('domcontentloaded');
+
+    const stage1Region = page.locator('div[role="region"][aria-label="KI-Begleiter Kompakt"]');
+    await expect(stage1Region).toBeVisible({ timeout: 10000 });
+
+    const shareInput = stage1Region.locator('input[placeholder*="Befehl oder Notiz"]');
+    await expect(shareInput).toBeVisible();
+    await expect(shareInput).toHaveValue(/Bauhaus.*2x Silikon fuer Pizza Bandit/);
+
+    const shareNotice = stage1Region.locator('[data-testid="share-intake-notice"]');
+    await expect(shareNotice).toBeVisible();
+    await expect(shareNotice).toContainText('Geteilter Inhalt übernommen');
+
+    await expect.poll(() => page.url()).not.toContain('share_title');
+    await expect.poll(() => page.url()).not.toContain('share_text');
+    await assertNoHorizontalOverflow(page, 'Station 17 – Share-Target Übernahme');
+
+    // Begleiter sauber schließen
+    await page.locator('button[aria-label="Daumen-Steuerung"]').click();
+    await expect(stage1Region).toBeHidden();
+
+    // 3. Zentrale Bereich 2 öffnen -> alle 3 neuen Smartphone-Schalter prüfen
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    await page.getByRole('button', { name: 'Zentrale', exact: true }).click();
+    await page.locator('button:has-text("Fokus, Bedienung & Smartphone")').click();
+    await assertNoHorizontalOverflow(page, 'Station 17 – Zentrale Bereich 2 geöffnet');
+
+    const wakeLockToggle = page.locator('[data-testid="toggle-wake-lock"]');
+    const shareTargetToggle = page.locator('[data-testid="toggle-share-target"]');
+    const appShortcutsToggle = page.locator('[data-testid="toggle-app-shortcuts"]');
+
+    for (const toggle of [wakeLockToggle, shareTargetToggle, appShortcutsToggle]) {
+      await expect(toggle).toBeVisible();
+      await expect(toggle).toContainText('An');
+      const box = await toggle.boundingBox();
+      expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
+    }
+
+    // shareTargetEnabled ausschalten -> Reload -> Persistenz prüfen
+    await shareTargetToggle.click();
+    await expect(shareTargetToggle).toContainText('Aus');
+    await page.waitForTimeout(250);
+
+    await page.reload();
+    await page.waitForLoadState('domcontentloaded');
+
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    await page.getByRole('button', { name: 'Zentrale', exact: true }).click();
+    await page.locator('button:has-text("Fokus, Bedienung & Smartphone")').click();
+    await expect(page.locator('[data-testid="toggle-share-target"]')).toContainText('Aus');
+
+    // Erneuter Aufruf mit ?share_text -> VoiceModal darf NICHT öffnen, URL wird bereinigt
+    await page.goto('./?share_text=Soll+ignoriert+werden');
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.locator('h1')).toBeVisible({ timeout: 10000 });
+    await expect.poll(() => page.url()).not.toContain('share_text');
+
+    await expect(page.locator('div[role="region"][aria-label="KI-Begleiter Kompakt"]')).toHaveCount(0);
+    await expect(page.locator('div[role="dialog"][aria-label="KI-Sprachassistent Dialog"]')).toHaveCount(0);
+    await assertNoHorizontalOverflow(page, 'Station 17 – Share-Target im Aus-Zustand ignoriert');
+
+    // Schalter sauber wieder einschalten
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    await page.getByRole('button', { name: 'Zentrale', exact: true }).click();
+    await page.locator('button:has-text("Fokus, Bedienung & Smartphone")').click();
+    const shareToggleAgain = page.locator('[data-testid="toggle-share-target"]');
+    await shareToggleAgain.click();
+    await expect(shareToggleAgain).toContainText('An');
+    await assertNoHorizontalOverflow(page, 'Station 17 – Abschluss');
+  });
 });

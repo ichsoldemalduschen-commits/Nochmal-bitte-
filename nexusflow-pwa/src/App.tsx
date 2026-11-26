@@ -114,6 +114,8 @@ export default function App() {
   const [quickFanOpen, setQuickFanOpen] = useState(false);
   const [deepResearchModalOpen, setDeepResearchModalOpen] = useState(false);
   const [autoStartMicOnOpen, setAutoStartMicOnOpen] = useState(true);
+  const [voicePrefillText, setVoicePrefillText] = useState('');
+  const urlIntakeHandledRef = useRef(false);
   const [realityModalOpen, setRealityModalOpen] = useState(false);
   const [selfCheckModalOpen, setSelfCheckModalOpen] = useState(false);
   const [newProjectModalOpen, setNewProjectModalOpen] = useState(false);
@@ -347,6 +349,73 @@ export default function App() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!hydrated || urlIntakeHandledRef.current) return;
+    urlIntakeHandledRef.current = true;
+    if (typeof window === 'undefined') return;
+
+    try {
+      const url = new URL(window.location.href);
+      const params = url.searchParams;
+      const hasActionParam = params.has('action');
+      const hasShareParam =
+        params.has('share_title') || params.has('share_text') || params.has('share_url');
+
+      if (!hasActionParam && !hasShareParam) return;
+
+      const shareTitle = params.get('share_title')?.trim() || '';
+      const shareText = params.get('share_text')?.trim() || '';
+      const shareUrl = params.get('share_url')?.trim() || '';
+      const rawShareParts = [shareTitle, shareText, shareUrl].filter(Boolean);
+      const dedupedShareParts: string[] = [];
+      for (const part of rawShareParts) {
+        if (!dedupedShareParts.some((existing) => existing.includes(part))) {
+          dedupedShareParts.push(part);
+        }
+      }
+      const combinedShareText = dedupedShareParts.join(' · ').trim();
+      const actionParam = params.get('action')?.trim().toLowerCase() || '';
+
+      if (combinedShareText) {
+        if (prefs.shareTargetEnabled !== false) {
+          setIsBackoffice(false);
+          setVoicePrefillText(combinedShareText);
+          handleOpenVoice(1, false);
+        }
+      } else if (actionParam) {
+        if (prefs.appShortcutsEnabled !== false) {
+          if (actionParam === 'voice') {
+            setIsBackoffice(false);
+            handleOpenVoice(1, true);
+          } else if (actionParam === 'receipt') {
+            setIsBackoffice(false);
+            setFloatingCartOpen(false);
+            setActiveProjectTab('receipt');
+            setForceSingleViewSeq((s) => s + 1);
+          } else if (actionParam === 'cart') {
+            setIsBackoffice(false);
+            if (prefs.cartOpenMode === 'tab') {
+              setFloatingCartOpen(false);
+              setActiveProjectTab('cart');
+              setForceSingleViewSeq((s) => s + 1);
+            } else {
+              setFloatingCartOpen(true);
+            }
+          }
+        }
+      }
+
+      params.delete('action');
+      params.delete('share_title');
+      params.delete('share_text');
+      params.delete('share_url');
+      const cleanUrl = `${url.pathname}${url.search}${url.hash}`;
+      window.history.replaceState({}, '', cleanUrl);
+    } catch {
+      // ignore invalid URL state
+    }
+  }, [hydrated, prefs]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -1555,11 +1624,16 @@ export default function App() {
         <VoiceModal
           open={voiceModalOpen}
           autoStartMic={autoStartMicOnOpen}
+          wakeLockEnabled={prefs.wakeLockEnabled !== false}
+          initialPrefillText={voicePrefillText}
           activeProjectName={activeProject?.name || BRAND_CONFIG.projects['proj-foodtruck']?.name || 'Pizza Bandit'}
           projects={state.projects}
           aiVoiceSettings={aiVoiceSettings}
           onUpdateAiVoiceSettings={handleUpdateAiVoiceSettings}
-          onClose={() => setVoiceModalOpen(false)}
+          onClose={() => {
+            setVoiceModalOpen(false);
+            setVoicePrefillText('');
+          }}
           onExecuteCommand={handleDistributeVoiceCommand}
           onExecuteOfflineFallback={handleExecuteOfflineFallback}
           onAskQuestion={(q, att) =>
@@ -1904,7 +1978,10 @@ export default function App() {
               isFloatingCartOpen={floatingCartOpen}
               isFanOpen={quickFanOpen}
               onToggleFan={setQuickFanOpen}
-              onCloseCompanion={() => setVoiceModalOpen(false)}
+              onCloseCompanion={() => {
+                setVoiceModalOpen(false);
+                setVoicePrefillText('');
+              }}
               companionIsListening={companionIsListening}
               companionIsProcessing={companionIsProcessing}
               companionIsSpeaking={companionIsSpeaking}
@@ -2032,6 +2109,7 @@ export default function App() {
           onStageChange={(newStage) => {
             if (newStage === 0) {
               setVoiceModalOpen(false);
+              setVoicePrefillText('');
             } else {
               setCompanionStage(newStage);
             }
@@ -2046,11 +2124,16 @@ export default function App() {
           setQuickFanOpen(true);
         }}
         autoStartMic={autoStartMicOnOpen}
+        wakeLockEnabled={prefs.wakeLockEnabled !== false}
+        initialPrefillText={voicePrefillText}
         activeProjectName={activeProject?.name || BRAND_CONFIG.projects['proj-foodtruck']?.name || 'Pizza Bandit'}
         projects={state.projects}
         aiVoiceSettings={aiVoiceSettings}
         onUpdateAiVoiceSettings={handleUpdateAiVoiceSettings}
-        onClose={() => setVoiceModalOpen(false)}
+        onClose={() => {
+          setVoiceModalOpen(false);
+          setVoicePrefillText('');
+        }}
         onExecuteCommand={handleDistributeVoiceCommand}
         onExecuteOfflineFallback={handleExecuteOfflineFallback}
         onAskQuestion={(q, att) =>

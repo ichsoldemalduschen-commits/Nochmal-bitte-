@@ -153,9 +153,9 @@ function cleanAttachmentList(rawList: unknown): { attachments: Attachment[]; cha
 export function normalizeProjectKnowledge(project: any): KnowledgeItem[] {
   const existingKnowledge: KnowledgeItem[] = Array.isArray(project?.knowledge)
     ? project.knowledge.map((k: any) => ({
-        ...k,
-        attachments: cleanAttachmentList(k?.attachments).attachments
-      }))
+      ...k,
+      attachments: cleanAttachmentList(k?.attachments).attachments
+    }))
     : [];
   const knownIds = new Set(existingKnowledge.map((k) => k.id));
 
@@ -266,8 +266,8 @@ function migrateProjectInternal(rawProject: any): { project: Project; migrated: 
       reminderAt: String(t?.reminderAt || ''),
       reminderRecurrence:
         t?.reminderRecurrence === 'daily' ||
-        t?.reminderRecurrence === 'weekly' ||
-        t?.reminderRecurrence === 'none'
+          t?.reminderRecurrence === 'weekly' ||
+          t?.reminderRecurrence === 'none'
           ? (t.reminderRecurrence as ReminderRecurrence)
           : undefined,
       lastReminderFiredAt: t?.lastReminderFiredAt ? String(t.lastReminderFiredAt) : undefined,
@@ -369,12 +369,12 @@ export function migrateAppState(raw: unknown): { state: AppStateSnapshot; migrat
   const aiLogs: AiLogEntry[] = rawLogs.map((log: any) => {
     const actions = Array.isArray(log?.actions)
       ? log.actions.map((act: any) => {
-          if (act?.targetSubTab === 'explanations' || act?.targetSubTab === 'infos') {
-            migrated = true;
-            return { ...act, targetSubTab: 'knowledge' };
-          }
-          return act;
-        })
+        if (act?.targetSubTab === 'explanations' || act?.targetSubTab === 'infos') {
+          migrated = true;
+          return { ...act, targetSubTab: 'knowledge' };
+        }
+        return act;
+      })
       : [];
     return { ...log, actions };
   });
@@ -394,13 +394,13 @@ export function migrateAppState(raw: unknown): { state: AppStateSnapshot; migrat
     aiVoiceSettings:
       src.aiVoiceSettings && typeof src.aiVoiceSettings === 'object'
         ? {
-            ...DEFAULT_AI_VOICE_SETTINGS,
-            ...src.aiVoiceSettings,
-            autoModeDetection:
-              typeof src.aiVoiceSettings.autoModeDetection === 'boolean'
-                ? src.aiVoiceSettings.autoModeDetection
-                : true
-          }
+          ...DEFAULT_AI_VOICE_SETTINGS,
+          ...src.aiVoiceSettings,
+          autoModeDetection:
+            typeof src.aiVoiceSettings.autoModeDetection === 'boolean'
+              ? src.aiVoiceSettings.autoModeDetection
+              : true
+        }
         : undefined,
     haWebhookUrl: typeof src.haWebhookUrl === 'string' ? src.haWebhookUrl : '',
     haEmbedUrl: typeof src.haEmbedUrl === 'string' ? src.haEmbedUrl : ''
@@ -495,11 +495,11 @@ export async function loadIdbItem<T>(key: string, defaultValue: T): Promise<T> {
         const parsed = JSON.parse(raw) as T;
         memoryCache.set(key, parsed);
         // Hintergrund-Sync in IDB
-        set(key, parsed).catch(() => {});
+        set(key, parsed).catch(() => { });
         return parsed;
       } catch {
         memoryCache.set(key, raw);
-        set(key, raw).catch(() => {});
+        set(key, raw).catch(() => { });
         return raw as unknown as T;
       }
     }
@@ -859,6 +859,9 @@ export const DEFAULT_USER_PREFS: BanditUserPreferences = {
   flipCoverAutoDetect: true,
   reminderSystemPushEnabled: true,
   smartHomeEnabled: false,
+  appShortcutsEnabled: true,
+  shareTargetEnabled: true,
+  wakeLockEnabled: true,
   quickCommands: [
     'Gib mir ein kurzes 3-Punkte-Briefing für dieses Projekt',
     'Welche Materialien fehlen noch im Einkaufswagen?',
@@ -922,6 +925,18 @@ export function normalizeUserPrefs(
       typeof src.smartHomeEnabled === 'boolean'
         ? src.smartHomeEnabled
         : DEFAULT_USER_PREFS.smartHomeEnabled,
+    appShortcutsEnabled:
+      typeof src.appShortcutsEnabled === 'boolean'
+        ? src.appShortcutsEnabled
+        : DEFAULT_USER_PREFS.appShortcutsEnabled,
+    shareTargetEnabled:
+      typeof src.shareTargetEnabled === 'boolean'
+        ? src.shareTargetEnabled
+        : DEFAULT_USER_PREFS.shareTargetEnabled,
+    wakeLockEnabled:
+      typeof src.wakeLockEnabled === 'boolean'
+        ? src.wakeLockEnabled
+        : DEFAULT_USER_PREFS.wakeLockEnabled,
     quickCommands: Array.isArray(src.quickCommands)
       ? src.quickCommands
       : DEFAULT_USER_PREFS.quickCommands,
@@ -1281,31 +1296,31 @@ export function importProjectJsonToTarget(
     accentColor: raw.accentColor || targetProject.accentColor,
     tasks: Array.isArray(raw.tasks)
       ? raw.tasks.map((t: any) => ({
-          ...t,
-          title: String(t?.title || 'Importierte Aufgabe'),
-          lastModified: t?.lastModified || new Date().toISOString(),
-          changeReason: t?.changeReason || 'Projekt-JSON-Import',
-          source: t?.source || 'Import'
-        }))
+        ...t,
+        title: String(t?.title || 'Importierte Aufgabe'),
+        lastModified: t?.lastModified || new Date().toISOString(),
+        changeReason: t?.changeReason || 'Projekt-JSON-Import',
+        source: t?.source || 'Import'
+      }))
       : [],
     cart: Array.isArray(raw.cart)
       ? raw.cart.map((c: any) => ({
-          ...c,
-          title: String(c?.title || 'Importierter Artikel'),
-          quantity: String(c?.quantity || '1 Stk'),
-          lastModified: c?.lastModified || new Date().toISOString(),
-          changeReason: c?.changeReason || 'Projekt-JSON-Import',
-          source: c?.source || 'Import'
-        }))
+        ...c,
+        title: String(c?.title || 'Importierter Artikel'),
+        quantity: String(c?.quantity || '1 Stk'),
+        lastModified: c?.lastModified || new Date().toISOString(),
+        changeReason: c?.changeReason || 'Projekt-JSON-Import',
+        source: c?.source || 'Import'
+      }))
       : [],
     knowledge: Array.isArray(raw.knowledge)
       ? raw.knowledge.map((k: any) => ({
-          ...k,
-          title: String(k?.title || 'Importierter Wissens-Eintrag'),
-          lastModified: k?.lastModified || new Date().toISOString(),
-          changeReason: k?.changeReason || 'Projekt-JSON-Import',
-          source: k?.source || 'Import'
-        }))
+        ...k,
+        title: String(k?.title || 'Importierter Wissens-Eintrag'),
+        lastModified: k?.lastModified || new Date().toISOString(),
+        changeReason: k?.changeReason || 'Projekt-JSON-Import',
+        source: k?.source || 'Import'
+      }))
       : []
   });
 
