@@ -17,10 +17,13 @@ import {
 import {
   PriorityType,
   Project,
+  SubTaskItem,
   TaskItem
 } from '../../types';
 import { buildGoogleCalendarTemplateUrl } from '../../services/cloudSyncAndPush';
 import { BanditUserPreferences, triggerHapticFeedback } from '../../services/aiRouter';
+import { DESIGN_TOKENS } from '../../config/designTokens';
+import { CHECK_GLOW_MS } from '../../config/runtimeConfig';
 import { ThemeColors } from './FrontHeader';
 
 interface TasksViewProps {
@@ -31,6 +34,9 @@ interface TasksViewProps {
   searchQuery: string;
   highlightedItemId: string | null;
   onToggleTask: (projectId: string, taskId: string) => void;
+  onAddSubTask?: (projectId: string, taskId: string, title: string) => void;
+  onToggleSubTask?: (projectId: string, taskId: string, subTaskId: string) => void;
+  onDeleteSubTask?: (projectId: string, taskId: string, subTaskId: string) => void;
   onAddTask: (
     projectId: string,
     title: string,
@@ -62,6 +68,9 @@ export const TasksView: React.FC<TasksViewProps> = ({
   searchQuery,
   highlightedItemId,
   onToggleTask,
+  onAddSubTask,
+  onToggleSubTask,
+  onDeleteSubTask,
   onAddTask,
   onDeleteTask,
   onUpdateTask,
@@ -87,6 +96,8 @@ export const TasksView: React.FC<TasksViewProps> = ({
   const [singleFocusActive, setSingleFocusActive] = useState(false);
   const [expandedActionCards, setExpandedActionCards] = useState<Record<string, boolean>>({});
   const [glowTaskId, setGlowTaskId] = useState<string | null>(null);
+  const [glowSubTaskId, setGlowSubTaskId] = useState<string | null>(null);
+  const [subTaskDrafts, setSubTaskDrafts] = useState<Record<string, string>>({});
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
@@ -155,7 +166,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
           message: `„${titleToDisplay}“ erledigt`,
           undo: () => onToggleTask(activeProject.id, task.id)
         });
-      }, 450);
+      }, CHECK_GLOW_MS);
     } else {
       onToggleTask(activeProject.id, task.id);
       const bracketMatch = task.title.match(/^\[(.*?)\]\s*(.*)$/);
@@ -164,6 +175,27 @@ export const TasksView: React.FC<TasksViewProps> = ({
         message: `„${titleToDisplay}“ wieder offen`,
         undo: () => onToggleTask(activeProject.id, task.id)
       });
+    }
+  };
+
+  const handleSoftSubTaskToggle = (task: TaskItem, subTask: SubTaskItem) => {
+    triggerHapticFeedback([12, 30]);
+    if (!subTask.completed) {
+      const sortedSubs = [...(task.subTasks || [])].sort((a, b) => a.order - b.order);
+      const willAutoFinish = sortedSubs.filter((s) => !s.completed && s.id !== subTask.id).length === 0;
+      setGlowSubTaskId(subTask.id);
+      setTimeout(() => {
+        onToggleSubTask?.(activeProject.id, task.id, subTask.id);
+        setGlowSubTaskId(null);
+        if (willAutoFinish) {
+          onRegisterUndo?.({
+            message: `„${task.title}“ komplett erledigt`,
+            undo: () => onToggleSubTask?.(activeProject.id, task.id, subTask.id)
+          });
+        }
+      }, CHECK_GLOW_MS);
+    } else {
+      onToggleSubTask?.(activeProject.id, task.id, subTask.id);
     }
   };
 
@@ -356,6 +388,13 @@ export const TasksView: React.FC<TasksViewProps> = ({
           const bracketMatch = task.title.match(/^\[(.*?)\]\s*(.*)$/);
           const displayTitle = bracketMatch ? bracketMatch[2] : task.title;
           const displayGroup = task.assemblyGroup || (bracketMatch ? bracketMatch[1] : null);
+          const sortedSubTasks =
+            Array.isArray(task.subTasks) && task.subTasks.length > 0
+              ? [...task.subTasks].sort((a, b) => a.order - b.order)
+              : [];
+          const hasSubTasks = sortedSubTasks.length > 0;
+          const doneSubCount = sortedSubTasks.filter((st) => st.completed).length;
+          const firstOpenSubTask = sortedSubTasks.find((st) => !st.completed) || null;
 
           return (
             <div
@@ -427,6 +466,12 @@ export const TasksView: React.FC<TasksViewProps> = ({
                       </span>
                     )}
 
+                    {hasSubTasks && (
+                      <span className="text-xs font-mono font-semibold px-2 py-0.5 rounded-md bg-[#111317] text-[#F1F5F9] border border-white/5">
+                        {doneSubCount}/{sortedSubTasks.length}
+                      </span>
+                    )}
+
                     {displayGroup && (
                       <span className="text-xs font-medium text-[#94A3B8] px-2 py-0.5 rounded-md bg-[#111317]">
                         {displayGroup}
@@ -443,12 +488,139 @@ export const TasksView: React.FC<TasksViewProps> = ({
                       </span>
                     )}
                   </div>
+
+                  {/* Zugeklappter Sammel-Task: Genau eine ruhige Vorschauzeile mit erstem offenen Schritt */}
+                  {!isTrayOpen && hasSubTasks && firstOpenSubTask && (
+                    <div className="mt-1.5 flex items-center gap-2 text-xs text-[#94A3B8] leading-snug break-words">
+                      <span
+                        className="w-1.5 h-1.5 rounded-full shrink-0"
+                        style={{ backgroundColor: DESIGN_TOKENS.accentHoney }}
+                      />
+                      <span className="min-w-0 break-words">
+                        Nächster: <span className="text-[#F1F5F9]/90">{firstOpenSubTask.title}</span>
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
 
-              {/* In-Place aufgeklappter Bereich (Kontext-Infos + Kompakte Aktionsleiste) */}
+              {/* In-Place aufgeklappter Bereich (Kontext-Infos + Arbeitsschritte + Kompakte Aktionsleiste) */}
               {isTrayOpen && (
                 <div className="px-4 pb-4 pt-2.5 border-t border-white/5 space-y-3 bg-[#111317]/80 animate-fadeIn">
+                  {/* Arbeitsschritte (Sammel-Task / Arbeitsblock) */}
+                  <div className="space-y-2">
+                    {hasSubTasks && (
+                      <div className="space-y-1.5">
+                        {sortedSubTasks.map((st) => {
+                          const isSubGlowing = glowSubTaskId === st.id;
+                          const isSubCompleted = st.completed || isSubGlowing;
+                          const isNextStep = firstOpenSubTask?.id === st.id;
+                          return (
+                            <div
+                              key={st.id}
+                              data-active-step={isNextStep ? 'true' : undefined}
+                              className={`relative min-h-[44px] rounded-xl border flex items-center gap-1 pr-1 overflow-hidden transition-all duration-300 ${
+                                st.completed && !isSubGlowing ? 'opacity-65' : ''
+                              }`}
+                              style={{
+                                backgroundColor: DESIGN_TOKENS.surface,
+                                borderColor: isSubGlowing
+                                  ? `${themeColors.primary}99`
+                                  : isNextStep
+                                  ? `${DESIGN_TOKENS.accentHoney}55`
+                                  : DESIGN_TOKENS.borderSubtle,
+                                boxShadow: isSubGlowing
+                                  ? `0 0 12px ${themeColors.primary}44`
+                                  : undefined
+                              }}
+                            >
+                              {isNextStep && (
+                                <div
+                                  className="absolute left-0 top-0 bottom-0 w-[3px]"
+                                  style={{ backgroundColor: DESIGN_TOKENS.accentHoney }}
+                                  aria-hidden="true"
+                                />
+                              )}
+
+                              <button
+                                type="button"
+                                onClick={() => handleSoftSubTaskToggle(task, st)}
+                                className="min-w-[44px] min-h-[44px] w-11 h-11 flex items-center justify-center shrink-0 cursor-pointer"
+                                aria-label={
+                                  st.completed
+                                    ? `Arbeitsschritt ${st.title} wieder öffnen`
+                                    : `Arbeitsschritt ${st.title} abhaken`
+                                }
+                              >
+                                <div
+                                  className="w-4 h-4 rounded flex items-center justify-center border transition-all duration-300"
+                                  style={{
+                                    backgroundColor: isSubCompleted
+                                      ? `${themeColors.primary}33`
+                                      : 'rgba(17,19,23,0.8)',
+                                    borderColor: isSubCompleted ? themeColors.highlight : '#6B7280'
+                                  }}
+                                >
+                                  {isSubCompleted && (
+                                    <Check className="w-3 h-3 text-white stroke-[2.5]" />
+                                  )}
+                                </div>
+                              </button>
+
+                              <span
+                                className={`flex-1 min-w-0 py-2 text-xs font-medium leading-snug break-words transition-colors duration-300 ${
+                                  st.completed && !isSubGlowing
+                                    ? 'line-through text-[#94A3B8]/60'
+                                    : 'text-[#F1F5F9]'
+                                }`}
+                              >
+                                {st.title}
+                              </span>
+
+                              <button
+                                type="button"
+                                onClick={() => onDeleteSubTask?.(activeProject.id, task.id, st.id)}
+                                className="min-w-[44px] min-h-[44px] w-11 h-11 flex items-center justify-center rounded-xl text-[#94A3B8] hover:text-[#F1F5F9] hover:bg-white/5 shrink-0 transition cursor-pointer"
+                                aria-label={`Arbeitsschritt ${st.title} löschen`}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {/* Schlanke Zeile zum Hinzufügen eines Arbeitsschritts (auch bei normalen Tasks) */}
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        const draft = (subTaskDrafts[task.id] || '').trim();
+                        if (!draft) return;
+                        onAddSubTask?.(activeProject.id, task.id, draft);
+                        setSubTaskDrafts((prev) => ({ ...prev, [task.id]: '' }));
+                      }}
+                      className="flex items-center gap-1.5"
+                    >
+                      <input
+                        type="text"
+                        value={subTaskDrafts[task.id] || ''}
+                        onChange={(e) =>
+                          setSubTaskDrafts((prev) => ({ ...prev, [task.id]: e.target.value }))
+                        }
+                        placeholder="+ Arbeitsschritt hinzufügen..."
+                        className="flex-1 min-w-0 min-h-[44px] px-3 py-2 rounded-xl text-xs bg-[#191C22] text-[#F1F5F9] border border-white/10 placeholder-[#94A3B8] focus:outline-none focus:border-white/25"
+                      />
+                      <button
+                        type="submit"
+                        disabled={!(subTaskDrafts[task.id] || '').trim()}
+                        aria-label="Arbeitsschritt hinzufügen"
+                        className="min-w-[44px] min-h-[44px] w-11 h-11 rounded-xl bg-[#191C22] hover:bg-[#22262F] text-[#14B8A6] border border-white/10 flex items-center justify-center shrink-0 disabled:opacity-40 active:scale-95 transition cursor-pointer"
+                      >
+                        <Plus className="w-4 h-4" />
+                      </button>
+                    </form>
+                  </div>
                   {/* Inline-Bearbeitung */}
                   {editingTaskId === task.id ? (
                     <div className="p-3 rounded-2xl bg-[#191C22] border border-white/10 space-y-2.5">

@@ -28,6 +28,7 @@ import {
   triggerHapticFeedback
 } from '../services/aiRouter';
 import { loadAmbientLightMode } from '../services/storage';
+import { UNDO_TOAST_MS } from '../config/runtimeConfig';
 import { ZentraleSectionId } from './BackofficeWorkspace';
 import {
   NavigationDrawer,
@@ -77,6 +78,9 @@ interface FrontWorkspaceProps {
   onResetChecklist?: (projectId: string) => void;
   onResetChecklistForDeployment?: (projectId: string) => void;
   onToggleTask: (projectId: string, taskId: string) => void;
+  onAddSubTask?: (projectId: string, taskId: string, title: string) => void;
+  onToggleSubTask?: (projectId: string, taskId: string, subTaskId: string) => void;
+  onDeleteSubTask?: (projectId: string, taskId: string, subTaskId: string) => void;
   onAddTask: (
     projectId: string,
     title: string,
@@ -146,6 +150,9 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
   onResetChecklist,
   onResetChecklistForDeployment,
   onToggleTask,
+  onAddSubTask,
+  onToggleSubTask,
+  onDeleteSubTask,
   onAddTask,
   onDeleteTask,
   onUpdateTask,
@@ -199,7 +206,7 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
     setUndoAction(action);
     undoTimerRef.current = setTimeout(() => {
       setUndoAction(null);
-    }, 4000);
+    }, UNDO_TOAST_MS);
   };
 
   const showConfigNotice = (message: string, actionLabel: string = 'Zentrale', section?: ZentraleSectionId) => {
@@ -570,6 +577,9 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
               searchQuery={searchQuery}
               highlightedItemId={highlightedItemId}
               onToggleTask={onToggleTask}
+              onAddSubTask={onAddSubTask}
+              onToggleSubTask={onToggleSubTask}
+              onDeleteSubTask={onDeleteSubTask}
               onAddTask={onAddTask}
               onDeleteTask={onDeleteTask}
               onUpdateTask={onUpdateTask}

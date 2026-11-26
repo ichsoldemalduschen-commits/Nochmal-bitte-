@@ -15,6 +15,7 @@ import {
   BackupImportResult,
   ProjectImportResult,
   TaskItem,
+  SubTaskItem,
   CartItem,
   PriorityType,
   DayBlockId,
@@ -101,6 +102,32 @@ function normalizePriorityValue(rawPriority: unknown): { priority: PriorityType;
     return { priority: 'Niedrig', changed: true };
   }
   return { priority: 'Mittel', changed: true };
+}
+
+function normalizeSubTasksList(rawSubTasks: unknown): { subTasks: SubTaskItem[] | undefined; changed: boolean } {
+  if (!Array.isArray(rawSubTasks) || rawSubTasks.length === 0) {
+    return { subTasks: undefined, changed: Array.isArray(rawSubTasks) };
+  }
+  let changed = false;
+  const mapped: SubTaskItem[] = rawSubTasks.map((st: any, idx: number) => {
+    const hasOrder = typeof st?.order === 'number' && Number.isFinite(st.order);
+    if (!hasOrder || !st?.id) changed = true;
+    return {
+      id: String(st?.id || `st_${Date.now()}_${idx}`),
+      title: String(st?.title || '').trim() || 'Arbeitsschritt',
+      completed: Boolean(st?.completed),
+      order: hasOrder ? st.order : idx,
+      completedAt: st?.completedAt ? String(st.completedAt) : undefined
+    };
+  });
+  const sorted = [...mapped].sort((a, b) => a.order - b.order);
+  for (let i = 0; i < mapped.length; i++) {
+    if (mapped[i].id !== sorted[i].id) {
+      changed = true;
+      break;
+    }
+  }
+  return { subTasks: sorted, changed };
 }
 
 function cleanAttachmentList(rawList: unknown): { attachments: Attachment[]; changed: boolean } {
@@ -222,6 +249,9 @@ function migrateProjectInternal(rawProject: any): { project: Project; migrated: 
       }
     }
 
+    const subRes = normalizeSubTasksList(t?.subTasks);
+    if (subRes.changed) migrated = true;
+
     return {
       ...t,
       id: String(t?.id || `task_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`),
@@ -236,6 +266,7 @@ function migrateProjectInternal(rawProject: any): { project: Project; migrated: 
       changeReason: t?.changeReason || '',
       source: t?.source || 'Manuell',
       assemblyGroup,
+      ...(subRes.subTasks ? { subTasks: subRes.subTasks } : { subTasks: undefined }),
       customMeta: typeof t?.customMeta === 'object' && t.customMeta ? t.customMeta : {}
     };
   });

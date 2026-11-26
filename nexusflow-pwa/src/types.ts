@@ -49,6 +49,14 @@ export interface ProcurementCheckData {
   searchTerm: string;
 }
 
+export interface SubTaskItem {
+  id: string;
+  title: string;
+  completed: boolean;
+  order: number;
+  completedAt?: string;
+}
+
 export interface TaskItem {
   id: string;
   title: string;
@@ -62,6 +70,7 @@ export interface TaskItem {
   changeReason: string;
   source: string;
   assemblyGroup?: string;
+  subTasks?: SubTaskItem[];
   customMeta: CustomMeta;
 }
 

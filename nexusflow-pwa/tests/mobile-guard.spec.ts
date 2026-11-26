@@ -863,4 +863,73 @@ test.describe('Block C: Mobile-Guard 390×844 px Gesamt-Schutznetz', () => {
     await researchDialog.locator('button[aria-label="Schließen"]').click();
     await expect(researchDialog).toBeHidden();
   });
+
+  test('Station 11 – Aufklappbare Sammel-Tasks: subTasks anlegen, Vorschau & Zähler (0/2 -> 1/2), Schritt-Rotation, Auto-Abschluss & Rückgängig', async ({ page }) => {
+    await page.goto('./');
+    await page.waitForLoadState('domcontentloaded');
+
+    const tasksSection = page.locator('section:has(h3:has-text("Tasks"))');
+    await expect(tasksSection).toBeVisible();
+
+    // Ersten offenen Task ansteuern und über ID verfolgen
+    const firstCard = tasksSection.locator('div[id^="item-card-"]').first();
+    await expect(firstCard).toBeVisible();
+    const cardId = await firstCard.getAttribute('id');
+    expect(cardId).toBeTruthy();
+    const card = page.locator(`#${cardId}`);
+
+    // 1. Aufgabe aufklappen (Zone 2) & 2 Arbeitsschritte anlegen
+    await card.locator('.cursor-pointer').nth(1).click();
+
+    const subInput = card.locator('input[placeholder*="Arbeitsschritt hinzufügen"]');
+    const subAddBtn = card.locator('button[aria-label="Arbeitsschritt hinzufügen"]');
+    await expect(subInput).toBeVisible();
+
+    await subInput.fill('Schritt A');
+    await subAddBtn.click();
+    await subInput.fill('Schritt B');
+    await subAddBtn.click();
+
+    await expect(card.locator('text=Schritt A')).toBeVisible();
+    await expect(card.locator('text=Schritt B')).toBeVisible();
+    await assertNoHorizontalOverflow(page, 'Station 11 – Arbeitsschritte angelegt');
+
+    // 2. Karte zuklappen -> Mono-Zähler 0/2 und Vorschauzeile „Nächster: Schritt A“ prüfen
+    await card.locator('.cursor-pointer').nth(1).click();
+    await expect(card.locator('span.font-mono:has-text("0/2")')).toBeVisible();
+    await expect(card.locator('text=Nächster:')).toBeVisible();
+    await expect(card.locator('text=Schritt A')).toBeVisible();
+    await assertNoHorizontalOverflow(page, 'Station 11 – Sammel-Task zugeklappt');
+
+    // 3. Wieder aufklappen & Schritt A abhaken -> Zähler 1/2 & Rotation auf Schritt B
+    await card.locator('.cursor-pointer').nth(1).click();
+    await card.locator('button[aria-label="Arbeitsschritt Schritt A abhaken"]').click();
+    await expect(card.locator('span.font-mono:has-text("1/2")')).toBeVisible({ timeout: 3000 });
+    await expect(card.locator('[data-active-step="true"]:has-text("Schritt B")')).toBeVisible();
+
+    // Zuklappen und verifizieren, dass Vorschau auf Schritt B rotiert ist
+    await card.locator('.cursor-pointer').nth(1).click();
+    await expect(card.locator('text=Schritt B')).toBeVisible();
+
+    // 4. Wieder aufklappen & Schritt B abhaken -> Auto-Abschluss des Haupt-Tasks + 4s-Rückgängig-Leiste
+    await card.locator('.cursor-pointer').nth(1).click();
+    await card.locator('button[aria-label="Arbeitsschritt Schritt B abhaken"]').click();
+
+    const undoStatus = page.locator('div[role="status"]');
+    await expect(undoStatus).toBeVisible({ timeout: 3000 });
+    const undoBtn = undoStatus.locator('button:has-text("Rückgängig")');
+    await expect(undoBtn).toBeVisible();
+
+    // Haupt-Task ist nun automatisch als erledigt markiert
+    await expect(card.locator('button[aria-label="Als unerledigt markieren"]')).toBeVisible();
+
+    // Rückgängig tippen -> Haupt-Task & Schritt B wieder offen
+    await undoBtn.click();
+    await expect(undoStatus).toBeHidden();
+    await expect(card.locator('button[aria-label="Als erledigt markieren"]')).toBeVisible();
+    await expect(card.locator('span.font-mono:has-text("1/2")')).toBeVisible();
+    await expect(card.locator('[data-active-step="true"]:has-text("Schritt B")')).toBeVisible();
+
+    await assertNoHorizontalOverflow(page, 'Station 11 – Auto-Abschluss & Rückgängig');
+  });
 });

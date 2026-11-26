@@ -13,6 +13,7 @@ import {
   KnowledgeKind,
   Project,
   ProjectTabId,
+  SubTaskItem,
   TaskItem,
   THEME
 } from './types';
@@ -343,6 +344,74 @@ export default function App() {
       tasks: p.tasks.map((t) =>
         t.id === taskId ? { ...t, completed: !t.completed, lastModified: ts } : t
       )
+    }));
+  };
+
+  const handleAddSubTask = (projId: string, taskId: string, title: string) => {
+    const clean = title.trim();
+    if (!clean) return;
+    const ts = formatNow();
+    updateProject(projId, (p) => ({
+      ...p,
+      tasks: p.tasks.map((t) => {
+        if (t.id !== taskId) return t;
+        const existing = Array.isArray(t.subTasks) ? t.subTasks : [];
+        const maxOrder = existing.reduce((max, st) => Math.max(max, st.order), -1);
+        const newSub: SubTaskItem = {
+          id: `st-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          title: clean,
+          completed: false,
+          order: maxOrder + 1
+        };
+        return {
+          ...t,
+          completed: false,
+          subTasks: [...existing, newSub],
+          lastModified: ts
+        };
+      })
+    }));
+  };
+
+  const handleToggleSubTask = (projId: string, taskId: string, subTaskId: string) => {
+    const ts = formatNow();
+    updateProject(projId, (p) => ({
+      ...p,
+      tasks: p.tasks.map((t) => {
+        if (t.id !== taskId || !Array.isArray(t.subTasks) || t.subTasks.length === 0) return t;
+        const nextSubs = t.subTasks.map((st) =>
+          st.id === subTaskId
+            ? {
+                ...st,
+                completed: !st.completed,
+                completedAt: !st.completed ? ts : undefined
+              }
+            : st
+        );
+        const allDone = nextSubs.length > 0 && nextSubs.every((st) => st.completed);
+        return {
+          ...t,
+          subTasks: nextSubs,
+          completed: allDone ? true : false,
+          lastModified: ts
+        };
+      })
+    }));
+  };
+
+  const handleDeleteSubTask = (projId: string, taskId: string, subTaskId: string) => {
+    const ts = formatNow();
+    updateProject(projId, (p) => ({
+      ...p,
+      tasks: p.tasks.map((t) => {
+        if (t.id !== taskId || !Array.isArray(t.subTasks)) return t;
+        const remaining = t.subTasks.filter((st) => st.id !== subTaskId);
+        return {
+          ...t,
+          subTasks: remaining.length > 0 ? remaining : undefined,
+          lastModified: ts
+        };
+      })
     }));
   };
 
@@ -1335,6 +1404,9 @@ export default function App() {
                 }));
               }}
               onToggleTask={handleToggleTask}
+              onAddSubTask={handleAddSubTask}
+              onToggleSubTask={handleToggleSubTask}
+              onDeleteSubTask={handleDeleteSubTask}
               onDeleteTask={(projId, taskId) =>
                 updateProject(projId, (p) => ({
                   ...p,
@@ -1610,6 +1682,7 @@ export default function App() {
           activeProject={activeProject}
           initialTaskId={singleFocusTaskId}
           onToggleTask={handleToggleTask}
+          onToggleSubTask={handleToggleSubTask}
           onRegisterUndo={(action) => {
             notify(action.message);
           }}
