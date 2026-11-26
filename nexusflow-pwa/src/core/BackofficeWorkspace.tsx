@@ -53,6 +53,7 @@ import {
   getAzureSpeechKey,
   getAzureSpeechRegion,
   getContinuousListening,
+  getAutoModeDetection,
   getIdbItemSync,
   getTtsEnabled,
   getVoiceProvider,
@@ -62,6 +63,7 @@ import {
   saveAzureSpeechKey,
   saveAzureSpeechRegion,
   saveContinuousListening,
+  saveAutoModeDetection,
   saveIdbItem,
   saveTtsEnabled,
   saveVoiceProvider
@@ -269,7 +271,8 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
     azureSpeechRegion: getAzureSpeechRegion(),
     preferredModelMode: getPreferredModelMode(),
     activeAiMode: getActiveAiMode(),
-    continuousListening: getContinuousListening()
+    continuousListening: getContinuousListening(),
+    autoModeDetection: getAutoModeDetection()
   };
 
   const handleUpdateAiSettings = (patch: Partial<AiVoiceSettings>) => {
@@ -287,6 +290,7 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
     if (patch.preferredModelMode !== undefined) setPreferredModelMode(patch.preferredModelMode);
     if (patch.activeAiMode !== undefined) saveActiveAiMode(patch.activeAiMode);
     if (patch.continuousListening !== undefined) saveContinuousListening(patch.continuousListening);
+    if (patch.autoModeDetection !== undefined) saveAutoModeDetection(patch.autoModeDetection);
   };
 
   const updatePrefs = (patch: Partial<BanditUserPreferences>) => {
@@ -1500,6 +1504,39 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
                   }`}
                 >
                   {currentAiSettings.continuousListening ? 'Aktiv' : 'Aus'}
+                </button>
+              </div>
+
+              {/* Automatische Gesprächsmodus-Erkennung (Quick / Sammel / Dialog) */}
+              <div className="pt-2 border-t border-white/5 flex items-center justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs font-bold text-white">
+                    Automatische Gesprächsmodus-Erkennung (Quick / Sammel / Dialog)
+                  </div>
+                  <div className="text-xs text-[#94A3B8]">
+                    Passt Denkpause (2,0s / 3,5s / 5,5s) und Nachhören unsichtbar an
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  data-testid="toggle-auto-mode-detection"
+                  aria-label="Automatische Gesprächsmodus-Erkennung umschalten"
+                  onClick={() => {
+                    const next = !(currentAiSettings.autoModeDetection !== false);
+                    handleUpdateAiSettings({ autoModeDetection: next });
+                    onNotify(
+                      next
+                        ? 'Automatische Gesprächsmodus-Erkennung aktiviert.'
+                        : 'Automatische Gesprächsmodus-Erkennung deaktiviert (5,5s Standard-Puffer).'
+                    );
+                  }}
+                  className={`min-h-[44px] px-3.5 py-1.5 rounded-xl text-xs font-bold border transition shrink-0 active:scale-95 cursor-pointer ${
+                    currentAiSettings.autoModeDetection !== false
+                      ? 'bg-[#0A9396] text-white border-[#14B8A6]'
+                      : 'bg-[#181A1B] text-[#94A3B8] border-white/10'
+                  }`}
+                >
+                  {currentAiSettings.autoModeDetection !== false ? 'Aktiv' : 'Aus'}
                 </button>
               </div>
             </div>

@@ -19,7 +19,7 @@ import {
   X,
   Zap
 } from 'lucide-react';
-import { AiExecutedAction, AiVoiceSettings, Attachment, Project, THEME } from '../types';
+import { AiExecutedAction, AiVoiceSettings, Attachment, Project, THEME, VoiceInteractionMode } from '../types';
 import {
   buildLocalFallbackPlan,
   compressImageFile,
@@ -34,6 +34,7 @@ import {
 import {
   STORAGE_KEYS,
   getActiveAiMode,
+  getAutoModeDetection,
   getAzureSpeechKey,
   getAzureSpeechRegion,
   getContinuousListening,
@@ -44,11 +45,13 @@ import {
 } from '../services/storage';
 import {
   API_TIMEOUT_MS,
+  SILENCE_COLLECT_MS,
   STT_ABORT_RETRY_DELAY_MS,
   STT_MAX_CONSECUTIVE_ABORTS,
   TTS_ECHO_COOLDOWN_MS,
   VOICE_START_DEBOUNCE_MS
 } from '../config/runtimeConfig';
+import { classifyLiveSpeechIntent } from '../services/voiceModeClassifier';
 
 export interface ConversationMessage {
   id: string;
@@ -82,11 +85,18 @@ export interface VoiceModalProps {
     attachment: Attachment | null,
     requestedMode?: 'flash' | 'research',
     chatHistory?: Array<{ role: 'user' | 'assistant'; text: string }>,
-    options?: { signal?: AbortSignal; settings?: AiVoiceSettings }
+    options?: {
+      signal?: AbortSignal;
+      settings?: AiVoiceSettings;
+      hintMode?: VoiceInteractionMode;
+      previousMode?: VoiceInteractionMode | null;
+    }
   ) => Promise<{
     replyText: string;
     spokenText: string;
     needsClarification: boolean;
+    detectedMode?: VoiceInteractionMode;
+    expectFollowUp?: boolean;
     engine: string;
     logId?: string;
     actions: AiExecutedAction[];
@@ -95,11 +105,15 @@ export interface VoiceModalProps {
   onExecuteOfflineFallback?: (
     rawText: string,
     attachment: Attachment | null,
-    reason?: string
+    reason?: string,
+    hintMode?: VoiceInteractionMode,
+    previousMode?: VoiceInteractionMode | null
   ) => {
     replyText: string;
     spokenText: string;
     needsClarification: boolean;
+    detectedMode?: VoiceInteractionMode;
+    expectFollowUp?: boolean;
     engine: string;
     logId?: string;
     actions: AiExecutedAction[];
@@ -117,7 +131,6 @@ export interface VoiceModalProps {
 
 export type VoicePhase = 'IDLE' | 'LISTENING' | 'PROCESSING' | 'SPEAKING' | 'COOLDOWN';
 
-const SILENCE_AUTO_SEND_MS = 5000;
 const API_REQUEST_TIMEOUT_MS = API_TIMEOUT_MS;
 const ABORT_RETRY_DELAY_MS = STT_ABORT_RETRY_DELAY_MS;
 const MAX_CONSECUTIVE_ABORTS = STT_MAX_CONSECUTIVE_ABORTS;
@@ -203,7 +216,8 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
   const [speechNotice, setSpeechNotice] = useState('');
   const [voiceStatusNotice, setVoiceStatusNotice] = useState<string | null>(null);
   const [attachment, setAttachment] = useState<Attachment | null>(null);
-  const [remainingMs, setRemainingMs] = useState<number>(SILENCE_AUTO_SEND_MS);
+  const [silenceLimitMs, setSilenceLimitMs] = useState<number>(SILENCE_COLLECT_MS);
+  const [remainingMs, setRemainingMs] = useState<number>(SILENCE_COLLECT_MS);
   const [localTtsActive, setLocalTtsActive] = useState<boolean>(getTtsEnabled);
   const [localAiMode, setLocalAiMode] = useState<'flash' | 'research'>(() => getActiveAiMode());
   const [upscaleNotice, setUpscaleNotice] = useState<string | null>(null);
@@ -215,7 +229,8 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
     azureSpeechRegion: getAzureSpeechRegion(),
     preferredModelMode: getPreferredModelMode(),
     activeAiMode: localAiMode,
-    continuousListening: getContinuousListening()
+    continuousListening: getContinuousListening(),
+    autoModeDetection: getAutoModeDetection()
   };
   const ttsActive = effectiveSettings.ttsEnabled;
   const aiMode = effectiveSettings.activeAiMode;
@@ -253,6 +268,9 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
   const recognitionRef = useRef<any>(null);
   const transcriptRef = useRef('');
   const lastSpeechTimestampRef = useRef<number>(0);
+  const silenceLimitRef = useRef<number>(SILENCE_COLLECT_MS);
+  const lastDetectedModeRef = useRef<VoiceInteractionMode | null>(null);
+  const liveHintModeRef = useRef<VoiceInteractionMode>('dialog');
   const autoSendTriggeredRef = useRef(false);
   const isListeningRef = useRef(false);
   const scrollEndRef = useRef<HTMLDivElement | null>(null);
@@ -389,8 +407,14 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
       rec.maxAlternatives = 1;
 
       let abortedThisSession = false;
+      const startLimit =
+        settingsRef.current.autoModeDetection !== false
+          ? classifyLiveSpeechIntent('', lastDetectedModeRef.current, true).silenceTimeoutMs
+          : SILENCE_COLLECT_MS;
+      silenceLimitRef.current = startLimit;
+      setSilenceLimitMs(startLimit);
       lastSpeechTimestampRef.current = Date.now();
-      setRemainingMs(SILENCE_AUTO_SEND_MS);
+      setRemainingMs(startLimit);
 
       rec.onstart = () => {
         if (
@@ -414,8 +438,17 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
       rec.onresult = (event: any) => {
         consecutiveAbortCountRef.current = 0;
         lastSpeechTimestampRef.current = Date.now();
-        setRemainingMs(SILENCE_AUTO_SEND_MS);
         const cleanSessionText = buildCleanTranscriptFromResults(event.results);
+        const autoDetect = settingsRef.current.autoModeDetection !== false;
+        const classified = classifyLiveSpeechIntent(
+          cleanSessionText,
+          lastDetectedModeRef.current,
+          autoDetect
+        );
+        liveHintModeRef.current = classified.mode;
+        silenceLimitRef.current = classified.silenceTimeoutMs;
+        setSilenceLimitMs(classified.silenceTimeoutMs);
+        setRemainingMs(classified.silenceTimeoutMs);
         setTranscript(cleanSessionText);
         transcriptRef.current = cleanSessionText;
       };
@@ -546,7 +579,13 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
   useEffect(() => {
     openRef.current = open;
     if (open) {
-      setRemainingMs(SILENCE_AUTO_SEND_MS);
+      const baseLimit =
+        settingsRef.current.autoModeDetection !== false
+          ? classifyLiveSpeechIntent('', lastDetectedModeRef.current, true).silenceTimeoutMs
+          : SILENCE_COLLECT_MS;
+      silenceLimitRef.current = baseLimit;
+      setSilenceLimitMs(baseLimit);
+      setRemainingMs(baseLimit);
       autoSendTriggeredRef.current = false;
       consecutiveAbortCountRef.current = 0;
       micLockedRef.current = false;
@@ -565,6 +604,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
       }
     } else {
       sessionActiveRef.current = false;
+      lastDetectedModeRef.current = null;
       clearVoiceTimers();
       cancelPendingRequest();
       stopMicrophone();
@@ -590,14 +630,15 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
 
     const interval = window.setInterval(() => {
       const currentText = transcriptRef.current.trim();
+      const activeLimit = silenceLimitRef.current || SILENCE_COLLECT_MS;
       if (!currentText) {
         lastSpeechTimestampRef.current = Date.now();
-        setRemainingMs(SILENCE_AUTO_SEND_MS);
+        setRemainingMs(activeLimit);
         return;
       }
 
       const elapsed = Date.now() - lastSpeechTimestampRef.current;
-      const left = Math.max(0, SILENCE_AUTO_SEND_MS - elapsed);
+      const left = Math.max(0, activeLimit - elapsed);
       setRemainingMs(left);
 
       if (left === 0 && !autoSendTriggeredRef.current) {
@@ -613,15 +654,24 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
   const scheduleReListenAfterCooldown = (
     needsClarification: boolean,
     lastUserText: string,
-    requestId: number
+    requestId: number,
+    detectedMode?: VoiceInteractionMode,
+    expectFollowUp?: boolean
   ) => {
     clearVoiceTimers();
     const hasEndSignal = END_DIALOG_REGEX.test(lastUserText);
+    const autoModeOn = settingsRef.current.autoModeDetection !== false;
+    const modeAllowsReListen = autoModeOn
+      ? Boolean(expectFollowUp) ||
+        needsClarification ||
+        (Boolean(settingsRef.current.continuousListening) && detectedMode !== 'quick')
+      : Boolean(settingsRef.current.continuousListening) || needsClarification;
+
     const shouldReListen =
       openRef.current &&
       sessionActiveRef.current &&
       !hasEndSignal &&
-      (settingsRef.current.continuousListening || needsClarification);
+      modeAllowsReListen;
 
     if (hasEndSignal) {
       sessionActiveRef.current = false;
@@ -650,7 +700,9 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
     spokenText: string,
     needsClarification: boolean,
     requestId: number,
-    lastUserText: string
+    lastUserText: string,
+    detectedMode?: VoiceInteractionMode,
+    expectFollowUp?: boolean
   ) => {
     if (requestId !== activeRequestIdRef.current || !openRef.current) return;
     clearVoiceTimers();
@@ -660,7 +712,13 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
     const currentSettings = settingsRef.current;
 
     if (!currentSettings.ttsEnabled) {
-      scheduleReListenAfterCooldown(needsClarification, lastUserText, requestId);
+      scheduleReListenAfterCooldown(
+        needsClarification,
+        lastUserText,
+        requestId,
+        detectedMode,
+        expectFollowUp
+      );
       return;
     }
 
@@ -695,7 +753,13 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
       return;
     }
 
-    scheduleReListenAfterCooldown(needsClarification, lastUserText, requestId);
+    scheduleReListenAfterCooldown(
+      needsClarification,
+      lastUserText,
+      requestId,
+      detectedMode,
+      expectFollowUp
+    );
   };
 
   const triggerProcess = async (textToProcess: string) => {
@@ -728,6 +792,15 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
     activeRequestControllerRef.current = controller;
     let settled = false;
 
+    const currentSettings = settingsRef.current;
+    const hintClassification = classifyLiveSpeechIntent(
+      clean,
+      lastDetectedModeRef.current,
+      currentSettings.autoModeDetection !== false
+    );
+    const requestHintMode = hintClassification.mode;
+    const requestPrevMode = lastDetectedModeRef.current;
+
     triggerHapticFeedback([12, 30, 12]);
     const currentAtt = attachment;
     setTranscript('');
@@ -754,6 +827,8 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
       replyText: string;
       spokenText: string;
       needsClarification: boolean;
+      detectedMode?: VoiceInteractionMode;
+      expectFollowUp?: boolean;
       engine: string;
       logId?: string;
       actions: AiExecutedAction[];
@@ -773,13 +848,23 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
       };
       setMessages((prev) => [...prev, assistantMsg]);
 
+      const resolvedMode = result.detectedMode || requestHintMode;
+      lastDetectedModeRef.current = resolvedMode;
+
       // Smart Auto-Expand von Stufe 1 nach Stufe 2 bei Klärungsbedarf oder langer Antwort (>120 Zeichen)
       if (currentStage === 1 && (result.needsClarification || result.replyText.length > 120)) {
         updateStage(2);
       }
 
       isSendingRef.current = false;
-      void speakAssistantReply(result.spokenText, result.needsClarification, requestId, clean);
+      void speakAssistantReply(
+        result.spokenText,
+        result.needsClarification,
+        requestId,
+        clean,
+        resolvedMode,
+        result.expectFollowUp
+      );
     };
 
     activeTimeoutRef.current = window.setTimeout(() => {
@@ -791,16 +876,30 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
       setVoiceStatusNotice('API-Zeitüberschreitung (12s) – lokaler Offline-Fallback aktiv.');
 
       const fallbackRes = onExecuteOfflineFallback
-        ? onExecuteOfflineFallback(clean, currentAtt, 'Fallback (API-Timeout 12s)')
+        ? onExecuteOfflineFallback(
+            clean,
+            currentAtt,
+            'Fallback (API-Timeout 12s)',
+            requestHintMode,
+            requestPrevMode
+          )
         : (() => {
             const activeProj =
               projects.find((p) => p.name === activeProjectName && !p.archived) ||
               projects.find((p) => !p.archived);
-            const plan = buildLocalFallbackPlan(clean, activeProj?.id || 'proj-foodtruck', projects);
+            const plan = buildLocalFallbackPlan(
+              clean,
+              activeProj?.id || 'proj-foodtruck',
+              projects,
+              requestHintMode,
+              requestPrevMode
+            );
             return {
               replyText: plan.directAnswer || plan.summary,
               spokenText: plan.spokenFeedback || plan.summary,
               needsClarification: Boolean(plan.needsClarification),
+              detectedMode: plan.detectedMode,
+              expectFollowUp: plan.expectFollowUp,
               engine: 'Fallback (API-Timeout 12s)',
               actions: []
             };
@@ -816,13 +915,17 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
     }, API_REQUEST_TIMEOUT_MS);
 
     try {
-      const currentSettings = settingsRef.current;
       const result = await onExecuteCommand(
         clean,
         currentAtt,
         currentSettings.activeAiMode,
         recentHistory,
-        { signal: controller.signal, settings: currentSettings }
+        {
+          signal: controller.signal,
+          settings: currentSettings,
+          hintMode: requestHintMode,
+          previousMode: requestPrevMode
+        }
       );
       if (settled || requestId !== activeRequestIdRef.current) return;
       settled = true;
@@ -881,11 +984,11 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
   if (!open) return null;
 
   const hasSpokenText = transcript.trim().length > 0;
-  const countdownSeconds = (remainingMs / 1000).toFixed(1);
-  const progressPercent = Math.min(100, Math.max(0, (remainingMs / SILENCE_AUTO_SEND_MS) * 100));
+  const progressPercent = Math.min(100, Math.max(0, (remainingMs / Math.max(1, silenceLimitMs)) * 100));
   const activeProjects = projects.filter((p) => !p.archived);
   const accentColor = themeColors?.highlight || themeColors?.primary || '#14B8A6';
   const glowColor = themeColors?.glow || 'rgba(20, 184, 166, 0.35)';
+  const silenceLineColor = remainingMs < 900 ? '#E5A93C' : accentColor;
 
   // Letzte Quittung für Stufe 1 ableiten
   const lastAssistantMsg = [...messages].reverse().find((m) => m.role === 'assistant');
@@ -998,17 +1101,27 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
               title="Antippen für volles Gespräch"
             >
               {isListening ? (
-                <div>
+                <div className="space-y-1">
                   <div className="flex items-center justify-between text-xs font-bold" style={{ color: accentColor }}>
                     <span className="flex items-center gap-1.5">
                       <span className="w-2 h-2 rounded-full animate-ping shrink-0" style={{ backgroundColor: accentColor }} />
                       <span>Höre zu...</span>
                     </span>
-                    <span className="font-mono text-[#14B8A6]">{countdownSeconds}s</span>
                   </div>
                   <div className="text-xs text-white truncate mt-0.5">
                     {transcript || 'Sprechen oder aufhören zum Absenden...'}
                   </div>
+                  {hasSpokenText && (
+                    <div className="w-full h-1 bg-[#111317] rounded-full overflow-hidden">
+                      <div
+                        className="h-full transition-all duration-150 rounded-full"
+                        style={{
+                          width: `${progressPercent}%`,
+                          backgroundColor: silenceLineColor
+                        }}
+                      />
+                    </div>
+                  )}
                 </div>
               ) : isProcessing ? (
                 <div>
@@ -1538,16 +1651,15 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
         >
           {isListening && hasSpokenText && !isProcessing && (
             <div className="space-y-1">
-              <div className="flex justify-between text-xs text-[#9CA3AF]">
+              <div className="flex justify-between text-xs text-[#94A3B8]">
                 <span>Automatischer Versand nach Denkpause</span>
-                <span className="font-mono text-[#14B8A6] font-bold">{countdownSeconds}s</span>
               </div>
-              <div className="w-full h-1.5 bg-[#181A1B] rounded-full overflow-hidden">
+              <div className="w-full h-1 bg-[#111317] rounded-full overflow-hidden">
                 <div
                   className="h-full transition-all duration-150 rounded-full"
                   style={{
                     width: `${progressPercent}%`,
-                    backgroundColor: remainingMs < 1800 ? '#F59E0B' : '#14B8A6'
+                    backgroundColor: silenceLineColor
                   }}
                 />
               </div>

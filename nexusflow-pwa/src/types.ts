@@ -8,6 +8,7 @@ export type AmbientLightMode = 'off' | 'static' | 'shimmer';
 export type VoiceProvider = 'azure-gisela' | 'browser';
 export type PreferredModelMode = 'SMART_PRO' | 'ALWAYS_PRO' | 'ALWAYS_FLASH' | string;
 export type QuickAiMode = 'flash' | 'research';
+export type VoiceInteractionMode = 'quick' | 'collect' | 'dialog';
 
 export interface AiVoiceSettings {
   ttsEnabled: boolean;
@@ -17,6 +18,7 @@ export interface AiVoiceSettings {
   preferredModelMode: PreferredModelMode;
   activeAiMode: QuickAiMode;
   continuousListening: boolean;
+  autoModeDetection: boolean;
 }
 
 export const THEME = {

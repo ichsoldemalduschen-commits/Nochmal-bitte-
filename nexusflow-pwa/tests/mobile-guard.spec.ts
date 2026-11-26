@@ -1002,4 +1002,72 @@ test.describe('Block C: Mobile-Guard 390×844 px Gesamt-Schutznetz', () => {
     await expect(reminderBanner).toBeHidden();
     await assertNoHorizontalOverflow(page, 'Station 12 – Nach +30 Min Snooze');
   });
+
+  test('Station 13 – Unsichtbare 3-Modi-Erkennung: Zentrale-Schalter (min-h-[44px]), Reload-Persistenz & VoiceModal ohne UI-Überladung (390px-Schutz)', async ({ page }) => {
+    await page.goto('./');
+    await page.waitForLoadState('domcontentloaded');
+
+    // 1. Zentrale -> Sektion 3 KI & Stimme „Gisela“ öffnen
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    await page.getByRole('button', { name: 'Zentrale', exact: true }).click();
+    await page.locator('button:has-text("KI & Stimme")').click();
+    await assertNoHorizontalOverflow(page, 'Station 13 – Zentrale Sektion 3 geöffnet');
+
+    const continuousToggle = page.locator('button[aria-label="Durchgehendes Gespräch umschalten"]');
+    const autoModeToggle = page.locator('button[aria-label="Automatische Gesprächsmodus-Erkennung umschalten"]');
+
+    await expect(continuousToggle).toBeVisible();
+    await expect(autoModeToggle).toBeVisible();
+    await expect(continuousToggle).toContainText('Aktiv');
+    await expect(autoModeToggle).toContainText('Aktiv');
+
+    for (const btn of [continuousToggle, autoModeToggle]) {
+      const box = await btn.boundingBox();
+      expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
+    }
+
+    // 2. Beide Schalter umschalten & nach Reload auf Persistenz prüfen
+    await autoModeToggle.click();
+    await expect(autoModeToggle).toContainText('Aus');
+    await continuousToggle.click();
+    await expect(continuousToggle).toContainText('Aus');
+    await assertNoHorizontalOverflow(page, 'Station 13 – Schalter umgeschaltet');
+
+    await page.reload();
+    await page.waitForLoadState('domcontentloaded');
+
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    await page.getByRole('button', { name: 'Zentrale', exact: true }).click();
+    await page.locator('button:has-text("KI & Stimme")').click();
+
+    await expect(autoModeToggle).toContainText('Aus');
+    await expect(continuousToggle).toContainText('Aus');
+
+    // Sauber wieder aktivieren & zurück zur Startansicht
+    await autoModeToggle.click();
+    await expect(autoModeToggle).toContainText('Aktiv');
+    await continuousToggle.click();
+    await expect(continuousToggle).toContainText('Aktiv');
+    await page.locator('button:has-text("Zurück")').click();
+
+    // 3. VoiceModal öffnen & prüfen, dass kein manueller 3-Modi-Klotz den Header überlädt
+    const hexBtn = page.locator('button[aria-label="Daumen-Steuerung"]');
+    await expect(hexBtn).toBeVisible();
+    await hexBtn.click();
+
+    const stage1Region = page.locator('div[role="region"][aria-label="KI-Begleiter Kompakt"]');
+    await expect(stage1Region).toBeVisible();
+    await stage1Region.locator('button[aria-label="Vergrößern zu Vollbild"]').click();
+
+    const dialog = page.locator('div[role="dialog"][aria-label="KI-Sprachassistent Dialog"]');
+    await expect(dialog).toBeVisible();
+    await expect(dialog.locator('button[aria-label="KI-Modus umschalten"]')).toBeVisible();
+    await expect(dialog.locator('button:has-text("Sammel")')).toHaveCount(0);
+    await expect(dialog.locator('button:has-text("Quick")')).toHaveCount(0);
+
+    await assertNoHorizontalOverflow(page, 'Station 13 – VoiceModal ohne 3-Modi-UI-Klotz');
+
+    await dialog.locator('button[aria-label="Schließen"]').click();
+    await expect(dialog).toBeHidden();
+  });
 });

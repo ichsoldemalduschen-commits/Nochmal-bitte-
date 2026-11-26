@@ -16,7 +16,8 @@ import {
   ReminderRecurrence,
   SubTaskItem,
   TaskItem,
-  THEME
+  THEME,
+  VoiceInteractionMode
 } from './types';
 import { BRAND_CONFIG } from './config/brandConfig';
 import { DESIGN_TOKENS } from './config/designTokens';
@@ -1126,6 +1127,8 @@ export default function App() {
       replyText: plan.directAnswer || plan.summary,
       spokenText: plan.spokenFeedback || plan.summary,
       needsClarification: Boolean(plan.needsClarification),
+      detectedMode: plan.detectedMode,
+      expectFollowUp: plan.expectFollowUp,
       engine,
       logId,
       actions: executedActions,
@@ -1146,7 +1149,12 @@ export default function App() {
     attachment: Attachment | null,
     requestedMode?: 'flash' | 'research',
     chatHistory?: Array<{ role: 'user' | 'assistant'; text: string }>,
-    options?: { signal?: AbortSignal; settings?: AiVoiceSettings }
+    options?: {
+      signal?: AbortSignal;
+      settings?: AiVoiceSettings;
+      hintMode?: VoiceInteractionMode;
+      previousMode?: VoiceInteractionMode | null;
+    }
   ) => {
     const activeProjects = state.projects.filter((p) => !p.archived);
     const effectiveDefaultProjId = getEffectiveDefaultProjectId();
@@ -1160,7 +1168,9 @@ export default function App() {
       requestedMode,
       {
         signal: options?.signal,
-        settings: options?.settings || aiVoiceSettingsRef.current
+        settings: options?.settings || aiVoiceSettingsRef.current,
+        hintMode: options?.hintMode,
+        previousMode: options?.previousMode
       }
     );
 
@@ -1174,11 +1184,13 @@ export default function App() {
   const handleExecuteOfflineFallback = (
     rawText: string,
     attachment: Attachment | null,
-    reason = 'Fallback (API-Timeout)'
+    reason = 'Fallback (API-Timeout)',
+    hintMode?: VoiceInteractionMode,
+    previousMode?: VoiceInteractionMode | null
   ) => {
     const activeProjects = state.projects.filter((p) => !p.archived);
     const effectiveDefaultProjId = getEffectiveDefaultProjectId();
-    const plan = buildLocalFallbackPlan(rawText, effectiveDefaultProjId, activeProjects);
+    const plan = buildLocalFallbackPlan(rawText, effectiveDefaultProjId, activeProjects, hintMode, previousMode);
     return applyAiPlanToAppState(rawText, plan, reason, attachment, false);
   };
 
