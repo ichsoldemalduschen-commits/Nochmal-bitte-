@@ -37,6 +37,27 @@ import {
   saveCloudConfig
 } from '../services/cloudSyncAndPush';
 import { speakText, stopSpeaking, triggerHapticFeedback } from '../services/aiRouter';
+import {
+  SavedDossierItem,
+  SavedScannedReceipt,
+  STORAGE_KEYS,
+  formatNow,
+  loadIdbItem,
+  loadSavedDossiers,
+  loadScannedReceipts,
+  saveSavedDossiers,
+  saveScannedReceipts
+} from '../services/storage';
+
+function prependUniqueById<T extends { id: string }>(item: T, existing: T[]): T[] {
+  const seen = new Set<string>([item.id]);
+  const rest = (Array.isArray(existing) ? existing : []).filter((entry) => {
+    if (!entry?.id || seen.has(entry.id)) return false;
+    seen.add(entry.id);
+    return true;
+  });
+  return [item, ...rest];
+}
 
 interface DeepResearchAndAuditModalProps {
   open: boolean;
@@ -138,46 +159,76 @@ export const DeepResearchAndAuditModal: React.FC<DeepResearchAndAuditModalProps>
     });
   };
 
-  const handleRunDeepResearch = async (topicToRun: string, watchItemId?: string) => {
-    if (!topicToRun.trim() || !selectedProj || isResearching) return;
+  const handleRunDeepResearch = async (
+    topicToRun: string,
+    watchItemId?: string,
+    overrideProjectId?: string
+  ) => {
+    const targetProj =
+      activeProjects.find((p) => p.id === (overrideProjectId || targetProjectId)) ||
+      projects.find((p) => p.id === (overrideProjectId || targetProjectId)) ||
+      selectedProj;
+    if (!topicToRun.trim() || !targetProj || isResearching) return;
     setIsResearching(true);
     stopSpeaking();
     setIsSpeakingDossier(false);
     setLastDossierPreview(null);
 
-    const res = await runDeepResearchWithCitations(
-      topicToRun.trim(),
-      selectedProj.name,
-      userApiKey,
-      researchDepth
-    );
-
-    onSaveDossierToProject(
-      selectedProj.id,
-      res.title,
-      res.markdownDossier,
-      res.followUpTasks
-    );
-
-    if (watchItemId) {
-      const updated = watchlist.map((w) =>
-        w.id === watchItemId ? { ...w, completed: true } : w
+    try {
+      const res = await runDeepResearchWithCitations(
+        topicToRun.trim(),
+        targetProj.name,
+        userApiKey,
+        researchDepth
       );
-      setWatchlist(updated);
-      saveAuditWatchlist(updated);
+
+      onSaveDossierToProject(
+        targetProj.id,
+        res.title,
+        res.markdownDossier,
+        res.followUpTasks
+      );
+
+      const existingDossiers = await loadIdbItem<SavedDossierItem[]>(
+        STORAGE_KEYS.SAVED_DOSSIERS,
+        loadSavedDossiers()
+      );
+      const newDossier: SavedDossierItem = {
+        id: `dossier-${Date.now()}`,
+        projectId: targetProj.id,
+        projectName: targetProj.name,
+        title: res.title,
+        markdownContent: res.markdownDossier,
+        sources: res.sources || [],
+        followUpTasks: res.followUpTasks || [],
+        createdAt: formatNow(),
+        modelUsed: res.modelUsed
+      };
+      saveSavedDossiers(prependUniqueById(newDossier, existingDossiers));
+
+      if (watchItemId) {
+        const updated = watchlist.map((w) =>
+          w.id === watchItemId ? { ...w, completed: true } : w
+        );
+        setWatchlist(updated);
+        saveAuditWatchlist(updated);
+      }
+
+      const nextSettings = {
+        ...auditSettings,
+        lastRunIso: new Date().toLocaleString('de-DE')
+      };
+      setAuditSettings(nextSettings);
+      saveAuditSettings(nextSettings);
+
+      setLastDossierPreview({ title: res.title, content: res.markdownDossier });
+      setResearchQuery('');
+      onNotify(`Deep-Research Dossier unter "${targetProj.name} -> Infos" abgelegt!`);
+    } catch (err: any) {
+      onNotify(`Fehler bei Deep Research: ${err?.message || 'Unbekannt'}`);
+    } finally {
+      setIsResearching(false);
     }
-
-    const nextSettings = {
-      ...auditSettings,
-      lastRunIso: new Date().toLocaleString('de-DE')
-    };
-    setAuditSettings(nextSettings);
-    saveAuditSettings(nextSettings);
-
-    setLastDossierPreview({ title: res.title, content: res.markdownDossier });
-    setIsResearching(false);
-    setResearchQuery('');
-    onNotify(`Deep-Research Dossier unter "${selectedProj.name} -> Infos" abgelegt!`);
   };
 
   const handleRunWeeklyBatchAudit = async () => {
@@ -186,30 +237,58 @@ export const DeepResearchAndAuditModal: React.FC<DeepResearchAndAuditModalProps>
       onNotify('Alle Punkte auf der Auto-Audit-Wächterliste sind bereits geprüft.');
       return;
     }
-    await handleRunDeepResearch(openItems[0].topic, openItems[0].id);
+    await handleRunDeepResearch(openItems[0].topic, openItems[0].id, openItems[0].projectId);
   };
 
   const handleReceiptUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !selectedProj) return;
+    const targetProj = selectedProj;
     setIsScanningReceipt(true);
 
-    const scan = await scanReceiptImageWithGemini(file, userApiKey);
-    setIsScanningReceipt(false);
-    e.target.value = '';
+    try {
+      const scan = await scanReceiptImageWithGemini(file, userApiKey);
+      e.target.value = '';
 
-    if (!scan.ok || !scan.result) {
-      onNotify(scan.error || 'Beleg konnte nicht gelesen werden.');
-      return;
+      if (!scan.ok || !scan.result) {
+        onNotify(scan.error || 'Beleg konnte nicht gelesen werden.');
+        return;
+      }
+
+      const res = scan.result;
+      onReconcileReceiptWithCart(
+        targetProj.id,
+        res.storeName,
+        res.purchaseDate,
+        res.totalAmount,
+        res.items
+      );
+
+      const existingReceipts = await loadIdbItem<SavedScannedReceipt[]>(
+        STORAGE_KEYS.SCANNED_RECEIPTS,
+        loadScannedReceipts()
+      );
+      const newReceipt: SavedScannedReceipt = {
+        id: `rcpt-${Date.now()}`,
+        projectId: targetProj.id,
+        projectName: targetProj.name,
+        storeName: res.storeName || 'Händler',
+        purchaseDate: res.purchaseDate || new Date().toLocaleDateString('de-DE'),
+        totalAmount: res.totalAmount || '0,00',
+        items: (res.items || []).map((it) => ({
+          title: it.title,
+          quantity: it.quantity || '1x',
+          price: it.price || ''
+        })),
+        createdAt: formatNow(),
+        reconciled: true
+      };
+      saveScannedReceipts(prependUniqueById(newReceipt, existingReceipts));
+    } catch (err: any) {
+      onNotify(`Fehler beim Beleg-Scan: ${err?.message || 'Unbekannt'}`);
+    } finally {
+      setIsScanningReceipt(false);
     }
-
-    onReconcileReceiptWithCart(
-      selectedProj.id,
-      scan.result.storeName,
-      scan.result.purchaseDate,
-      scan.result.totalAmount,
-      scan.result.items
-    );
   };
 
   return (
@@ -430,7 +509,7 @@ export const DeepResearchAndAuditModal: React.FC<DeepResearchAndAuditModalProps>
                             disabled={isResearching}
                             onClick={() => {
                               setTargetProjectId(item.projectId);
-                              void handleRunDeepResearch(item.topic, item.id);
+                              void handleRunDeepResearch(item.topic, item.id, item.projectId);
                             }}
                             className="min-h-[44px] px-3 py-1.5 rounded-xl text-xs font-bold text-white"
                             style={{ backgroundColor: THEME.accentPrimary }}

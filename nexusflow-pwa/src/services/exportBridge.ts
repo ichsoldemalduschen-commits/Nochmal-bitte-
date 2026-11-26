@@ -96,8 +96,8 @@ export function exportScheduledTasksToIcs(projects: Project[]): number {
     .filter((p) => !p.archived)
     .forEach((proj) => {
       proj.tasks.forEach((t, idx) => {
-        if (!t.dayBlock || t.completed) return;
-        const slot = blockTimes[t.dayBlock] || blockTimes.focus;
+        if (t.completed) return;
+        const slot = blockTimes[t.dayBlock ?? 'focus'] || blockTimes.focus;
         count++;
         lines.push(
           'BEGIN:VEVENT',

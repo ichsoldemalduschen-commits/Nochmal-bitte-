@@ -10,6 +10,7 @@ import {
   CustomMeta,
   DomainType,
   EventSalesLog,
+  KnowledgeItem,
   KnowledgeKind,
   PriorityType,
   Project,
@@ -99,6 +100,8 @@ interface FrontWorkspaceProps {
     title: string,
     content: string
   ) => void;
+  onDeleteKnowledge?: (projectId: string, knowledgeId: string) => void;
+  onRestoreKnowledge?: (projectId: string, item: KnowledgeItem, insertIndex?: number) => void;
   onUploadKnowledgeAttachment?: (
     projectId: string,
     itemId: string,
@@ -153,6 +156,8 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
   onSendTaskToCart,
   onAddKnowledge,
   onUpdateKnowledge,
+  onDeleteKnowledge,
+  onRestoreKnowledge,
   onUploadKnowledgeAttachment,
   onAddExplanation,
   onUpdateExplanation,
@@ -625,6 +630,8 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
               userApiKey={userApiKey}
               onAddKnowledge={onAddKnowledge}
               onUpdateKnowledge={onUpdateKnowledge}
+              onDeleteKnowledge={onDeleteKnowledge}
+              onRestoreKnowledge={onRestoreKnowledge}
               onUploadKnowledgeAttachment={onUploadKnowledgeAttachment}
               onAddExplanation={onAddExplanation}
               onUpdateExplanation={onUpdateExplanation}
@@ -641,6 +648,7 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
                 onOpenDeepResearchModal?.();
               }}
               onNotify={onNotify}
+              onRegisterUndo={handleRegisterUndo}
               onConfigMissing={(msg) => showConfigNotice(msg, 'Zentrale', 'ai')}
             />
           )}

@@ -8,6 +8,7 @@ import {
   Plus,
   Settings,
   Sparkles,
+  Trash2,
   Upload,
   Volume2,
   VolumeX
@@ -41,6 +42,8 @@ interface KnowledgeViewProps {
     title: string,
     content: string
   ) => void;
+  onDeleteKnowledge?: (projectId: string, knowledgeId: string) => void;
+  onRestoreKnowledge?: (projectId: string, item: KnowledgeItem, insertIndex?: number) => void;
   onUploadKnowledgeAttachment?: (
     projectId: string,
     itemId: string,
@@ -61,6 +64,7 @@ interface KnowledgeViewProps {
   onOpenSettings?: () => void;
   onAskAi?: (prompt: string) => void;
   onNotify: (msg: string) => void;
+  onRegisterUndo?: (action: { message: string; undo: () => void }) => void;
   onConfigMissing?: (msg: string) => void;
 }
 
@@ -73,6 +77,8 @@ export const KnowledgeView: React.FC<KnowledgeViewProps> = ({
   userApiKey,
   onAddKnowledge,
   onUpdateKnowledge,
+  onDeleteKnowledge,
+  onRestoreKnowledge,
   onUploadKnowledgeAttachment,
   onAddExplanation,
   onUpdateExplanation,
@@ -85,6 +91,7 @@ export const KnowledgeView: React.FC<KnowledgeViewProps> = ({
   onOpenSettings,
   onAskAi,
   onNotify,
+  onRegisterUndo,
   onConfigMissing
 }) => {
   const [knowledgeFilter, setKnowledgeFilter] = useState<'ALL' | 'explanation' | 'info'>('ALL');
@@ -167,6 +174,48 @@ export const KnowledgeView: React.FC<KnowledgeViewProps> = ({
       navigator.clipboard.writeText(prompt);
       onNotify('Wissen für KI-Assistenten kopiert.');
     }
+  };
+
+  const handleDeleteWithUndo = (item: KnowledgeItem) => {
+    if (!onDeleteKnowledge) return;
+    const itemIndex = projectKnowledge.findIndex((k) => k.id === item.id);
+    const backupItem: KnowledgeItem = {
+      ...item,
+      attachments: item.attachments ? [...item.attachments] : [],
+      customMeta: item.customMeta ? { ...item.customMeta } : {}
+    };
+    triggerHapticFeedback(15);
+    onDeleteKnowledge(activeProject.id, item.id);
+    setOpenKnowledge((prev) => {
+      const next = { ...prev };
+      delete next[item.id];
+      return next;
+    });
+    if (editingKnowledgeId === item.id) {
+      setEditingKnowledgeId(null);
+    }
+    onRegisterUndo?.({
+      message: 'Wissenseintrag gelöscht',
+      undo: () => {
+        if (onRestoreKnowledge) {
+          onRestoreKnowledge(
+            activeProject.id,
+            backupItem,
+            itemIndex >= 0 ? itemIndex : undefined
+          );
+        } else if (onAddKnowledge) {
+          onAddKnowledge(
+            activeProject.id,
+            backupItem.kind,
+            backupItem.title,
+            backupItem.content,
+            backupItem.attachments
+          );
+        }
+        onNotify('Wissenseintrag wiederhergestellt.');
+      }
+    });
+    onNotify('Wissenseintrag gelöscht.');
   };
 
   return (
@@ -440,29 +489,25 @@ export const KnowledgeView: React.FC<KnowledgeViewProps> = ({
                         <button
                           type="button"
                           onClick={() => {
+                            if (!editKnowledgeTitle.trim()) return;
                             if (onUpdateKnowledge) {
                               onUpdateKnowledge(
                                 activeProject.id,
                                 item.id,
-                                editKnowledgeTitle,
+                                editKnowledgeTitle.trim(),
                                 editKnowledgeContent
                               );
+                              onNotify('Wissenseintrag aktualisiert.');
                             } else if (item.kind === 'explanation') {
                               onUpdateExplanation(
                                 activeProject.id,
                                 item.id,
-                                editKnowledgeTitle,
+                                editKnowledgeTitle.trim(),
                                 editKnowledgeContent
                               );
-                            } else {
-                              onAddInfo(
-                                activeProject.id,
-                                editKnowledgeTitle,
-                                editKnowledgeContent
-                              );
+                              onNotify('Wissenseintrag aktualisiert.');
                             }
                             setEditingKnowledgeId(null);
-                            onNotify('Wissenseintrag aktualisiert.');
                           }}
                           className="min-h-[44px] px-5 rounded-xl text-xs font-bold text-white shadow-md cursor-pointer"
                           style={{ backgroundColor: themeColors.primary }}
@@ -578,6 +623,20 @@ export const KnowledgeView: React.FC<KnowledgeViewProps> = ({
                             <Sparkles className="w-4 h-4" />
                             <span>KI fragen</span>
                           </button>
+
+                          {onDeleteKnowledge && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteWithUndo(item);
+                              }}
+                              className="min-h-[44px] px-3.5 rounded-xl text-xs font-semibold bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 flex items-center gap-2 active:scale-95 transition cursor-pointer"
+                            >
+                              <Trash2 className="w-4 h-4 shrink-0" />
+                              <span>Löschen</span>
+                            </button>
+                          )}
                         </div>
 
                         <label

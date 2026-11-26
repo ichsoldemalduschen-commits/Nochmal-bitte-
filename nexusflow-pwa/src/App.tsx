@@ -13,7 +13,6 @@ import {
   KnowledgeKind,
   Project,
   ProjectTabId,
-  PriorityType,
   TaskItem,
   THEME
 } from './types';
@@ -33,6 +32,7 @@ import {
   saveThumbHubPosition,
   loadAmbientLightMode,
   saveAmbientLightMode,
+  normalizeProjectKnowledge,
   STORAGE_KEYS
 } from './services/storage';
 import {
@@ -534,11 +534,11 @@ export default function App() {
         aiTouched: true,
         customMeta: {}
       };
-      const newTasks = (followUpTasks || []).map((tText, idx) => ({
+      const newTasks: TaskItem[] = (followUpTasks || []).map((tText, idx) => ({
         id: `task-dossier-${Date.now()}-${idx}`,
         title: enforceMaxSixWords(tText, 'Recherche To-do'),
         completed: false,
-        priority: 'high' as PriorityType,
+        priority: 'Hoch',
         estimatedMinutes: 30,
         dayBlock: null,
         reminderAt: '',
@@ -741,6 +741,77 @@ export default function App() {
       };
     });
     notify('Eintrag aktualisiert.');
+  };
+
+  const handleDeleteKnowledge = (projectId: string, knowledgeId: string) => {
+    updateProject(projectId, (p) => ({
+      ...p,
+      knowledge: (p.knowledge || []).filter((k) => k.id !== knowledgeId),
+      explanations: (p.explanations || []).filter((e) => e.id !== knowledgeId),
+      infos: (p.infos || []).filter((i) => i.id !== knowledgeId)
+    }));
+  };
+
+  const handleRestoreKnowledge = (
+    projectId: string,
+    item: KnowledgeItem,
+    insertIndex?: number
+  ) => {
+    updateProject(projectId, (p) => {
+      const baseKnowledge =
+        Array.isArray(p.knowledge) && p.knowledge.length > 0
+          ? p.knowledge
+          : normalizeProjectKnowledge(p);
+      const currentKnowledge = baseKnowledge.filter((k) => k.id !== item.id);
+      const idx =
+        typeof insertIndex === 'number' && insertIndex >= 0 && insertIndex <= currentKnowledge.length
+          ? insertIndex
+          : 0;
+      const nextKnowledge = [
+        ...currentKnowledge.slice(0, idx),
+        item,
+        ...currentKnowledge.slice(idx)
+      ];
+      const nextExplanations =
+        item.kind === 'explanation'
+          ? [
+              {
+                id: item.id,
+                title: item.title,
+                stepsText: item.stepsText ?? item.content,
+                lastModified: item.lastModified,
+                changeReason: item.changeReason,
+                source: item.source,
+                aiTouched: item.aiTouched,
+                customMeta: item.customMeta || {}
+              },
+              ...(p.explanations || []).filter((e) => e.id !== item.id)
+            ]
+          : p.explanations || [];
+      const nextInfos =
+        item.kind !== 'explanation'
+          ? [
+              {
+                id: item.id,
+                title: item.title,
+                content: item.content,
+                attachments: item.attachments || [],
+                lastModified: item.lastModified,
+                changeReason: item.changeReason,
+                source: item.source,
+                aiTouched: item.aiTouched,
+                customMeta: item.customMeta || {}
+              },
+              ...(p.infos || []).filter((i) => i.id !== item.id)
+            ]
+          : p.infos || [];
+      return {
+        ...p,
+        knowledge: nextKnowledge,
+        explanations: nextExplanations,
+        infos: nextInfos
+      };
+    });
   };
 
   const handleUploadKnowledgeAttachment = async (projId: string, itemId: string, file: File) => {
@@ -1384,6 +1455,8 @@ export default function App() {
             }}
             onAddKnowledge={handleAddKnowledge}
             onUpdateKnowledge={handleUpdateKnowledge}
+            onDeleteKnowledge={handleDeleteKnowledge}
+            onRestoreKnowledge={handleRestoreKnowledge}
             onUploadKnowledgeAttachment={handleUploadKnowledgeAttachment}
             onAddExplanation={(projId, title, stepsText) => {
               handleAddKnowledge(projId, 'explanation', title, stepsText);
