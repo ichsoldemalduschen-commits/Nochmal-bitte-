@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Bell, BrainCircuit, Receipt, Scale, Sparkles, Webhook } from 'lucide-react';
+import { Bell, BrainCircuit, Camera, Receipt, Scale, Sparkles, Webhook } from 'lucide-react';
 import { BanditUserPreferences, THEME } from '../../types';
 import { requestPushNotificationPermission } from '../../services/cloudSyncAndPush';
 import {
@@ -232,6 +232,27 @@ export const AutomationSection: React.FC<AutomationSectionProps> = ({
         icon={<Sparkles className="w-4 h-4 text-[#E5A93C] shrink-0" />}
         ariaLabel="Nebenbei-Murmel-Autopilot umschalten"
         testId="toggle-murmur-autopilot"
+      />
+
+      {/* Allgemeine Bild-Vision */}
+      <ZentraleToggleRow
+        title="Allgemeine Bild-Vision (Typenschilder, Skizzen & Fotos)"
+        description="Erweitert den Scanner um Typenschild-, Skizzen- und Baustellen-Foto-Analyse inkl. Projekt-Galerie."
+        checked={prefs.generalVisionEnabled !== false}
+        onToggle={() => {
+          const next = !(prefs.generalVisionEnabled !== false);
+          onUpdatePrefs({ generalVisionEnabled: next });
+          onNotify(
+            next
+              ? 'Allgemeine Bild-Vision aktiviert.'
+              : 'Allgemeine Bild-Vision ausgeblendet.'
+          );
+        }}
+        onLabel="An"
+        offLabel="Aus"
+        icon={<Camera className="w-4 h-4 text-[#14B8A6] shrink-0" />}
+        ariaLabel="Allgemeine Bild-Vision umschalten"
+        testId="toggle-general-vision"
       />
 
       {/* Smart Home / Home Assistant (Prinzip der geschlossenen Schublade) */}

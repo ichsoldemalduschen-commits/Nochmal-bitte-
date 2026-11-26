@@ -1853,4 +1853,181 @@ test.describe('Block C: Mobile-Guard 390×844 px Gesamt-Schutznetz', () => {
     await expect(page.locator('[data-testid="foreman-inbox-header"]')).toHaveCount(0);
     await assertNoHorizontalOverflow(page, 'Station 19 – Abschluss');
   });
+
+  test('Station 20 – Allgemeine Bild-Vision & Offline-Audio-Puffer: 2 Zentrale-Schalter, geschlossene Schublade, Typenschild-Galerie mit 1-Tipp-Übernahme & Funkloch-Memo-Puffer (390px-Schutz)', async ({ page }) => {
+    await page.goto('./');
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.locator('h1')).toBeVisible({ timeout: 10000 });
+
+    // 1. Zentrale Bereich 4 & Bereich 3 öffnen -> beide neuen Schalter prüfen (min-h >= 44px, Default An) & ausschalten
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    await page.getByRole('button', { name: 'Zentrale', exact: true }).click();
+    await page.locator('button:has-text("Erinnerungen, Vorarbeiter & Smart Home")').click();
+
+    const visionToggle = page.locator('[data-testid="toggle-general-vision"]');
+    await expect(visionToggle).toBeVisible();
+    await expect(visionToggle).toContainText('An');
+    expect((await visionToggle.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+    await visionToggle.click();
+    await expect(visionToggle).toContainText('Aus');
+    await assertNoHorizontalOverflow(page, 'Station 20 – Bereich 4 Toggle Aus');
+
+    await page.locator('button:has-text("KI & Stimme")').click();
+    const audioBufferToggle = page.locator('[data-testid="toggle-offline-audio-buffer"]');
+    await expect(audioBufferToggle).toBeVisible();
+    await expect(audioBufferToggle).toContainText('An');
+    expect((await audioBufferToggle.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+    await audioBufferToggle.click();
+    await expect(audioBufferToggle).toContainText('Aus');
+    await assertNoHorizontalOverflow(page, 'Station 20 – Bereich 3 Toggle Aus');
+
+    // Reload -> Persistenz beider Schalter verifizieren
+    await page.waitForTimeout(250);
+    await page.reload();
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.locator('h1')).toBeVisible({ timeout: 10000 });
+
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    await page.getByRole('button', { name: 'Zentrale', exact: true }).click();
+    await page.locator('button:has-text("Erinnerungen, Vorarbeiter & Smart Home")').click();
+    await expect(page.locator('[data-testid="toggle-general-vision"]')).toContainText('Aus');
+    await page.locator('button:has-text("KI & Stimme")').click();
+    await expect(page.locator('[data-testid="toggle-offline-audio-buffer"]')).toContainText('Aus');
+    await page.locator('button:has-text("Zurück")').click();
+
+    // 2. Geschlossene Schublade: in ReceiptScanView darf Umschalter "Foto & Typenschild" nicht sichtbar sein
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    await page.locator('div[role="toolbar"][aria-label="Schnellzugriff"] button:has-text("Beleg-Scan")').click();
+    await expect(page.locator('h3:has-text("Beleg-Scan")')).toBeVisible();
+    await expect(page.locator('[data-testid="vision-mode-switch"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid="mode-tab-vision"]')).toHaveCount(0);
+    await assertNoHorizontalOverflow(page, 'Station 20 – Beleg-Scan bei deaktivierter Vision');
+
+    // Beide Schalter wieder einschalten
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    await page.getByRole('button', { name: 'Zentrale', exact: true }).click();
+    await page.locator('button:has-text("Erinnerungen, Vorarbeiter & Smart Home")').click();
+    await page.locator('[data-testid="toggle-general-vision"]').click();
+    await expect(page.locator('[data-testid="toggle-general-vision"]')).toContainText('An');
+    await page.locator('button:has-text("KI & Stimme")').click();
+    await page.locator('[data-testid="toggle-offline-audio-buffer"]').click();
+    await expect(page.locator('[data-testid="toggle-offline-audio-buffer"]')).toContainText('An');
+    await page.waitForTimeout(250);
+
+    // 3. Allgemeine Bild-Vision End-to-End (Moduswechsel, Upload im Offline-Fallback, Galerie & 1-Tipp-Übernahme)
+    await page.goto('./?action=receipt');
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.locator('[data-testid="vision-mode-switch"]')).toBeVisible({ timeout: 10000 });
+    await page.locator('[data-testid="mode-tab-vision"]').click();
+
+    const visionPanel = page.locator('[data-testid="general-vision-panel"]');
+    await expect(visionPanel).toBeVisible();
+
+    for (const catId of ['nameplate', 'sketch', 'site-photo']) {
+      const chip = page.locator(`[data-testid="vision-cat-${catId}"]`);
+      await expect(chip).toBeVisible();
+      expect((await chip.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+    }
+
+    await page.locator('[data-testid="vision-hint-input"]').fill('Ooni Koda 16 Typenschild');
+    const pngBase64 =
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+    await page.locator('[data-testid="vision-file-input"]').setInputFiles({
+      name: 'typenschild.png',
+      mimeType: 'image/png',
+      buffer: Buffer.from(pngBase64, 'base64')
+    });
+
+    const resultCard = page.locator('[data-testid="vision-result-card"]');
+    await expect(resultCard).toBeVisible({ timeout: 8000 });
+    await expect(resultCard).toContainText('Ooni Koda 16 Typenschild');
+    await expect(page.locator('[data-testid="vision-gallery-list"]')).toContainText('Ooni Koda 16 Typenschild');
+    await assertNoHorizontalOverflow(page, 'Station 20 – Vision-Ergebnis & Galerie sichtbar');
+
+    // 1-Tipp-Übernahme als Wissen & Aufgabe prüfen
+    const saveKnowledgeBtn = page.locator('[data-testid="vision-btn-save-knowledge"]');
+    const addTaskBtn = page.locator('[data-testid="vision-btn-add-task"]');
+    expect((await saveKnowledgeBtn.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+    expect((await addTaskBtn.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+
+    await saveKnowledgeBtn.click();
+    await expect(page.locator('[data-testid="vision-action-confirmed"]')).toContainText('Als Wissen gesichert');
+    await addTaskBtn.click();
+    await expect(page.locator('[data-testid="vision-action-confirmed"]')).toContainText('Als Aufgabe angelegt');
+
+    // Sicherstellen, dass Beleg & Rechnung sauber getrennt bleibt (0 Belege)
+    await page.locator('[data-testid="mode-tab-receipt"]').click();
+    await expect(page.locator('text=Noch keine Belege erfasst')).toBeVisible();
+
+    // Im Projekt prüfen, dass Wissen-Eintrag übernommen wurde
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    await page.locator('button:has-text("Wissen")').first().click();
+    await expect(page.locator('section:has(h3:has-text("Wissen"))')).toContainText('Ooni Koda 16 Typenschild');
+    await assertNoHorizontalOverflow(page, 'Station 20 – Vision-Eintrag in Wissen');
+
+    // 4. Offline-Audio-Puffer End-to-End über IDB-Seed
+    await page.evaluate(async () => {
+      const seededMemos = [
+        {
+          id: 'memo-seed-1',
+          projectId: 'proj-foodtruck',
+          createdAt: '26.11.2026, 14:10 Uhr',
+          durationSec: 18,
+          mimeType: 'audio/webm',
+          noteText: 'Funkloch-Check: 2x Silikonspray für Ofen einpacken',
+          status: 'queued'
+        }
+      ];
+      localStorage.setItem('banditos_offline_audio_memos_v1', JSON.stringify(seededMemos));
+      await new Promise<void>((resolve, reject) => {
+        const req = indexedDB.open('keyval-store');
+        req.onupgradeneeded = () => {
+          if (!req.result.objectStoreNames.contains('keyval')) {
+            req.result.createObjectStore('keyval');
+          }
+        };
+        req.onsuccess = () => {
+          const db = req.result;
+          const tx = db.transaction('keyval', 'readwrite');
+          tx.objectStore('keyval').put(seededMemos, 'banditos_offline_audio_memos_v1');
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error);
+        };
+        req.onerror = () => reject(req.error);
+      });
+    });
+
+    await page.reload();
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.locator('h1')).toBeVisible({ timeout: 10000 });
+
+    // VoiceModal öffnen -> OfflineAudioBufferBar zeigt Zähler & lässt sich aufklappen
+    await page.locator('button[aria-label="Daumen-Steuerung"]').click();
+    const stage1 = page.locator('div[role="region"][aria-label="KI-Begleiter Kompakt"]');
+    await expect(stage1).toBeVisible();
+
+    const bufferBar = stage1.locator('[data-testid="offline-audio-buffer-bar"]');
+    await expect(bufferBar).toBeVisible();
+    await expect(bufferBar.locator('[data-testid="offline-buffer-count"]')).toContainText('1 gepuffertes Memo');
+    await assertNoHorizontalOverflow(page, 'Station 20 – Offline-Audio-Puffer sichtbar');
+
+    await bufferBar.locator('[data-testid="offline-buffer-toggle"]').click();
+    await expect(bufferBar.locator('[data-testid="offline-buffer-list"]')).toBeVisible();
+    const memoCard = bufferBar.locator('[data-testid="offline-memo-memo-seed-1"]');
+    await expect(memoCard).toContainText('Funkloch-Check: 2x Silikonspray');
+    const deleteMemoBtn = memoCard.locator('[data-testid="btn-delete-offline-memo-memo-seed-1"]');
+    await expect
+      .poll(async () => (await deleteMemoBtn.boundingBox())?.height ?? 0)
+      .toBeGreaterThanOrEqual(44);
+    await assertNoHorizontalOverflow(page, 'Station 20 – Offline-Audio-Memo aufgeklappt');
+
+    // Memo löschen -> Balken verschwindet im Online-Modus wieder komplett
+    await deleteMemoBtn.click();
+    await expect(stage1.locator('[data-testid="offline-audio-buffer-bar"]')).toHaveCount(0);
+
+    // Begleiter schließen
+    await page.locator('button[aria-label="Daumen-Steuerung"]').click();
+    await expect(stage1).toBeHidden();
+    await assertNoHorizontalOverflow(page, 'Station 20 – Abschluss');
+  });
 });

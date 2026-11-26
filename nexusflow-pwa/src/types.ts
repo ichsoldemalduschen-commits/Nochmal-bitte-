@@ -34,6 +34,8 @@ export interface BanditUserPreferences {
   receiptForemanEnabled?: boolean;
   silentThinkerEnabled?: boolean;
   murmurAutopilotEnabled?: boolean;
+  generalVisionEnabled?: boolean;
+  offlineAudioBufferEnabled?: boolean;
   quickCommands: string[];
   activeFocusTaskId: string | null;
   activeFocusTaskTitle: string | null;
@@ -342,6 +344,8 @@ export interface FullBackupV2 {
   savedDossiers: any[];
   foremanProposals?: ForemanProposal[];
   dismissedThinkerIds?: string[];
+  visionCaptures?: VisionCaptureItem[];
+  offlineAudioMemos?: OfflineAudioMemo[];
   pizzaCatalog: PizzaCatalogItem[];
   posSlots: PosPizzaSlot[];
   doughCalcDefaults: DoughCalcDefaults;
@@ -375,6 +379,34 @@ export interface ForemanProposal {
   createdAt: string;
   snoozedUntil?: string;
   actions: ForemanProposalAction[];
+}
+
+export type VisionCaptureCategory = 'nameplate' | 'sketch' | 'site-photo';
+
+export interface VisionCaptureItem {
+  id: string;
+  projectId: string;
+  category: VisionCaptureCategory;
+  title: string;
+  summary: string;
+  extractedSpecs: string[];
+  suggestedCartItems?: string[];
+  suggestedTaskTitle?: string;
+  thumbnailDataUrl?: string;
+  createdAt: string;
+}
+
+export interface OfflineAudioMemo {
+  id: string;
+  projectId: string;
+  createdAt: string;
+  durationSec: number;
+  mimeType: string;
+  audioDataUrl?: string;
+  noteText?: string;
+  status: 'queued' | 'processing' | 'transcribed' | 'error';
+  transcript?: string;
+  errorMessage?: string;
 }
 
 export interface BackupImportResult {

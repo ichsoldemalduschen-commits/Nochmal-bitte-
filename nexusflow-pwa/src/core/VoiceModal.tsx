@@ -19,7 +19,15 @@ import {
   X,
   Zap
 } from 'lucide-react';
-import { AiExecutedAction, AiVoiceSettings, Attachment, Project, THEME, VoiceInteractionMode } from '../types';
+import {
+  AiExecutedAction,
+  AiVoiceSettings,
+  Attachment,
+  OfflineAudioMemo,
+  Project,
+  THEME,
+  VoiceInteractionMode
+} from '../types';
 import {
   buildLocalFallbackPlan,
   compressImageFile,
@@ -42,8 +50,10 @@ import {
   getContinuousListening,
   getIdbItemSync,
   getVoiceProvider,
+  loadOfflineAudioMemos,
   saveActiveAiMode,
-  saveIdbItem
+  saveIdbItem,
+  saveOfflineAudioMemos
 } from '../services/storage';
 import {
   API_TIMEOUT_FLASH_MS,
@@ -57,6 +67,7 @@ import {
 } from '../config/runtimeConfig';
 import { classifyLiveSpeechIntent } from '../services/voiceModeClassifier';
 import { useWakeLock } from '../hooks/useWakeLock';
+import { OfflineAudioBufferBar } from './front/OfflineAudioBufferBar';
 
 export interface ConversationMessage {
   id: string;
@@ -74,6 +85,11 @@ export interface VoiceModalProps {
   stage?: 1 | 2;
   autoStartMic?: boolean;
   wakeLockEnabled?: boolean;
+  offlineAudioBufferEnabled?: boolean;
+  activeProjectId?: string;
+  userApiKey?: string;
+  offlineAudioMemos?: OfflineAudioMemo[];
+  onUpdateOfflineAudioMemos?: (memos: OfflineAudioMemo[]) => void;
   initialPrefillText?: string;
   activeProjectName: string;
   projects?: Project[];
@@ -233,6 +249,11 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
   stage = 1,
   autoStartMic = true,
   wakeLockEnabled = true,
+  offlineAudioBufferEnabled = true,
+  activeProjectId,
+  userApiKey = '',
+  offlineAudioMemos: offlineAudioMemosProp,
+  onUpdateOfflineAudioMemos,
   initialPrefillText,
   activeProjectName,
   projects = [],
@@ -275,6 +296,23 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
   const [localTtsActive, setLocalTtsActive] = useState<boolean>(getTtsEnabled);
   const [localAiMode, setLocalAiMode] = useState<'flash' | 'research'>(() => getActiveAiMode());
   const [upscaleNotice, setUpscaleNotice] = useState<string | null>(null);
+  const [localOfflineMemos, setLocalOfflineMemos] = useState<OfflineAudioMemo[]>(() =>
+    loadOfflineAudioMemos()
+  );
+  const effectiveOfflineMemos = offlineAudioMemosProp ?? localOfflineMemos;
+  const handleSaveOfflineMemos = (next: OfflineAudioMemo[]) => {
+    if (onUpdateOfflineAudioMemos) {
+      onUpdateOfflineAudioMemos(next);
+    } else {
+      setLocalOfflineMemos(next);
+      void saveOfflineAudioMemos(next);
+    }
+  };
+  const resolvedProjectId =
+    activeProjectId ||
+    projects.find((p) => p.name === activeProjectName && !p.archived)?.id ||
+    projects[0]?.id ||
+    'proj-foodtruck';
 
   const effectiveSettings: AiVoiceSettings = aiVoiceSettings || {
     ttsEnabled: localTtsActive,
@@ -1516,6 +1554,21 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
             </div>
           )}
 
+          {/* Isolierter Offline-Audio-Puffer fürs Funkloch */}
+          <OfflineAudioBufferBar
+            enabled={offlineAudioBufferEnabled !== false}
+            activeProjectId={resolvedProjectId}
+            userApiKey={userApiKey}
+            memos={effectiveOfflineMemos}
+            onSaveMemos={handleSaveOfflineMemos}
+            onSubmitTranscript={(text) => {
+              unlockAudioPlayback();
+              autoSendTriggeredRef.current = true;
+              void triggerProcess(text);
+            }}
+            compact
+          />
+
           {/* Ausklappbare schmale Texteingabezeile in Stufe 1 */}
           {showStage1TextInput && (
             <div className="pt-2 border-t border-white/5 flex items-center gap-2 animate-fadeIn">
@@ -1927,6 +1980,21 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
           )}
           <div ref={scrollEndRef} />
         </div>
+
+        {/* Isolierter Offline-Audio-Puffer fürs Funkloch (Stufe 2) */}
+        <OfflineAudioBufferBar
+          enabled={offlineAudioBufferEnabled !== false}
+          activeProjectId={resolvedProjectId}
+          userApiKey={userApiKey}
+          memos={effectiveOfflineMemos}
+          onSaveMemos={handleSaveOfflineMemos}
+          onSubmitTranscript={(text) => {
+            unlockAudioPlayback();
+            autoSendTriggeredRef.current = true;
+            void triggerProcess(text);
+          }}
+          className="mx-3.5 mt-2 shrink-0"
+        />
 
         {/* Untere Eingabeleiste - für flüssige Einhand-Eingaben optimiert */}
         <div

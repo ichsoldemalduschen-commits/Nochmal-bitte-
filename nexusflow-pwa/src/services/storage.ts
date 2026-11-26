@@ -26,7 +26,10 @@ import {
   ScannedReceipt,
   ScannedReceiptItem,
   ForemanProposal,
-  ForemanProposalAction
+  ForemanProposalAction,
+  VisionCaptureCategory,
+  VisionCaptureItem,
+  OfflineAudioMemo
 } from '../types';
 
 export type { FullBackupV2, BackupImportResult, ProjectImportResult };
@@ -58,7 +61,9 @@ export const STORAGE_KEYS = {
   SCANNED_RECEIPTS: 'banditos_scanned_receipts_v1',
   SAVED_DOSSIERS: 'banditos_saved_dossiers_v1',
   FOREMAN_PROPOSALS: 'banditos_foreman_proposals_v1',
-  DISMISSED_THINKER_IDS: 'banditos_dismissed_thinker_ids_v1'
+  DISMISSED_THINKER_IDS: 'banditos_dismissed_thinker_ids_v1',
+  VISION_CAPTURES: 'banditos_vision_captures_v1',
+  OFFLINE_AUDIO_MEMOS: 'banditos_offline_audio_memos_v1'
 } as const;
 
 // In-Memory-Cache für verzögerungsfreie synchrone UI-Abfragen
@@ -444,7 +449,9 @@ export async function migrateLocalStorageToIndexedDB(): Promise<void> {
     STORAGE_KEYS.SCANNED_RECEIPTS,
     STORAGE_KEYS.SAVED_DOSSIERS,
     STORAGE_KEYS.FOREMAN_PROPOSALS,
-    STORAGE_KEYS.DISMISSED_THINKER_IDS
+    STORAGE_KEYS.DISMISSED_THINKER_IDS,
+    STORAGE_KEYS.VISION_CAPTURES,
+    STORAGE_KEYS.OFFLINE_AUDIO_MEMOS
   ];
 
   for (const key of keysToMigrate) {
@@ -873,6 +880,8 @@ export const DEFAULT_USER_PREFS: BanditUserPreferences = {
   receiptForemanEnabled: true,
   silentThinkerEnabled: true,
   murmurAutopilotEnabled: true,
+  generalVisionEnabled: true,
+  offlineAudioBufferEnabled: true,
   quickCommands: [
     'Gib mir ein kurzes 3-Punkte-Briefing für dieses Projekt',
     'Welche Materialien fehlen noch im Einkaufswagen?',
@@ -960,6 +969,14 @@ export function normalizeUserPrefs(
       typeof src.murmurAutopilotEnabled === 'boolean'
         ? src.murmurAutopilotEnabled
         : DEFAULT_USER_PREFS.murmurAutopilotEnabled,
+    generalVisionEnabled:
+      typeof src.generalVisionEnabled === 'boolean'
+        ? src.generalVisionEnabled
+        : DEFAULT_USER_PREFS.generalVisionEnabled,
+    offlineAudioBufferEnabled:
+      typeof src.offlineAudioBufferEnabled === 'boolean'
+        ? src.offlineAudioBufferEnabled
+        : DEFAULT_USER_PREFS.offlineAudioBufferEnabled,
     quickCommands: Array.isArray(src.quickCommands)
       ? src.quickCommands
       : DEFAULT_USER_PREFS.quickCommands,
@@ -1195,6 +1212,120 @@ export function saveDismissedThinkerIds(ids: string[]): Promise<void> {
   return p;
 }
 
+// ── Allgemeine Bild-Vision & Offline-Audio-Puffer (Welle 4 / Ticket 4.3) ────
+
+export const MAX_VISION_CAPTURES = 40;
+
+export function normalizeVisionCaptures(raw: unknown): VisionCaptureItem[] {
+  if (!Array.isArray(raw)) return [];
+  const validCategories: VisionCaptureCategory[] = ['nameplate', 'sketch', 'site-photo'];
+  return raw
+    .filter((entry) => entry && typeof entry === 'object')
+    .slice(0, MAX_VISION_CAPTURES)
+    .map((entry: any, idx: number): VisionCaptureItem => {
+      const category: VisionCaptureCategory = validCategories.includes(entry.category)
+        ? entry.category
+        : 'site-photo';
+      const extractedSpecs = Array.isArray(entry.extractedSpecs)
+        ? entry.extractedSpecs.map((s: any) => String(s || '').trim()).filter(Boolean)
+        : [];
+      const suggestedCartItems = Array.isArray(entry.suggestedCartItems)
+        ? entry.suggestedCartItems.map((s: any) => String(s || '').trim()).filter(Boolean)
+        : undefined;
+      return {
+        id: String(entry.id || `vis-${Date.now()}-${idx}`),
+        projectId: String(entry.projectId || ''),
+        category,
+        title: String(entry.title || 'Foto-Aufnahme').trim() || 'Foto-Aufnahme',
+        summary: String(entry.summary || '').trim(),
+        extractedSpecs,
+        ...(suggestedCartItems && suggestedCartItems.length > 0 ? { suggestedCartItems } : {}),
+        ...(typeof entry.suggestedTaskTitle === 'string' && entry.suggestedTaskTitle.trim()
+          ? { suggestedTaskTitle: entry.suggestedTaskTitle.trim() }
+          : {}),
+        ...(typeof entry.thumbnailDataUrl === 'string' && entry.thumbnailDataUrl
+          ? { thumbnailDataUrl: entry.thumbnailDataUrl }
+          : {}),
+        createdAt: typeof entry.createdAt === 'string' && entry.createdAt ? entry.createdAt : formatNow()
+      };
+    });
+}
+
+export function loadVisionCaptures(): VisionCaptureItem[] {
+  const raw = getIdbItemSync<VisionCaptureItem[]>(STORAGE_KEYS.VISION_CAPTURES, []);
+  return normalizeVisionCaptures(raw);
+}
+
+export async function loadVisionCapturesAsync(): Promise<VisionCaptureItem[]> {
+  const raw = await loadIdbItem<VisionCaptureItem[]>(STORAGE_KEYS.VISION_CAPTURES, []);
+  return normalizeVisionCaptures(raw);
+}
+
+export function saveVisionCaptures(items: VisionCaptureItem[]): Promise<void> {
+  const normalized = normalizeVisionCaptures(items);
+  const p = saveIdbItem(STORAGE_KEYS.VISION_CAPTURES, normalized);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('banditos:vision-captures-updated', { detail: normalized }));
+  }
+  return p;
+}
+
+export function normalizeOfflineAudioMemos(raw: unknown): OfflineAudioMemo[] {
+  if (!Array.isArray(raw)) return [];
+  const validStatuses: OfflineAudioMemo['status'][] = ['queued', 'processing', 'transcribed', 'error'];
+  return raw
+    .filter((entry) => entry && typeof entry === 'object')
+    .map((entry: any, idx: number): OfflineAudioMemo => {
+      const status: OfflineAudioMemo['status'] = validStatuses.includes(entry.status)
+        ? entry.status
+        : 'queued';
+      return {
+        id: String(entry.id || `memo-${Date.now()}-${idx}`),
+        projectId: String(entry.projectId || ''),
+        createdAt: typeof entry.createdAt === 'string' && entry.createdAt ? entry.createdAt : formatNow(),
+        durationSec:
+          typeof entry.durationSec === 'number' && Number.isFinite(entry.durationSec) && entry.durationSec >= 0
+            ? Math.round(entry.durationSec)
+            : 0,
+        mimeType: typeof entry.mimeType === 'string' && entry.mimeType ? entry.mimeType : 'audio/webm',
+        ...(typeof entry.audioDataUrl === 'string' && entry.audioDataUrl
+          ? { audioDataUrl: entry.audioDataUrl }
+          : {}),
+        ...(typeof entry.noteText === 'string' && entry.noteText.trim()
+          ? { noteText: entry.noteText.trim() }
+          : {}),
+        status,
+        ...(typeof entry.transcript === 'string' && entry.transcript.trim()
+          ? { transcript: entry.transcript.trim() }
+          : {}),
+        ...(typeof entry.errorMessage === 'string' && entry.errorMessage.trim()
+          ? { errorMessage: entry.errorMessage.trim() }
+          : {})
+      };
+    });
+}
+
+export function loadOfflineAudioMemos(): OfflineAudioMemo[] {
+  const raw = getIdbItemSync<OfflineAudioMemo[]>(STORAGE_KEYS.OFFLINE_AUDIO_MEMOS, []);
+  return normalizeOfflineAudioMemos(raw);
+}
+
+export async function loadOfflineAudioMemosAsync(): Promise<OfflineAudioMemo[]> {
+  const raw = await loadIdbItem<OfflineAudioMemo[]>(STORAGE_KEYS.OFFLINE_AUDIO_MEMOS, []);
+  return normalizeOfflineAudioMemos(raw);
+}
+
+export function saveOfflineAudioMemos(memos: OfflineAudioMemo[]): Promise<void> {
+  const normalized = normalizeOfflineAudioMemos(memos);
+  const p = saveIdbItem(STORAGE_KEYS.OFFLINE_AUDIO_MEMOS, normalized);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(
+      new CustomEvent('banditos:offline-audio-memos-updated', { detail: normalized })
+    );
+  }
+  return p;
+}
+
 // ── Pizza-Katalog & POS-Slots (Paket 3) ─────────────────────────────────────
 
 export const PIZZA_CATALOG_KEY = 'banditos_pizza_catalog_v1';
@@ -1314,6 +1445,8 @@ export async function downloadFullBackupV2(snapshot: AppStateSnapshot): Promise<
     savedDossiers,
     foremanProposals,
     dismissedThinkerIds,
+    visionCaptures,
+    offlineAudioMemos,
     pizzaCatalog,
     posSlots,
     doughCalcDefaults
@@ -1326,6 +1459,8 @@ export async function downloadFullBackupV2(snapshot: AppStateSnapshot): Promise<
     loadIdbItem<SavedDossierItem[]>(STORAGE_KEYS.SAVED_DOSSIERS, []),
     loadIdbItem<ForemanProposal[]>(STORAGE_KEYS.FOREMAN_PROPOSALS, []),
     loadIdbItem<string[]>(STORAGE_KEYS.DISMISSED_THINKER_IDS, []),
+    loadIdbItem<VisionCaptureItem[]>(STORAGE_KEYS.VISION_CAPTURES, []),
+    loadIdbItem<OfflineAudioMemo[]>(STORAGE_KEYS.OFFLINE_AUDIO_MEMOS, []),
     loadIdbItem<PizzaCatalogItem[]>(PIZZA_CATALOG_KEY, DEFAULT_PIZZA_CATALOG),
     loadIdbItem<PosPizzaSlot[]>(POS_SLOTS_KEY, []),
     loadIdbItem<DoughCalcDefaults>(DOUGH_CALC_DEFAULTS_KEY, DEFAULT_DOUGH_CALC_DEFAULTS),
@@ -1345,6 +1480,8 @@ export async function downloadFullBackupV2(snapshot: AppStateSnapshot): Promise<
     savedDossiers,
     foremanProposals: normalizeForemanProposals(foremanProposals),
     dismissedThinkerIds: normalizeDismissedThinkerIds(dismissedThinkerIds),
+    visionCaptures: normalizeVisionCaptures(visionCaptures),
+    offlineAudioMemos: normalizeOfflineAudioMemos(offlineAudioMemos),
     pizzaCatalog,
     posSlots,
     doughCalcDefaults,
@@ -1421,6 +1558,12 @@ export async function importFullBackupV2(
     }
     if (Array.isArray(raw.dismissedThinkerIds)) {
       saves.push(saveDismissedThinkerIds(raw.dismissedThinkerIds));
+    }
+    if (Array.isArray(raw.visionCaptures)) {
+      saves.push(saveVisionCaptures(raw.visionCaptures));
+    }
+    if (Array.isArray(raw.offlineAudioMemos)) {
+      saves.push(saveOfflineAudioMemos(raw.offlineAudioMemos));
     }
     if (Array.isArray(raw.pizzaCatalog) && raw.pizzaCatalog.length > 0) {
       saves.push(saveIdbItem(PIZZA_CATALOG_KEY, raw.pizzaCatalog));

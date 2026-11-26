@@ -10,4 +10,9 @@ export { ForemanInboxCard, type ForemanInboxCardProps } from './ForemanInboxCard
 export { HexThumbHub, type HexThumbHubProps } from './HexThumbHub';
 export { SingleFocusOverlay, type SingleFocusOverlayProps } from './SingleFocusOverlay';
 export { FloatingCartOverlay, type FloatingCartOverlayProps } from './FloatingCartOverlay';
+export {
+  OfflineAudioBufferBar,
+  type OfflineAudioBufferBarProps
+} from './OfflineAudioBufferBar';
+
 

@@ -1,27 +1,44 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
+  BookOpen,
   Camera,
   Check,
+  CheckSquare,
   ChevronDown,
   ChevronUp,
   Copy,
   Download,
   FileSpreadsheet,
+  Image as ImageIcon,
   Loader2,
   Receipt,
   ShoppingCart,
   Sparkles,
   Trash2
 } from 'lucide-react';
-import { Project } from '../../types';
+import {
+  Attachment,
+  KnowledgeKind,
+  PriorityType,
+  Project,
+  VisionCaptureCategory,
+  VisionCaptureItem
+} from '../../types';
 import { scanReceiptImageWithGemini } from '../../services/deepResearchAndScanner';
+import {
+  analyzeGeneralImageWithGemini,
+  getVisionCategoryLabel
+} from '../../services/visionCapture';
 import {
   SavedScannedReceipt,
   loadScannedReceipts,
   loadScannedReceiptsAsync,
   loadUserPrefs,
+  loadVisionCaptures,
+  loadVisionCapturesAsync,
   saveScannedReceipts,
+  saveVisionCaptures,
   formatNow
 } from '../../services/storage';
 import {
@@ -48,6 +65,7 @@ interface ReceiptScanViewProps {
   themeColors: ThemeColors;
   userApiKey?: string;
   receiptForemanEnabled?: boolean;
+  generalVisionEnabled?: boolean;
   onReconcileReceiptWithCart: (
     projectId: string,
     storeName: string,
@@ -60,6 +78,23 @@ interface ReceiptScanViewProps {
     receipt: SavedScannedReceipt
   ) => void;
   onUpdateReceipt?: (receipt: SavedScannedReceipt) => void;
+  onAddKnowledge?: (
+    projectId: string,
+    kind: KnowledgeKind,
+    title: string,
+    content: string,
+    attachments?: Attachment[]
+  ) => void;
+  onAddTask?: (
+    projectId: string,
+    title: string,
+    priority?: PriorityType,
+    estimatedMinutes?: number
+  ) => void;
+  onAddCartItems?: (
+    projectId: string,
+    items: Array<{ title: string; quantity: string; price?: string; reason?: string }>
+  ) => void;
   onOpenSettings?: (section?: ZentraleSectionId) => void;
   onNotify: (msg: string) => void;
 }
@@ -70,9 +105,13 @@ export const ReceiptScanView: React.FC<ReceiptScanViewProps> = ({
   themeColors,
   userApiKey = '',
   receiptForemanEnabled: receiptForemanEnabledProp,
+  generalVisionEnabled: generalVisionEnabledProp,
   onReconcileReceiptWithCart,
   onReconcileCartItems,
   onUpdateReceipt,
+  onAddKnowledge,
+  onAddTask,
+  onAddCartItems,
   onOpenSettings,
   onNotify
 }) => {
@@ -83,6 +122,22 @@ export const ReceiptScanView: React.FC<ReceiptScanViewProps> = ({
   const [prefsForemanEnabled, setPrefsForemanEnabled] = useState<boolean>(
     () => loadUserPrefs().receiptForemanEnabled !== false
   );
+  const [prefsVisionEnabled, setPrefsVisionEnabled] = useState<boolean>(
+    () => loadUserPrefs().generalVisionEnabled !== false
+  );
+
+  // Allgemeine Bild-Vision State
+  const [scanMode, setScanMode] = useState<'receipt' | 'vision'>('receipt');
+  const [visionCategory, setVisionCategory] = useState<VisionCaptureCategory>('nameplate');
+  const [visionHint, setVisionHint] = useState('');
+  const [isAnalyzingVision, setIsAnalyzingVision] = useState(false);
+  const [visionCaptures, setVisionCaptures] = useState<VisionCaptureItem[]>(() =>
+    loadVisionCaptures()
+  );
+  const [activeVisionResultId, setActiveVisionResultId] = useState<string | null>(null);
+  const [visionNotice, setVisionNotice] = useState<string | null>(null);
+  const [visionGalleryOpen, setVisionGalleryOpen] = useState(true);
+  const [visionConfirmedAction, setVisionConfirmedAction] = useState<Record<string, string>>({});
 
   // Vorarbeiter-State
   const [pendingReview, setPendingReview] = useState<{
@@ -100,10 +155,21 @@ export const ReceiptScanView: React.FC<ReceiptScanViewProps> = ({
     typeof receiptForemanEnabledProp === 'boolean'
       ? receiptForemanEnabledProp
       : prefsForemanEnabled;
+  const visionEnabled =
+    typeof generalVisionEnabledProp === 'boolean'
+      ? generalVisionEnabledProp
+      : prefsVisionEnabled;
+  const effectiveMode = visionEnabled ? scanMode : 'receipt';
 
   useEffect(() => {
     setSelectedProjectId(activeProject.id);
   }, [activeProject.id]);
+
+  useEffect(() => {
+    if (!visionEnabled && scanMode !== 'receipt') {
+      setScanMode('receipt');
+    }
+  }, [visionEnabled, scanMode]);
 
   useEffect(() => {
     let cancelled = false;
@@ -112,16 +178,32 @@ export const ReceiptScanView: React.FC<ReceiptScanViewProps> = ({
         setReceipts(loaded);
       }
     });
+    void loadVisionCapturesAsync().then((loaded) => {
+      if (!cancelled) {
+        setVisionCaptures(loaded);
+      }
+    });
     const onPrefsUpdated = (ev: Event) => {
       const detail = (ev as CustomEvent)?.detail;
       if (detail && typeof detail.receiptForemanEnabled === 'boolean') {
         setPrefsForemanEnabled(detail.receiptForemanEnabled);
       }
+      if (detail && typeof detail.generalVisionEnabled === 'boolean') {
+        setPrefsVisionEnabled(detail.generalVisionEnabled);
+      }
+    };
+    const onVisionUpdated = (ev: Event) => {
+      const detail = (ev as CustomEvent)?.detail;
+      if (Array.isArray(detail)) {
+        setVisionCaptures(detail);
+      }
     };
     window.addEventListener('banditos:prefs-updated', onPrefsUpdated);
+    window.addEventListener('banditos:vision-captures-updated', onVisionUpdated);
     return () => {
       cancelled = true;
       window.removeEventListener('banditos:prefs-updated', onPrefsUpdated);
+      window.removeEventListener('banditos:vision-captures-updated', onVisionUpdated);
     };
   }, []);
 
@@ -428,25 +510,567 @@ export const ReceiptScanView: React.FC<ReceiptScanViewProps> = ({
     ? activeReconcileCandidate.matches.filter((m) => selectedMatchIds[m.cartItemId] !== false).length
     : 0;
 
+  const activeVisionResult = useMemo(() => {
+    if (visionCaptures.length === 0) return null;
+    if (activeVisionResultId) {
+      return visionCaptures.find((v) => v.id === activeVisionResultId) || visionCaptures[0];
+    }
+    return visionCaptures[0];
+  }, [visionCaptures, activeVisionResultId]);
+
+  const persistVisionCaptures = (updated: VisionCaptureItem[]) => {
+    setVisionCaptures(updated);
+    void saveVisionCaptures(updated);
+  };
+
+  const handleVisionFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const targetProj = allProjects.find((p) => p.id === selectedProjectId) || activeProject;
+    setIsAnalyzingVision(true);
+    setVisionNotice(null);
+    triggerHapticFeedback(15);
+
+    try {
+      const res = await analyzeGeneralImageWithGemini(
+        file,
+        visionCategory,
+        visionHint,
+        targetProj,
+        userApiKey
+      );
+      setIsAnalyzingVision(false);
+      e.target.value = '';
+
+      const updated = [res.item, ...visionCaptures].slice(0, 40);
+      persistVisionCaptures(updated);
+      setActiveVisionResultId(res.item.id);
+      setVisionHint('');
+      if (res.notice) {
+        setVisionNotice(res.notice);
+      }
+      onNotify(
+        res.usedFallback
+          ? `${getVisionCategoryLabel(visionCategory)} offline gesichert.`
+          : `${getVisionCategoryLabel(visionCategory)} analysiert ✓`
+      );
+    } catch {
+      setIsAnalyzingVision(false);
+      onNotify('Foto konnte nicht verarbeitet werden.');
+    }
+  };
+
+  const handleSaveVisionAsKnowledge = (item: VisionCaptureItem) => {
+    triggerHapticFeedback(12);
+    const targetProjId = item.projectId || activeProject.id;
+    const specsBlock =
+      item.extractedSpecs.length > 0
+        ? `\n\nTechnische Daten / Details:\n${item.extractedSpecs.map((s) => `- ${s}`).join('\n')}`
+        : '';
+    const content = `${item.summary || item.title}${specsBlock}`.trim();
+    const attachments: Attachment[] = item.thumbnailDataUrl
+      ? [
+          {
+            id: `att-${item.id}`,
+            name: `${item.title.slice(0, 32)}.jpg`,
+            type: 'image',
+            mimeType: 'image/jpeg',
+            size: `${Math.max(1, Math.round((item.thumbnailDataUrl.length * 0.75) / 1024))} KB`,
+            dataUrl: item.thumbnailDataUrl,
+            textContent: null
+          }
+        ]
+      : [];
+
+    if (onAddKnowledge) {
+      onAddKnowledge(targetProjId, 'info', item.title, content, attachments);
+    }
+    setVisionConfirmedAction((prev) => ({
+      ...prev,
+      [item.id]: 'Als Wissen gesichert ✓'
+    }));
+    onNotify(`„${item.title}“ als Wissen gesichert ✓`);
+  };
+
+  const handleSaveVisionAsTask = (item: VisionCaptureItem) => {
+    triggerHapticFeedback(12);
+    const targetProjId = item.projectId || activeProject.id;
+    const taskTitle = (item.suggestedTaskTitle || item.title).trim();
+    if (onAddTask) {
+      onAddTask(targetProjId, taskTitle, 'Mittel', 25);
+    }
+    setVisionConfirmedAction((prev) => ({
+      ...prev,
+      [item.id]: 'Als Aufgabe angelegt ✓'
+    }));
+    onNotify(`Aufgabe „${taskTitle}“ angelegt ✓`);
+  };
+
+  const handleSaveVisionToCart = (item: VisionCaptureItem) => {
+    const items = (item.suggestedCartItems || []).filter(Boolean);
+    if (items.length === 0) return;
+    triggerHapticFeedback(12);
+    const targetProjId = item.projectId || activeProject.id;
+    if (onAddCartItems) {
+      onAddCartItems(
+        targetProjId,
+        items.map((title) => ({
+          title,
+          quantity: '1x',
+          reason: `Aus ${getVisionCategoryLabel(item.category)}`
+        }))
+      );
+    } else {
+      onReconcileReceiptWithCart(
+        targetProjId,
+        item.title,
+        item.createdAt,
+        '0,00',
+        items.map((title) => ({ title, quantity: '1x', price: '' }))
+      );
+    }
+    setVisionConfirmedAction((prev) => ({
+      ...prev,
+      [item.id]: 'Auf Einkaufsliste gesetzt ✓'
+    }));
+    onNotify(`${items.length} Teil(e) auf Einkaufsliste gesetzt ✓`);
+  };
+
+  const handleDeleteVisionCapture = (captureId: string) => {
+    triggerHapticFeedback(12);
+    const updated = visionCaptures.filter((v) => v.id !== captureId);
+    persistVisionCaptures(updated);
+    if (activeVisionResultId === captureId) {
+      setActiveVisionResultId(updated[0]?.id || null);
+    }
+    onNotify('Foto-Eintrag entfernt.');
+  };
+
   return (
     <section className="space-y-4">
       {/* Sektions-Kopfzeile */}
       <div className="flex items-center justify-between gap-2 px-1">
         <div className="flex items-center gap-2.5 min-w-0">
-          <Receipt className="w-5 h-5 shrink-0" style={{ color: themeColors.highlight }} />
+          {effectiveMode === 'vision' ? (
+            <ImageIcon className="w-5 h-5 shrink-0" style={{ color: themeColors.highlight }} />
+          ) : (
+            <Receipt className="w-5 h-5 shrink-0" style={{ color: themeColors.highlight }} />
+          )}
           <div className="min-w-0">
             <h3 className="text-base font-bold text-[#F1F5F9] tracking-wide">
-              Beleg-Scan
+              {effectiveMode === 'vision' ? 'Foto & Typenschild' : 'Beleg-Scan'}
             </h3>
             <p className="text-xs text-[#94A3B8]">
-              Kassenbons, Baumarkt- &amp; Großhandel-Belege
+              {effectiveMode === 'vision'
+                ? 'Typenschilder, Skizzen & Baustellen-Fotos'
+                : 'Kassenbons, Baumarkt- & Großhandel-Belege'}
             </p>
           </div>
         </div>
         <span className="text-xs font-semibold text-[#94A3B8] px-2.5 py-1 rounded-full bg-[#191C22] border border-white/5 font-mono shrink-0">
-          {receipts.length} erfasst
+          {effectiveMode === 'vision' ? `${visionCaptures.length} Fotos` : `${receipts.length} erfasst`}
         </span>
       </div>
+
+      {/* RUHIGER 2-WEGE-UMSCHALTER (nur sichtbar wenn generalVisionEnabled !== false) */}
+      {visionEnabled && (
+        <div
+          data-testid="vision-mode-switch"
+          className="grid grid-cols-2 gap-2 p-1.5 rounded-2xl border"
+          style={{
+            backgroundColor: DESIGN_TOKENS.surface,
+            borderColor: DESIGN_TOKENS.borderSubtle
+          }}
+        >
+          <button
+            type="button"
+            data-testid="mode-tab-receipt"
+            onClick={() => {
+              triggerHapticFeedback(10);
+              setScanMode('receipt');
+            }}
+            className={`min-h-[44px] px-3 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer ${
+              effectiveMode === 'receipt'
+                ? 'text-white shadow-sm'
+                : 'bg-[#111317] text-[#94A3B8] hover:text-[#F1F5F9]'
+            }`}
+            style={effectiveMode === 'receipt' ? { backgroundColor: themeColors.primary } : undefined}
+          >
+            <Receipt className="w-4 h-4 shrink-0" />
+            <span>Beleg &amp; Rechnung</span>
+          </button>
+
+          <button
+            type="button"
+            data-testid="mode-tab-vision"
+            onClick={() => {
+              triggerHapticFeedback(10);
+              setScanMode('vision');
+            }}
+            className={`min-h-[44px] px-3 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer ${
+              effectiveMode === 'vision'
+                ? 'text-white shadow-sm'
+                : 'bg-[#111317] text-[#94A3B8] hover:text-[#F1F5F9]'
+            }`}
+            style={effectiveMode === 'vision' ? { backgroundColor: themeColors.primary } : undefined}
+          >
+            <ImageIcon className="w-4 h-4 shrink-0" />
+            <span>Foto &amp; Typenschild</span>
+          </button>
+        </div>
+      )}
+
+      {effectiveMode === 'vision' ? (
+        <div data-testid="general-vision-panel" className="space-y-4">
+          {/* AUSLÖSER & KATEGORIEN */}
+          <div
+            className="p-4 rounded-3xl border space-y-3.5 shadow-md"
+            style={{
+              backgroundColor: DESIGN_TOKENS.surface,
+              borderColor: DESIGN_TOKENS.borderSubtle
+            }}
+          >
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <label className="text-xs font-semibold text-[#94A3B8]">Ziel-Projekt:</label>
+              <select
+                aria-label="Ziel-Projekt für Foto"
+                value={selectedProjectId}
+                onChange={(e) => setSelectedProjectId(e.target.value)}
+                className="min-h-[44px] px-3 py-1.5 rounded-xl text-xs font-bold bg-[#111317] text-[#F1F5F9] border border-white/10 focus:outline-none focus:border-white/20 cursor-pointer"
+              >
+                {activeProjects.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* 3 kompakte Kategorie-Chips */}
+            <div className="flex items-center gap-2 flex-wrap">
+              {(
+                [
+                  { id: 'nameplate', label: 'Typenschild' },
+                  { id: 'sketch', label: 'Skizze' },
+                  { id: 'site-photo', label: 'Baustellen-Foto' }
+                ] as Array<{ id: VisionCaptureCategory; label: string }>
+              ).map((cat) => {
+                const selected = visionCategory === cat.id;
+                return (
+                  <button
+                    key={cat.id}
+                    type="button"
+                    data-testid={`vision-cat-${cat.id}`}
+                    onClick={() => {
+                      triggerHapticFeedback(10);
+                      setVisionCategory(cat.id);
+                    }}
+                    className={`min-h-[44px] px-3.5 py-2 rounded-xl text-xs font-bold border transition active:scale-95 cursor-pointer ${
+                      selected
+                        ? 'text-white border-transparent shadow-sm'
+                        : 'bg-[#111317] text-[#94A3B8] border-white/10 hover:text-[#F1F5F9]'
+                    }`}
+                    style={selected ? { backgroundColor: themeColors.primary } : undefined}
+                  >
+                    {cat.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Optionale kurze Kontext-Zeile */}
+            <input
+              type="text"
+              data-testid="vision-hint-input"
+              value={visionHint}
+              onChange={(e) => setVisionHint(e.target.value)}
+              placeholder="Kurzer Hinweis (z. B. Ofen-Typenschild Rückseite)"
+              className="w-full min-w-0 min-h-[44px] px-3.5 py-2 rounded-xl text-xs bg-[#111317] text-[#F1F5F9] border border-white/10 focus:outline-none focus:border-[#14B8A6]"
+            />
+
+            {/* Kamera / Foto-Upload */}
+            <label
+              className={`w-full min-h-[52px] px-4 py-3 rounded-2xl border border-dashed flex items-center justify-center gap-2.5 text-xs font-bold transition cursor-pointer shadow-sm ${
+                isAnalyzingVision
+                  ? 'bg-[#111317] text-[#94A3B8] border-white/20 cursor-not-allowed'
+                  : 'bg-[#14B8A6]/10 hover:bg-[#14B8A6]/15 text-[#14B8A6] border-[#14B8A6]/40'
+              }`}
+            >
+              {isAnalyzingVision ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin text-[#14B8A6] shrink-0" />
+                  <span>Foto wird analysiert...</span>
+                </>
+              ) : (
+                <>
+                  <Camera className="w-5 h-5 shrink-0" />
+                  <span>Foto aufnehmen oder Bild wählen</span>
+                </>
+              )}
+              <input
+                type="file"
+                data-testid="vision-file-input"
+                accept="image/*"
+                capture="environment"
+                disabled={isAnalyzingVision}
+                className="hidden"
+                onChange={handleVisionFileUpload}
+              />
+            </label>
+
+            {visionNotice && (
+              <div
+                data-testid="vision-fallback-notice"
+                className="p-3 rounded-2xl border text-xs leading-snug"
+                style={{
+                  backgroundColor: '#111317',
+                  borderColor: 'rgba(229,169,60,0.4)',
+                  color: DESIGN_TOKENS.accentHoney
+                }}
+              >
+                {visionNotice}
+              </div>
+            )}
+          </div>
+
+          {/* ERGEBNIS-KARTE FÜR AKTUELLES / AUSGEWÄHLTES FOTO */}
+          {activeVisionResult && (
+            <div
+              data-testid="vision-result-card"
+              className="p-4 rounded-3xl border space-y-3 shadow-md"
+              style={{
+                backgroundColor: DESIGN_TOKENS.surface,
+                borderColor: DESIGN_TOKENS.borderSubtle
+              }}
+            >
+              <div className="flex items-start gap-3">
+                {activeVisionResult.thumbnailDataUrl && (
+                  <img
+                    src={activeVisionResult.thumbnailDataUrl}
+                    alt={activeVisionResult.title}
+                    className="w-16 h-16 rounded-2xl object-cover border border-white/10 shrink-0"
+                  />
+                )}
+                <div className="min-w-0 flex-1 space-y-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span
+                      className="text-xs font-bold px-2 py-0.5 rounded-md"
+                      style={{
+                        backgroundColor: 'rgba(229,169,60,0.16)',
+                        color: DESIGN_TOKENS.accentHoney
+                      }}
+                    >
+                      {getVisionCategoryLabel(activeVisionResult.category)}
+                    </span>
+                    <span className="text-xs text-[#94A3B8] font-mono">
+                      {allProjects.find((p) => p.id === activeVisionResult.projectId)?.name ||
+                        activeProject.name}
+                    </span>
+                  </div>
+                  <h4 className="text-base font-bold text-[#F1F5F9] leading-snug break-words">
+                    {activeVisionResult.title}
+                  </h4>
+                  {activeVisionResult.summary && (
+                    <p className="text-xs text-[#94A3B8] leading-snug break-words">
+                      {activeVisionResult.summary}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {activeVisionResult.extractedSpecs.length > 0 && (
+                <div className="p-3 rounded-2xl bg-[#111317] border border-white/5 space-y-1">
+                  <div className="text-xs font-semibold text-[#94A3B8]">
+                    Erkannte technische Daten &amp; Details:
+                  </div>
+                  <ul className="space-y-1">
+                    {activeVisionResult.extractedSpecs.map((spec, idx) => (
+                      <li
+                        key={idx}
+                        className="text-xs font-mono text-[#F1F5F9] break-words"
+                      >
+                        • {spec}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* 1-Tipp-Übernahme-Buttons */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  data-testid="vision-btn-save-knowledge"
+                  onClick={() => handleSaveVisionAsKnowledge(activeVisionResult)}
+                  className="min-h-[44px] px-3.5 py-2 rounded-xl text-xs font-bold text-white flex items-center justify-center gap-1.5 active:scale-95 transition cursor-pointer"
+                  style={{ backgroundColor: themeColors.primary }}
+                >
+                  <BookOpen className="w-4 h-4 shrink-0" />
+                  <span>Als Wissen sichern</span>
+                </button>
+
+                <button
+                  type="button"
+                  data-testid="vision-btn-add-task"
+                  onClick={() => handleSaveVisionAsTask(activeVisionResult)}
+                  className="min-h-[44px] px-3.5 py-2 rounded-xl text-xs font-bold text-[#F1F5F9] bg-[#111317] hover:bg-[#22262F] border border-white/10 flex items-center justify-center gap-1.5 active:scale-95 transition cursor-pointer"
+                >
+                  <CheckSquare className="w-4 h-4 text-[#14B8A6] shrink-0" />
+                  <span>Als Aufgabe anlegen</span>
+                </button>
+
+                {activeVisionResult.suggestedCartItems &&
+                  activeVisionResult.suggestedCartItems.length > 0 && (
+                    <button
+                      type="button"
+                      data-testid="vision-btn-add-cart"
+                      onClick={() => handleSaveVisionToCart(activeVisionResult)}
+                      className="min-h-[44px] px-3.5 py-2 rounded-xl text-xs font-bold text-[#111317] flex items-center justify-center gap-1.5 active:scale-95 transition cursor-pointer"
+                      style={{ backgroundColor: DESIGN_TOKENS.accentHoney }}
+                    >
+                      <ShoppingCart className="w-4 h-4 shrink-0" />
+                      <span>Auf Einkaufsliste</span>
+                    </button>
+                  )}
+              </div>
+
+              {visionConfirmedAction[activeVisionResult.id] && (
+                <div
+                  data-testid="vision-action-confirmed"
+                  className="text-xs font-semibold text-[#14B8A6]"
+                >
+                  {visionConfirmedAction[activeVisionResult.id]}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* SCHLANKE, AUFKLAPPBARE PROJEKT-FOTO-GALERIE */}
+          <div
+            className="rounded-3xl border overflow-hidden shadow-md"
+            style={{
+              backgroundColor: DESIGN_TOKENS.surface,
+              borderColor: DESIGN_TOKENS.borderSubtle
+            }}
+          >
+            <button
+              type="button"
+              data-testid="vision-gallery-toggle"
+              aria-expanded={visionGalleryOpen}
+              onClick={() => {
+                triggerHapticFeedback(10);
+                setVisionGalleryOpen((o) => !o);
+              }}
+              className="w-full min-h-[52px] px-4 py-3 flex items-center justify-between gap-2 text-left active:bg-white/5 transition cursor-pointer"
+            >
+              <div className="min-w-0 flex-1">
+                <div className="text-base font-bold text-[#F1F5F9] break-words">
+                  Projekt-Foto-Galerie
+                </div>
+                <div className="text-xs text-[#94A3B8]">
+                  Typenschilder, Skizzen &amp; Baustellen-Nachweise
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="text-xs font-mono text-[#14B8A6]">
+                  {visionCaptures.length}
+                </span>
+                {visionGalleryOpen ? (
+                  <ChevronUp className="w-4 h-4 text-[#94A3B8]" />
+                ) : (
+                  <ChevronDown className="w-4 h-4 text-[#94A3B8]" />
+                )}
+              </div>
+            </button>
+
+            {visionGalleryOpen && (
+              <div
+                data-testid="vision-gallery-list"
+                className="px-4 pb-4 pt-2 border-t border-white/5 space-y-2.5 bg-[#111317]/40"
+              >
+                {visionCaptures.length === 0 ? (
+                  <div className="p-4 text-center text-xs text-[#94A3B8]">
+                    Noch keine Fotos oder Typenschilder in dieser Galerie gespeichert.
+                  </div>
+                ) : (
+                  visionCaptures.map((cap) => {
+                    const projName =
+                      allProjects.find((p) => p.id === cap.projectId)?.name || activeProject.name;
+                    return (
+                      <div
+                        key={cap.id}
+                        data-testid={`vision-gallery-item-${cap.id}`}
+                        className="p-3 rounded-2xl bg-[#191C22] border border-white/5 space-y-2"
+                      >
+                        <div className="flex items-start gap-3">
+                          {cap.thumbnailDataUrl && (
+                            <img
+                              src={cap.thumbnailDataUrl}
+                              alt={cap.title}
+                              className="w-14 h-14 rounded-xl object-cover border border-white/10 shrink-0"
+                            />
+                          )}
+                          <div className="min-w-0 flex-1 space-y-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span
+                                className="text-xs font-bold px-2 py-0.5 rounded-md"
+                                style={{
+                                  backgroundColor: 'rgba(229,169,60,0.16)',
+                                  color: DESIGN_TOKENS.accentHoney
+                                }}
+                              >
+                                {getVisionCategoryLabel(cap.category)}
+                              </span>
+                              <span className="text-xs text-[#94A3B8] font-mono">
+                                {cap.createdAt}
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setActiveVisionResultId(cap.id)}
+                              className="text-left text-base font-bold text-[#F1F5F9] leading-snug break-words hover:text-[#14B8A6] transition cursor-pointer"
+                            >
+                              {cap.title}
+                            </button>
+                            <div className="text-xs text-[#94A3B8]">{projName}</div>
+                          </div>
+                        </div>
+
+                        {cap.extractedSpecs.length > 0 && (
+                          <div className="text-xs font-mono text-[#94A3B8] break-words">
+                            {cap.extractedSpecs.slice(0, 3).join(' · ')}
+                          </div>
+                        )}
+
+                        <div className="flex items-center justify-between gap-2 flex-wrap pt-1">
+                          <button
+                            type="button"
+                            onClick={() => setActiveVisionResultId(cap.id)}
+                            className="min-h-[44px] px-3 py-1.5 rounded-xl text-xs font-semibold text-[#14B8A6] bg-[#111317] border border-white/10 active:scale-95 transition cursor-pointer"
+                          >
+                            Details &amp; Übernahme
+                          </button>
+                          <button
+                            type="button"
+                            data-testid={`vision-delete-${cap.id}`}
+                            onClick={() => handleDeleteVisionCapture(cap.id)}
+                            className="min-h-[44px] px-3 py-1.5 rounded-xl text-xs font-semibold text-[#94A3B8] hover:text-[#F1F5F9] bg-[#111317] border border-white/10 flex items-center gap-1.5 active:scale-95 transition cursor-pointer"
+                          >
+                            <Trash2 className="w-4 h-4 shrink-0" />
+                            <span>Löschen</span>
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      ) : (
+        <>
 
       {/* VORARBEITER 3: STEUERBERATER-MONATSPAKET */}
       {foremanEnabled && (
@@ -1166,6 +1790,8 @@ export const ReceiptScanView: React.FC<ReceiptScanViewProps> = ({
             );
           })}
         </div>
+      )}
+        </>
       )}
     </section>
   );

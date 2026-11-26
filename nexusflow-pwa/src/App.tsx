@@ -13,6 +13,7 @@ import {
   ForemanProposal,
   KnowledgeItem,
   KnowledgeKind,
+  OfflineAudioMemo,
   Project,
   ProjectTabId,
   ReminderRecurrence,
@@ -50,6 +51,9 @@ import {
   loadDismissedThinkerIds,
   loadDismissedThinkerIdsAsync,
   saveDismissedThinkerIds,
+  loadOfflineAudioMemos,
+  loadOfflineAudioMemosAsync,
+  saveOfflineAudioMemos,
   STORAGE_KEYS
 } from './services/storage';
 import {
@@ -148,6 +152,9 @@ export default function App() {
   const [prefs, setPrefs] = useState<BanditUserPreferences>(loadUserPrefs);
   const [foremanProposals, setForemanProposals] = useState<ForemanProposal[]>(loadForemanProposals);
   const [dismissedThinkerIds, setDismissedThinkerIds] = useState<string[]>(loadDismissedThinkerIds);
+  const [offlineAudioMemos, setOfflineAudioMemos] = useState<OfflineAudioMemo[]>(
+    loadOfflineAudioMemos
+  );
   const [forceSingleViewSeq, setForceSingleViewSeq] = useState(0);
   const skipNextAutoSyncRef = useRef<boolean>(true);
   const autoSyncTimerRef = useRef<number | null>(null);
@@ -301,15 +308,17 @@ export default function App() {
       // 1. Silent IDB migration & request storage persistence BEFORE loading settings
       requestStoragePersistence();
       await migrateLocalStorageToIDB();
-      const [pins, loadedPrefs, loadedProposals, loadedDismissedIds] = await Promise.all([
-        loadIdbItem<Record<string, PhotoMeasurePin[]>>(STORAGE_KEYS.PHOTO_PINS, {}),
-        loadUserPrefsAsync(),
-        loadForemanProposalsAsync(),
-        loadDismissedThinkerIdsAsync(),
-        loadIdbItem(STORAGE_KEYS.CLOUD_SYNC, DEFAULT_CLOUD_CONFIG),
-        loadIdbItem(STORAGE_KEYS.AUDIT_SETTINGS, { weeklyAutoAuditEnabled: true, lastRunIso: null }),
-        loadIdbItem(STORAGE_KEYS.BLUEPRINTS, [])
-      ]);
+      const [pins, loadedPrefs, loadedProposals, loadedDismissedIds, loadedAudioMemos] =
+        await Promise.all([
+          loadIdbItem<Record<string, PhotoMeasurePin[]>>(STORAGE_KEYS.PHOTO_PINS, {}),
+          loadUserPrefsAsync(),
+          loadForemanProposalsAsync(),
+          loadDismissedThinkerIdsAsync(),
+          loadOfflineAudioMemosAsync(),
+          loadIdbItem(STORAGE_KEYS.CLOUD_SYNC, DEFAULT_CLOUD_CONFIG),
+          loadIdbItem(STORAGE_KEYS.AUDIT_SETTINGS, { weeklyAutoAuditEnabled: true, lastRunIso: null }),
+          loadIdbItem(STORAGE_KEYS.BLUEPRINTS, [])
+        ]);
       if (!cancelled && pins && Object.keys(pins).length > 0) {
         setPhotoPins(pins);
       }
@@ -317,6 +326,7 @@ export default function App() {
         setPrefs(loadedPrefs);
         setForemanProposals(loadedProposals);
         setDismissedThinkerIds(loadedDismissedIds);
+        setOfflineAudioMemos(loadedAudioMemos);
       }
 
       // 2. Load persisted app state & unified AI/Voice settings
@@ -378,11 +388,19 @@ export default function App() {
         setDismissedThinkerIds(detail);
       }
     };
+    const onOfflineAudioUpdated = (ev: Event) => {
+      const detail = (ev as CustomEvent)?.detail;
+      if (Array.isArray(detail)) {
+        setOfflineAudioMemos(detail);
+      }
+    };
     window.addEventListener('banditos:foreman-proposals-updated', onProposalsUpdated);
     window.addEventListener('banditos:dismissed-thinker-updated', onDismissedUpdated);
+    window.addEventListener('banditos:offline-audio-memos-updated', onOfflineAudioUpdated);
     return () => {
       window.removeEventListener('banditos:foreman-proposals-updated', onProposalsUpdated);
       window.removeEventListener('banditos:dismissed-thinker-updated', onDismissedUpdated);
+      window.removeEventListener('banditos:offline-audio-memos-updated', onOfflineAudioUpdated);
     };
   }, []);
 
@@ -1956,6 +1974,14 @@ export default function App() {
           open={voiceModalOpen}
           autoStartMic={autoStartMicOnOpen}
           wakeLockEnabled={prefs.wakeLockEnabled !== false}
+          offlineAudioBufferEnabled={prefs.offlineAudioBufferEnabled !== false}
+          activeProjectId={activeProject?.id || BRAND_CONFIG.defaultProjectId}
+          userApiKey={state.userApiKey}
+          offlineAudioMemos={offlineAudioMemos}
+          onUpdateOfflineAudioMemos={(next) => {
+            setOfflineAudioMemos(next);
+            void saveOfflineAudioMemos(next);
+          }}
           initialPrefillText={voicePrefillText}
           activeProjectName={activeProject?.name || BRAND_CONFIG.projects['proj-foodtruck']?.name || 'Pizza Bandit'}
           projects={state.projects}
@@ -2259,6 +2285,7 @@ export default function App() {
                 void loadUserPrefsAsync().then(setPrefs);
                 void loadForemanProposalsAsync().then(setForemanProposals);
                 void loadDismissedThinkerIdsAsync().then(setDismissedThinkerIds);
+                void loadOfflineAudioMemosAsync().then(setOfflineAudioMemos);
                 notify('Backup geladen.');
               }}
               onUploadProjectLogo={async (projId, file) => {
@@ -2465,6 +2492,14 @@ export default function App() {
         }}
         autoStartMic={autoStartMicOnOpen}
         wakeLockEnabled={prefs.wakeLockEnabled !== false}
+        offlineAudioBufferEnabled={prefs.offlineAudioBufferEnabled !== false}
+        activeProjectId={activeProject?.id || BRAND_CONFIG.defaultProjectId}
+        userApiKey={state.userApiKey}
+        offlineAudioMemos={offlineAudioMemos}
+        onUpdateOfflineAudioMemos={(next) => {
+          setOfflineAudioMemos(next);
+          void saveOfflineAudioMemos(next);
+        }}
         initialPrefillText={voicePrefillText}
         activeProjectName={activeProject?.name || BRAND_CONFIG.projects['proj-foodtruck']?.name || 'Pizza Bandit'}
         projects={state.projects}

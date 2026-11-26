@@ -774,6 +774,7 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
               themeColors={themeColors}
               userApiKey={userApiKey}
               receiptForemanEnabled={prefs.receiptForemanEnabled !== false}
+              generalVisionEnabled={prefs.generalVisionEnabled !== false}
               onReconcileReceiptWithCart={
                 onReconcileReceiptWithCart ||
                 ((projectId, storeName, purchaseDate, totalAmount, items) => {
@@ -789,6 +790,9 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
                 })
               }
               onReconcileCartItems={onReconcileCartItems}
+              onAddKnowledge={onAddKnowledge}
+              onAddTask={onAddTask}
+              onAddCartItems={onAddCartItems}
               onOpenSettings={(sec) => onOpenAddonsBackoffice(sec || 'ai')}
               onNotify={onNotify}
             />
