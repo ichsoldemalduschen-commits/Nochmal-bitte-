@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Eye, LayoutGrid, Loader2, Mic, Scale, Send, Settings, ShoppingCart, Volume2, X } from 'lucide-react';
 import { Project, ProjectTabId } from '../../types';
+import { unlockAudioPlayback } from '../../services/azureSpeech';
 
 export interface HexThumbHubProps {
   position?: 'left' | 'center' | 'right';
@@ -170,7 +171,8 @@ export const HexThumbHub: React.FC<HexThumbHubProps> = ({
         }
         onCloseCompanion?.();
       } else {
-        // Stufe 0 → Stufe 1: Pulsringe + Öffnen beim Loslassen
+        // Stufe 0 → Stufe 1: Synchroner Audio-Unlock + Pulsringe + Öffnen beim Loslassen
+        unlockAudioPlayback();
         try {
           navigator.vibrate?.(15);
         } catch {
@@ -246,6 +248,7 @@ export const HexThumbHub: React.FC<HexThumbHubProps> = ({
             <button
               type="button"
               onClick={() => {
+                unlockAudioPlayback();
                 setIsFanOpen(false);
                 onOpenVoice(1);
               }}

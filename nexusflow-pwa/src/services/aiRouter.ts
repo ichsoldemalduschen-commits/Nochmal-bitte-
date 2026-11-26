@@ -1,10 +1,10 @@
 import { AiActionType, AiVoiceSettings, Attachment, KnowledgeKind, PriorityType, Project, VoiceInteractionMode } from '../types';
 import { BRAND_CONFIG } from '../config/brandConfig';
 import { STORAGE_KEYS, getActiveAiMode, getIdbItemSync, saveIdbItem } from './storage';
-import { speakText, stopAllSpeech, stopSpeaking, testGiselaVoice } from './azureSpeech';
+import { speakText, stopAllSpeech, stopSpeaking, testGiselaVoice, unlockAudioPlayback } from './azureSpeech';
 import { classifyLiveSpeechIntent } from './voiceModeClassifier';
 
-export { speakText, stopAllSpeech, stopSpeaking, testGiselaVoice };
+export { speakText, stopAllSpeech, stopSpeaking, testGiselaVoice, unlockAudioPlayback };
 
 export interface BanditUserPreferences {
   // Schaltbare ADHS-Unterstützung
@@ -210,40 +210,81 @@ export async function fetchAvailableGeminiModels(
   }
 }
 
+const DEEP_ANALYSIS_REGEX =
+  /(tiefenanalyse|ausführlicher\s+vergleich|rechtlich\s+prüfen|gutachten)/i;
+
+export function resolveEffectiveAiMode(
+  rawText: string,
+  attachment?: Attachment | null,
+  requestedMode?: 'flash' | 'research',
+  settings?: Partial<AiVoiceSettings>
+): { effectiveMode: 'flash' | 'research'; autoUpscaledToPro: boolean; preferredModelMode: string } {
+  const preferredModelMode = settings?.preferredModelMode ?? getPreferredModelMode();
+  const currentMode = requestedMode || settings?.activeAiMode || getActiveAiMode() || 'flash';
+  const hasPhoto = Boolean(attachment && attachment.dataUrl && attachment.dataUrl.startsWith('data:image/'));
+  const isDeepAnalysisQuery = DEEP_ANALYSIS_REGEX.test(rawText);
+
+  if (preferredModelMode === 'ALWAYS_PRO') {
+    return { effectiveMode: 'research', autoUpscaledToPro: false, preferredModelMode };
+  }
+  if (preferredModelMode === 'ALWAYS_FLASH') {
+    return { effectiveMode: 'flash', autoUpscaledToPro: false, preferredModelMode };
+  }
+
+  const autoUpscaledToPro = currentMode === 'flash' && (hasPhoto || isDeepAnalysisQuery);
+  return {
+    effectiveMode: autoUpscaledToPro ? 'research' : currentMode,
+    autoUpscaledToPro,
+    preferredModelMode
+  };
+}
+
 async function buildModelCandidateList(
   _apiKey: string,
-  task: 'sort' | 'qa',
+  _task: 'sort' | 'qa',
   effectiveMode?: 'flash' | 'research',
   preferredModelModeOverride?: string
 ): Promise<string[]> {
   const mode = (preferredModelModeOverride || getPreferredModelMode() || 'SMART_PRO').trim();
-  const defaultsProFirst = [
-    'gemini-2.5-pro',
-    'gemini-1.5-pro',
-    'gemini-2.5-flash',
-    'gemini-1.5-flash'
-  ];
-  const defaultsFlashFirst = [
-    'gemini-2.5-flash',
-    'gemini-1.5-flash',
-    'gemini-2.5-pro',
-    'gemini-1.5-pro'
-  ];
+  const defaultsProFirst = ['gemini-2.5-pro', 'gemini-2.5-flash'];
+  const defaultsFlashFirst = ['gemini-2.5-flash', 'gemini-2.5-pro'];
 
   let baseList: string[] = [];
   if (mode !== 'SMART_PRO' && mode !== 'ALWAYS_PRO' && mode !== 'ALWAYS_FLASH') {
     // Direkte Modellwahl aus Zentrale hat Vorrang
-    baseList = [mode, ...defaultsProFirst];
+    baseList = [mode, ...(effectiveMode === 'research' ? defaultsProFirst : defaultsFlashFirst)];
   } else if (mode === 'ALWAYS_PRO') {
     baseList = defaultsProFirst;
   } else if (mode === 'ALWAYS_FLASH') {
     baseList = defaultsFlashFirst;
   } else {
-    // SMART_PRO: Research-Modus oder Fragen/Fotos -> Pro zuerst, Sortierbefehle -> Flash zuerst
-    baseList = effectiveMode === 'research' || task === 'qa' ? defaultsProFirst : defaultsFlashFirst;
+    // SMART_PRO: Research-Modus / Foto / Tiefenanalyse -> Pro zuerst, normale Befehle & Fragen -> Flash zuerst
+    baseList = effectiveMode === 'research' ? defaultsProFirst : defaultsFlashFirst;
   }
 
   return Array.from(new Set(baseList));
+}
+
+function withFlashThinkingDisabled(
+  payload: Record<string, unknown>,
+  modelName: string,
+  effectiveMode?: 'flash' | 'research'
+): { bodyPayload: Record<string, unknown>; usedThinkingConfig: boolean } {
+  const shouldDisableThinking =
+    effectiveMode === 'flash' && modelName.includes('2.5-flash') && payload.generationConfig;
+  if (!shouldDisableThinking) {
+    return { bodyPayload: payload, usedThinkingConfig: false };
+  }
+  return {
+    bodyPayload: {
+      ...payload,
+      generationConfig: {
+        ...(payload.generationConfig as Record<string, unknown>),
+        thinkingConfig: { thinkingBudget: 0 }
+      }
+    },
+    usedThinkingConfig: true
+  };
 }
 
 async function callGeminiWithAutoFallback(
@@ -262,6 +303,7 @@ async function callGeminiWithAutoFallback(
     preferredModelModeOverride
   );
   let lastError = 'Unbekannter API-Fehler';
+  let hitNon404Failure = false;
 
   for (const modelName of candidates) {
     if (signal?.aborted) {
@@ -272,12 +314,27 @@ async function callGeminiWithAutoFallback(
       encodeURIComponent(cleanKey);
 
     try {
-      const res = await fetch(endpoint, {
+      const { bodyPayload, usedThinkingConfig } = withFlashThinkingDisabled(
+        payload,
+        modelName,
+        effectiveMode
+      );
+      let res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(bodyPayload),
         signal
       });
+
+      // Sicherer Retry ohne thinkingConfig, falls das Modell den Parameter mit HTTP 400 ablehnt
+      if (res.status === 400 && usedThinkingConfig && !signal?.aborted) {
+        res = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+          signal
+        });
+      }
 
       if (res.ok) {
         const data = await res.json();
@@ -286,19 +343,29 @@ async function callGeminiWithAutoFallback(
 
       const errData = await res.json().catch(() => ({}));
       lastError = errData?.error?.message || `HTTP ${res.status}`;
-      if (res.status === 404) continue;
-      else break;
+      if (res.status === 404) {
+        continue;
+      }
+      hitNon404Failure = true;
+      break;
     } catch (err: any) {
       if (signal?.aborted || err?.name === 'AbortError') {
         return { ok: false, usedModel: modelName, errorMessage: 'Abgebrochen', aborted: true };
       }
       lastError = err?.message || 'Netzwerkfehler';
+      hitNon404Failure = true;
       break;
     }
   }
 
-  if (signal?.aborted) {
-    return { ok: false, usedModel: candidates[0], errorMessage: 'Abgebrochen', aborted: true };
+  // Live-Modellermittlung ausschließlich dann, wenn ALLE Kandidaten mit 404 (Modell nicht gefunden) scheiterten
+  if (hitNon404Failure || signal?.aborted) {
+    return {
+      ok: false,
+      usedModel: candidates[0],
+      errorMessage: signal?.aborted ? 'Abgebrochen' : lastError,
+      aborted: Boolean(signal?.aborted)
+    };
   }
 
   const liveModels = await fetchAvailableGeminiModels(cleanKey, signal);
@@ -320,10 +387,15 @@ async function callGeminiWithAutoFallback(
         const data = await res.json();
         return { ok: true, data, usedModel: liveModel };
       }
+      const errData = await res.json().catch(() => ({}));
+      lastError = errData?.error?.message || `HTTP ${res.status}`;
+      if (res.status !== 404) break;
     } catch (err: any) {
       if (signal?.aborted || err?.name === 'AbortError') {
         return { ok: false, usedModel: liveModel, errorMessage: 'Abgebrochen', aborted: true };
       }
+      lastError = err?.message || 'Netzwerkfehler';
+      break;
     }
   }
 
@@ -424,30 +496,49 @@ const AI_ROUTER_RESPONSE_SCHEMA = {
   required: ['isQuestion', 'needsClarification', 'spokenFeedback', 'directAnswer', 'summary', 'actions']
 };
 
-function buildWorkspaceContextSummary(projects: Project[]): string {
+function buildWorkspaceContextSummary(projects: Project[], activeProjectId?: string): string {
   if (!Array.isArray(projects) || projects.length === 0) return 'Keine Projekte geladen.';
-  return projects
-    .filter((p) => !p.archived)
+  const activeProjects = projects.filter((p) => !p.archived);
+  if (activeProjects.length === 0) return 'Keine aktiven Projekte geladen.';
+
+  const resolvedActiveId =
+    activeProjectId && activeProjects.some((p) => p.id === activeProjectId)
+      ? activeProjectId
+      : activeProjects[0].id;
+
+  return activeProjects
     .map((p) => {
-      const openTasks = p.tasks
-        .filter((t) => !t.completed)
-        .slice(0, 14)
-        .map((t) => `- [Task] ${t.title}${t.assemblyGroup ? ` (Gruppe: ${t.assemblyGroup})` : ''}`)
+      if (p.id === resolvedActiveId) {
+        const openTasks = p.tasks
+          .filter((t) => !t.completed)
+          .slice(0, 10)
+          .map((t) => `- [Task] ${t.title}${t.assemblyGroup ? ` (Gruppe: ${t.assemblyGroup})` : ''}`)
+          .join('\n');
+        const openCart = p.cart
+          .filter((c) => !c.completed)
+          .slice(0, 8)
+          .map((c) => `- [Einkauf] ${c.title} (${c.quantity})`)
+          .join('\n');
+        const knowledgeTitles = (p.knowledge || [])
+          .slice(0, 5)
+          .map((k) => `- [Wissen] ${String(k.title || '').trim().slice(0, 80)}`)
+          .join('\n');
+        return `PROJEKT ID="${p.id}" | NAME="${p.name}" | BEREICH="${p.domain}" (AKTIV):\n${
+          openTasks || '(Keine offenen Tasks)'
+        }${openCart ? `\n${openCart}` : ''}${knowledgeTitles ? `\n${knowledgeTitles}` : ''}`;
+      }
+
+      const anchorTitles = [
+        ...p.tasks.filter((t) => !t.completed).map((t) => t.title),
+        ...p.cart.filter((c) => !c.completed).map((c) => c.title)
+      ]
+        .slice(0, 3)
+        .map((title) => `- ${String(title || '').trim().slice(0, 80)}`)
         .join('\n');
-      const openCart = p.cart
-        .filter((c) => !c.completed)
-        .slice(0, 12)
-        .map((c) => `- [Einkauf] ${c.title} (${c.quantity})`)
-        .join('\n');
-      const knowledgeList = (p.knowledge || [])
-        .slice(0, 8)
-        .map(
-          (k) =>
-            `- [${k.kind === 'explanation' ? 'Ablauf' : 'Wissen'}] ${k.title}: ${k.content.slice(0, 120)}`
-        )
-        .join('\n');
-      return `PROJEKT ID="${p.id}" | NAME="${p.name}" | BEREICH="${p.domain}":\n${openTasks || '(Keine offenen Tasks)'
-        }\n${openCart || ''}\n${knowledgeList || ''}`;
+
+      return `PROJEKT ID="${p.id}" | NAME="${p.name}" | BEREICH="${p.domain}"${
+        anchorTitles ? `:\n${anchorTitles}` : ''
+      }`;
     })
     .join('\n\n');
 }
@@ -613,24 +704,15 @@ export async function routeVoiceCommand(
   const cleanKey = apiKey ? apiKey.trim() : '';
   const prefs = loadUserPrefs();
   const signal = options?.signal;
-  const preferredModelMode = options?.settings?.preferredModelMode ?? getPreferredModelMode();
   const autoHint = options?.hintMode || classifyLiveSpeechIntent(rawText, options?.previousMode).mode;
 
   // 1-Tipp-Modus: Flash (⚡ Sprech) vs. Research (🧠 Pro) + Intelligenz-Modus aus Zentrale
-  const currentMode = requestedMode || options?.settings?.activeAiMode || getActiveAiMode() || 'flash';
-  const hasPhoto = Boolean(attachment && attachment.dataUrl && attachment.dataUrl.startsWith('data:image/'));
-  const isComplexQuery = /(recherche|analyse|vergleich|rechtlich|vorschrift|norm|paragraph|dguv|din|haccp|gutachten|unterschied|warum genau|detailliert|erkläre ausführlich)/i.test(rawText);
-
-  let autoUpscaledToPro = false;
-  let effectiveMode: 'flash' | 'research' = currentMode;
-  if (preferredModelMode === 'ALWAYS_PRO') {
-    effectiveMode = 'research';
-  } else if (preferredModelMode === 'ALWAYS_FLASH') {
-    effectiveMode = 'flash';
-  } else {
-    autoUpscaledToPro = currentMode === 'flash' && (hasPhoto || isComplexQuery);
-    effectiveMode = autoUpscaledToPro ? 'research' : currentMode;
-  }
+  const { effectiveMode, autoUpscaledToPro, preferredModelMode } = resolveEffectiveAiMode(
+    rawText,
+    attachment,
+    requestedMode,
+    options?.settings
+  );
 
   if (signal?.aborted) {
     return {
@@ -678,7 +760,7 @@ REGELN:
 
   if (cleanKey) {
     try {
-      const workspaceContext = allProjects ? buildWorkspaceContextSummary(allProjects) : '';
+      const workspaceContext = allProjects ? buildWorkspaceContextSummary(allProjects, defaultProjectId) : '';
       const historyText =
         chatHistory && chatHistory.length > 0
           ? chatHistory
@@ -857,17 +939,25 @@ REGELN:
 
 export async function askQuickAssistantQuestion(
   question: string,
-  projectName: string,
+  projectId: string,
   apiKey: string,
-  attachment: Attachment | null
+  attachment: Attachment | null,
+  options?: {
+    allProjects?: Project[];
+    settings?: AiVoiceSettings;
+  }
 ): Promise<string> {
   const { plan } = await routeVoiceCommand(
     question,
     apiKey,
-    'proj-foodtruck',
+    projectId || BRAND_CONFIG.defaultProjectId,
+    options?.allProjects,
     undefined,
-    undefined,
-    attachment
+    attachment,
+    options?.settings?.activeAiMode,
+    {
+      settings: options?.settings
+    }
   );
   return plan.directAnswer || plan.summary;
 }

@@ -429,6 +429,7 @@ export async function migrateLocalStorageToIndexedDB(): Promise<void> {
     STORAGE_KEYS.AZURE_SPEECH_REGION,
     STORAGE_KEYS.ACTIVE_AI_MODE,
     STORAGE_KEYS.CONTINUOUS_LISTENING,
+    STORAGE_KEYS.AUTO_MODE_DETECTION,
     STORAGE_KEYS.FIRED_REMINDERS,
     STORAGE_KEYS.THUMB_HUB_ENABLED,
     STORAGE_KEYS.THUMB_HUB_POSITION,
@@ -786,15 +787,36 @@ export async function loadAiVoiceSettings(
  * Speichert alle KI- & Stimm-Einstellungen atomar in IndexedDB + Memory-Cache + LocalStorage-Backup.
  */
 export async function saveAiVoiceSettings(settings: AiVoiceSettings): Promise<void> {
+  const normalized: AiVoiceSettings = {
+    ...DEFAULT_AI_VOICE_SETTINGS,
+    ...settings,
+    ttsEnabled: typeof settings.ttsEnabled === 'boolean' ? settings.ttsEnabled : true,
+    voiceProvider: settings.voiceProvider === 'browser' ? 'browser' : 'azure-gisela',
+    azureSpeechKey: typeof settings.azureSpeechKey === 'string' ? settings.azureSpeechKey : '',
+    azureSpeechRegion:
+      typeof settings.azureSpeechRegion === 'string' && settings.azureSpeechRegion.trim()
+        ? settings.azureSpeechRegion
+        : 'germanywestcentral',
+    preferredModelMode:
+      typeof settings.preferredModelMode === 'string' && settings.preferredModelMode.trim()
+        ? settings.preferredModelMode
+        : 'SMART_PRO',
+    activeAiMode: settings.activeAiMode === 'research' ? 'research' : 'flash',
+    continuousListening:
+      typeof settings.continuousListening === 'boolean' ? settings.continuousListening : true,
+    autoModeDetection:
+      typeof settings.autoModeDetection === 'boolean' ? settings.autoModeDetection : true
+  };
+
   await Promise.all([
-    saveIdbItem(STORAGE_KEYS.TTS_ENABLED, settings.ttsEnabled),
-    saveIdbItem(STORAGE_KEYS.VOICE_PROVIDER, settings.voiceProvider),
-    saveIdbItem(STORAGE_KEYS.AZURE_SPEECH_KEY, settings.azureSpeechKey),
-    saveIdbItem(STORAGE_KEYS.AZURE_SPEECH_REGION, settings.azureSpeechRegion),
-    saveIdbItem(STORAGE_KEYS.PREFERRED_MODEL, settings.preferredModelMode),
-    saveIdbItem(STORAGE_KEYS.ACTIVE_AI_MODE, settings.activeAiMode),
-    saveIdbItem(STORAGE_KEYS.CONTINUOUS_LISTENING, settings.continuousListening),
-    saveIdbItem(STORAGE_KEYS.AUTO_MODE_DETECTION, settings.autoModeDetection)
+    saveIdbItem(STORAGE_KEYS.TTS_ENABLED, normalized.ttsEnabled),
+    saveIdbItem(STORAGE_KEYS.VOICE_PROVIDER, normalized.voiceProvider),
+    saveIdbItem(STORAGE_KEYS.AZURE_SPEECH_KEY, normalized.azureSpeechKey),
+    saveIdbItem(STORAGE_KEYS.AZURE_SPEECH_REGION, normalized.azureSpeechRegion),
+    saveIdbItem(STORAGE_KEYS.PREFERRED_MODEL, normalized.preferredModelMode),
+    saveIdbItem(STORAGE_KEYS.ACTIVE_AI_MODE, normalized.activeAiMode),
+    saveIdbItem(STORAGE_KEYS.CONTINUOUS_LISTENING, normalized.continuousListening),
+    saveIdbItem(STORAGE_KEYS.AUTO_MODE_DETECTION, normalized.autoModeDetection)
   ]);
 }
 
@@ -1039,6 +1061,13 @@ export async function importFullBackupV2(
 
   const { state: migratedAppState } = migrateAppState(rawAppState);
 
+  const importedTopLevelVoice =
+    isV2 && raw?.aiVoiceSettings && typeof raw.aiVoiceSettings === 'object'
+      ? { ...DEFAULT_AI_VOICE_SETTINGS, ...raw.aiVoiceSettings }
+      : undefined;
+  const resolvedVoiceSettings =
+    migratedAppState.aiVoiceSettings || importedTopLevelVoice || currentSnapshot.aiVoiceSettings;
+
   // Merge with current state (do not overwrite userApiKey if not present in backup)
   const mergedState: AppStateSnapshot = {
     ...currentSnapshot,
@@ -1053,13 +1082,13 @@ export async function importFullBackupV2(
     thumbHubPosition: migratedAppState.thumbHubPosition || currentSnapshot.thumbHubPosition,
     ambientLightMode: migratedAppState.ambientLightMode || currentSnapshot.ambientLightMode,
     remindersEnabled: typeof migratedAppState.remindersEnabled === 'boolean' ? migratedAppState.remindersEnabled : currentSnapshot.remindersEnabled,
-    aiVoiceSettings: migratedAppState.aiVoiceSettings || currentSnapshot.aiVoiceSettings,
+    aiVoiceSettings: resolvedVoiceSettings,
   };
 
   // Restore v2-only stores to IDB
   if (isV2) {
     const saves: Promise<void>[] = [];
-    if (mergedState.aiVoiceSettings) saves.push(saveAiVoiceSettings(mergedState.aiVoiceSettings));
+    if (resolvedVoiceSettings) saves.push(saveAiVoiceSettings(resolvedVoiceSettings));
     if (raw.userPrefs) saves.push(saveIdbItem(STORAGE_KEYS.USER_PREFS, raw.userPrefs));
     if (raw.blueprints) saves.push(saveIdbItem(STORAGE_KEYS.BLUEPRINTS, raw.blueprints));
     if (raw.photoPins) saves.push(saveIdbItem(STORAGE_KEYS.PHOTO_PINS, raw.photoPins));
@@ -1075,8 +1104,13 @@ export async function importFullBackupV2(
     if (raw.doughCalcDefaults) saves.push(saveIdbItem(DOUGH_CALC_DEFAULTS_KEY, raw.doughCalcDefaults));
     await Promise.all(saves);
   } else {
+    if (resolvedVoiceSettings) {
+      await saveAiVoiceSettings(resolvedVoiceSettings);
+    }
     warnings.push('Altes v1-Backup: Nur App-Status wiederhergestellt. Pizza-Katalog und Prefs bleiben unverändert.');
   }
+
+  await savePersistedState(mergedState);
 
   const taskCount = mergedState.projects.reduce((n, p) => n + (p.tasks?.length || 0), 0);
   const cartCount = mergedState.projects.reduce((n, p) => n + (p.cart?.length || 0), 0);

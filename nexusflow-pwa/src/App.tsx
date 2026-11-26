@@ -1357,9 +1357,13 @@ export default function App() {
           onAskQuestion={(q, att) =>
             askQuickAssistantQuestion(
               q,
-              activeProject?.name || BRAND_CONFIG.projects['proj-foodtruck']?.name || 'Pizza Bandit',
+              getEffectiveDefaultProjectId(),
               state.userApiKey,
-              att
+              att,
+              {
+                allProjects: state.projects.filter((p) => !p.archived),
+                settings: aiVoiceSettingsRef.current
+              }
             )
           }
           onSaveAnswerToInfos={(q, ans, att) => {
@@ -1826,9 +1830,13 @@ export default function App() {
         onAskQuestion={(q, att) =>
           askQuickAssistantQuestion(
             q,
-            activeProject?.name || BRAND_CONFIG.projects['proj-foodtruck']?.name || 'Pizza Bandit',
+            getEffectiveDefaultProjectId(),
             state.userApiKey,
-            att
+            att,
+            {
+              allProjects: state.projects.filter((p) => !p.archived),
+              settings: aiVoiceSettingsRef.current
+            }
           )
         }
         onSaveAnswerToInfos={(q, ans, att) => {
