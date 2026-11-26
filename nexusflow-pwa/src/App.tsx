@@ -1548,12 +1548,14 @@ export default function App() {
     const executedActions: AiExecutedAction[] = [];
     const logId = `log-${Date.now()}`;
     let firstTargetProjectId = activeProject?.id || defaultProjId;
-    inspectAndQueueCriticalTopic(
-      rawText,
-      firstTargetProjectId,
-      activeProject?.name || BRAND_CONFIG.projects['proj-foodtruck']?.name || 'Pizza Bandit',
-      state.projects
-    );
+    if (!plan.isErrorFallback) {
+      inspectAndQueueCriticalTopic(
+        rawText,
+        firstTargetProjectId,
+        activeProject?.name || BRAND_CONFIG.projects['proj-foodtruck']?.name || 'Pizza Bandit',
+        state.projects
+      );
+    }
     let firstTab: ProjectTabId = activeProjectTab;
 
     if (plan.actions && plan.actions.length > 0) {
@@ -1758,7 +1760,9 @@ export default function App() {
       engine,
       logId,
       actions: executedActions,
-      autoUpscaledToPro
+      autoUpscaledToPro,
+      isErrorFallback: plan.isErrorFallback,
+      errorReason: plan.errorReason
     };
   };
 
@@ -1814,6 +1818,20 @@ export default function App() {
     hintMode?: VoiceInteractionMode,
     previousMode?: VoiceInteractionMode | null
   ) => {
+    if (state.userApiKey.trim()) {
+      return {
+        replyText: 'Die Verbindung hat diesmal zu lange gedauert – es wurde nichts angelegt.',
+        spokenText: 'Die Verbindung hat diesmal zu lange gedauert – es wurde nichts angelegt.',
+        needsClarification: false,
+        detectedMode: hintMode,
+        expectFollowUp: false,
+        engine: reason,
+        actions: [],
+        autoUpscaledToPro: false,
+        isErrorFallback: true,
+        errorReason: 'timeout' as const
+      };
+    }
     const activeProjects = state.projects.filter((p) => !p.archived);
     const effectiveDefaultProjId = getEffectiveDefaultProjectId();
     const plan = buildLocalFallbackPlan(rawText, effectiveDefaultProjId, activeProjects, hintMode, previousMode);

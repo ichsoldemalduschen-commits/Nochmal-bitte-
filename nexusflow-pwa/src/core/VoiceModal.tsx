@@ -29,8 +29,8 @@ import {
   VoiceInteractionMode
 } from '../types';
 import {
-  buildLocalFallbackPlan,
   compressImageFile,
+  enforceMaxSixWords,
   getPreferredModelMode,
   getTtsEnabled,
   loadUserPrefs,
@@ -56,6 +56,7 @@ import {
   saveOfflineAudioMemos
 } from '../services/storage';
 import {
+  API_TIMEOUT_EXTENDED_MS,
   API_TIMEOUT_FLASH_MS,
   API_TIMEOUT_PRO_MS,
   SILENCE_COLLECT_MS,
@@ -78,6 +79,11 @@ export interface ConversationMessage {
   logId?: string;
   actions?: AiExecutedAction[];
   attachmentName?: string;
+  isErrorFallback?: boolean;
+  errorReason?: 'timeout' | 'network' | 'api';
+  retryText?: string;
+  retryAttachment?: Attachment | null;
+  parkedAsNote?: boolean;
 }
 
 export interface VoiceModalProps {
@@ -124,6 +130,8 @@ export interface VoiceModalProps {
     logId?: string;
     actions: AiExecutedAction[];
     autoUpscaledToPro?: boolean;
+    isErrorFallback?: boolean;
+    errorReason?: 'timeout' | 'network' | 'api';
   } | void>;
   onExecuteOfflineFallback?: (
     rawText: string,
@@ -141,6 +149,8 @@ export interface VoiceModalProps {
     logId?: string;
     actions: AiExecutedAction[];
     autoUpscaledToPro?: boolean;
+    isErrorFallback?: boolean;
+    errorReason?: 'timeout' | 'network' | 'api';
   } | void;
   onAskQuestion: (question: string, attachment: Attachment | null) => Promise<string>;
   onSaveAnswerToInfos: (question: string, answer: string, attachment: Attachment | null) => void;
@@ -287,6 +297,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
   const [speechNotice, setSpeechNotice] = useState('');
   const [voiceStatusNotice, setVoiceStatusNotice] = useState<string | null>(null);
   const [shareIntakeNotice, setShareIntakeNotice] = useState<string | null>(null);
+  const [showSlowThinkingNotice, setShowSlowThinkingNotice] = useState(false);
   const { isActive: wakeLockActive } = useWakeLock(
     open && wakeLockEnabled && voicePhase !== 'IDLE'
   );
@@ -887,6 +898,17 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
   }, []);
 
   useEffect(() => {
+    if (!open || !isProcessing) {
+      setShowSlowThinkingNotice(false);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setShowSlowThinkingNotice(true);
+    }, 5000);
+    return () => window.clearTimeout(timer);
+  }, [open, isProcessing]);
+
+  useEffect(() => {
     if (!open || !isListening || isProcessing) return;
 
     const interval = window.setInterval(() => {
@@ -1024,7 +1046,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
     );
   };
 
-  const triggerProcess = async (textToProcess: string) => {
+  const triggerProcess = async (textToProcess: string, overrideAttachment?: Attachment | null) => {
     const clean = textToProcess.trim();
     if (!clean || voicePhaseRef.current === 'PROCESSING' || isSendingRef.current) return;
     isSendingRef.current = true;
@@ -1057,15 +1079,17 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
     let settled = false;
 
     const currentSettings = settingsRef.current;
+    const currentAtt = overrideAttachment !== undefined ? overrideAttachment : attachment;
     const { effectiveMode: resolvedTimeoutMode } = resolveEffectiveAiMode(
       clean,
-      attachment,
+      currentAtt,
       currentSettings.activeAiMode,
       currentSettings
     );
-    const requestTimeoutMs =
-      resolvedTimeoutMode === 'research' ? API_TIMEOUT_PRO_MS : API_TIMEOUT_FLASH_MS;
-    const timeoutSeconds = Math.round(requestTimeoutMs / 1000);
+    const hasPhotoAttachment = Boolean(
+      currentAtt && (currentAtt.type === 'image' || currentAtt.dataUrl?.startsWith('data:image/'))
+    );
+    const wordCount = clean.split(/\s+/).filter(Boolean).length;
     const hintClassification = classifyLiveSpeechIntent(
       clean,
       lastDetectedModeRef.current,
@@ -1073,12 +1097,20 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
     );
     const requestHintMode = hintClassification.mode;
     const requestPrevMode = lastDetectedModeRef.current;
+    const requestTimeoutMs =
+      resolvedTimeoutMode === 'research' || hasPhotoAttachment
+        ? API_TIMEOUT_PRO_MS
+        : wordCount > 30 || requestHintMode === 'collect' || requestHintMode === 'dialog'
+          ? Math.max(API_TIMEOUT_FLASH_MS, API_TIMEOUT_EXTENDED_MS)
+          : API_TIMEOUT_FLASH_MS;
+    const timeoutSeconds = Math.round(requestTimeoutMs / 1000);
 
     triggerHapticFeedback([12, 30, 12]);
-    const currentAtt = attachment;
     setTranscript('');
     transcriptRef.current = '';
-    setAttachment(null);
+    if (overrideAttachment === undefined) {
+      setAttachment(null);
+    }
     setShowStage1TextInput(false);
     setShareIntakeNotice(null);
 
@@ -1090,10 +1122,13 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
       attachmentName: currentAtt?.name
     };
 
-    const recentHistory = messages.slice(-10).map((m) => ({
-      role: m.role,
-      text: m.text
-    }));
+    const recentHistory = messages
+      .filter((m) => !m.isErrorFallback)
+      .slice(-6)
+      .map((m) => ({
+        role: m.role,
+        text: m.text
+      }));
 
     setMessages((prev) => [...prev, userMsg]);
 
@@ -1107,7 +1142,12 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
       logId?: string;
       actions: AiExecutedAction[];
       autoUpscaledToPro?: boolean;
+      isErrorFallback?: boolean;
+      errorReason?: 'timeout' | 'network' | 'api';
+      retryText?: string;
+      retryAttachment?: Attachment | null;
     }) => {
+      const isErr = Boolean(result.isErrorFallback);
       const assistantMsg: ConversationMessage = {
         id: `msg-a-${Date.now()}`,
         role: 'assistant',
@@ -1118,15 +1158,19 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
         }),
         engine: result.engine,
         logId: result.logId,
-        actions: result.actions
+        actions: result.actions,
+        isErrorFallback: isErr,
+        errorReason: result.errorReason,
+        retryText: isErr ? (result.retryText ?? clean) : undefined,
+        retryAttachment: isErr ? (result.retryAttachment ?? currentAtt) : undefined
       };
       setMessages((prev) => [...prev, assistantMsg]);
 
       const resolvedMode = result.detectedMode || requestHintMode;
       lastDetectedModeRef.current = resolvedMode;
 
-      // Smart Auto-Expand von Stufe 1 nach Stufe 2 bei Klärungsbedarf oder langer Antwort (>120 Zeichen)
-      if (currentStage === 1 && (result.needsClarification || result.replyText.length > 120)) {
+      // Smart Auto-Expand von Stufe 1 nach Stufe 2 bei Klärungsbedarf, Fehlerkarte oder langer Antwort (>120 Zeichen)
+      if (currentStage === 1 && (result.needsClarification || isErr || result.replyText.length > 120)) {
         updateStage(2);
       }
 
@@ -1137,7 +1181,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
         requestId,
         clean,
         resolvedMode,
-        result.expectFollowUp
+        isErr ? false : result.expectFollowUp
       );
     };
 
@@ -1148,46 +1192,22 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
       controller.abort();
       activeRequestControllerRef.current = null;
       setVoiceStatusNotice(
-        `API-Zeitüberschreitung (${timeoutSeconds}s) – lokaler Offline-Fallback aktiv.`
+        `Verbindung hat nach ${timeoutSeconds}s zu lange gedauert – es wurde nichts angelegt.`
       );
 
-      const fallbackRes = onExecuteOfflineFallback
-        ? onExecuteOfflineFallback(
-            clean,
-            currentAtt,
-            `Fallback (API-Timeout ${timeoutSeconds}s)`,
-            requestHintMode,
-            requestPrevMode
-          )
-        : (() => {
-            const activeProj =
-              projects.find((p) => p.name === activeProjectName && !p.archived) ||
-              projects.find((p) => !p.archived);
-            const plan = buildLocalFallbackPlan(
-              clean,
-              activeProj?.id || 'proj-foodtruck',
-              projects,
-              requestHintMode,
-              requestPrevMode
-            );
-            return {
-              replyText: plan.directAnswer || plan.summary,
-              spokenText: plan.spokenFeedback || plan.summary,
-              needsClarification: Boolean(plan.needsClarification),
-              detectedMode: plan.detectedMode,
-              expectFollowUp: plan.expectFollowUp,
-              engine: `Fallback (API-Timeout ${timeoutSeconds}s)`,
-              actions: []
-            };
-          })();
-
-      if (fallbackRes) {
-        finalizeWithResult(fallbackRes);
-      } else {
-        micLockedRef.current = false;
-        setPhase('IDLE');
-        isSendingRef.current = false;
-      }
+      finalizeWithResult({
+        replyText: 'Die Verbindung hat diesmal zu lange gedauert – es wurde nichts angelegt.',
+        spokenText: 'Die Verbindung hat diesmal zu lange gedauert – es wurde nichts angelegt.',
+        needsClarification: false,
+        detectedMode: requestHintMode,
+        expectFollowUp: false,
+        engine: `Zeitüberschreitung (${timeoutSeconds}s)`,
+        actions: [],
+        isErrorFallback: true,
+        errorReason: 'timeout',
+        retryText: clean,
+        retryAttachment: currentAtt
+      });
     }, requestTimeoutMs);
 
     try {
@@ -1231,9 +1251,19 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
       }
       activeRequestControllerRef.current = null;
       console.warn('[VoiceModal] Fehler bei Sprachausführung:', err);
-      micLockedRef.current = false;
-      setPhase('IDLE');
-      isSendingRef.current = false;
+      finalizeWithResult({
+        replyText: 'Die Verbindung hat diesmal zu lange gedauert – es wurde nichts angelegt.',
+        spokenText: 'Die Verbindung hat diesmal zu lange gedauert – es wurde nichts angelegt.',
+        needsClarification: false,
+        detectedMode: requestHintMode,
+        expectFollowUp: false,
+        engine: 'Verbindungsfehler',
+        actions: [],
+        isErrorFallback: true,
+        errorReason: 'network',
+        retryText: clean,
+        retryAttachment: currentAtt
+      });
     }
   };
 
@@ -1405,8 +1435,11 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                     <Loader2 className="w-3 h-3 animate-spin shrink-0" />
                     <span>Denken &amp; Zuordnen...</span>
                   </div>
-                  <div className="text-xs text-[#9CA3AF] truncate mt-0.5">
-                    Eingabe wird verarbeitet
+                  <div
+                    data-testid={showSlowThinkingNotice ? 'slow-thinking-notice' : undefined}
+                    className="text-xs text-[#94A3B8] truncate mt-0.5"
+                  >
+                    {showSlowThinkingNotice ? 'Gisela denkt noch kurz nach…' : 'Eingabe wird verarbeitet'}
                   </div>
                 </div>
               ) : isSpeaking ? (
@@ -1466,6 +1499,24 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                       Rückgängig
                     </button>
                   )}
+                </div>
+              ) : lastAssistantMsg?.isErrorFallback ? (
+                <div>
+                  <div className="text-xs font-bold text-[#E5A93C] truncate">
+                    Verbindung unterbrochen – nichts angelegt
+                  </div>
+                  <div className="text-xs text-[#94A3B8] truncate mt-0.5">
+                    Antippen für Erneut senden oder Parken
+                  </div>
+                </div>
+              ) : lastAssistantMsg?.text ? (
+                <div>
+                  <div className="text-xs font-extrabold uppercase tracking-wider text-[#94A3B8] truncate">
+                    {activeProjectName}
+                  </div>
+                  <div className="text-xs text-white truncate mt-0.5">
+                    {lastAssistantMsg.text}
+                  </div>
                 </div>
               ) : (
                 <div>
@@ -1873,11 +1924,15 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                   className={`max-w-[90%] rounded-2xl p-3.5 text-xs leading-relaxed transition-all duration-300 ${
                     msg.role === 'user'
                       ? 'bg-[#0A9396] text-white rounded-br-sm'
-                      : 'bg-[#24292E] text-[#F8F9FA] border border-white/10 rounded-bl-sm'
+                      : msg.isErrorFallback
+                        ? 'bg-[#191C22] text-[#F1F5F9] border border-[#E5A93C]/50 rounded-bl-sm'
+                        : 'bg-[#24292E] text-[#F8F9FA] border border-white/10 rounded-bl-sm'
                   }`}
                 >
                   <div className="flex items-center justify-between gap-3 mb-1 text-xs opacity-70">
-                    <span>{msg.role === 'user' ? 'Eingabe' : msg.engine || 'KI-Agent'}</span>
+                    <span className={msg.isErrorFallback ? 'text-[#E5A93C] font-semibold' : ''}>
+                      {msg.role === 'user' ? 'Eingabe' : msg.engine || 'KI-Agent'}
+                    </span>
                     <span>{msg.timestamp}</span>
                   </div>
                   <p className="whitespace-pre-wrap">{msg.text}</p>
@@ -1963,7 +2018,46 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                     </div>
                   )}
 
-                  {msg.role === 'assistant' && (!msg.actions || msg.actions.length === 0) && (
+                  {msg.role === 'assistant' && msg.isErrorFallback && (
+                    <div className="mt-2.5 pt-2.5 border-t border-[#E5A93C]/20 flex flex-wrap items-center gap-2">
+                      {msg.retryText && (
+                        <button
+                          type="button"
+                          disabled={isProcessing}
+                          onClick={() => {
+                            unlockAudioPlayback();
+                            autoSendTriggeredRef.current = true;
+                            void triggerProcess(msg.retryText!, msg.retryAttachment ?? null);
+                          }}
+                          data-testid="btn-retry-voice-message"
+                          className="min-h-[44px] px-3.5 py-2 rounded-xl text-xs font-bold bg-[#E5A93C] text-[#111317] hover:bg-[#eab54d] disabled:opacity-40 active:scale-95 transition flex items-center justify-center gap-1.5"
+                        >
+                          Nochmal senden
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        disabled={Boolean(msg.parkedAsNote)}
+                        onClick={() => {
+                          const noteText = msg.retryText || msg.text;
+                          onSaveAnswerToInfos(
+                            enforceMaxSixWords(noteText, 'Geparkte Notiz'),
+                            noteText,
+                            msg.retryAttachment ?? null
+                          );
+                          setMessages((prev) =>
+                            prev.map((m) => (m.id === msg.id ? { ...m, parkedAsNote: true } : m))
+                          );
+                        }}
+                        data-testid="btn-park-as-note"
+                        className="min-h-[44px] px-3.5 py-2 rounded-xl text-xs font-semibold bg-[#111317] text-[#E5A93C] border border-[#E5A93C]/40 hover:bg-[#E5A93C]/10 disabled:opacity-50 active:scale-95 transition flex items-center justify-center gap-1.5"
+                      >
+                        {msg.parkedAsNote ? 'Als Notiz geparkt ✓' : 'Als Notiz parken'}
+                      </button>
+                    </div>
+                  )}
+
+                  {msg.role === 'assistant' && !msg.isErrorFallback && (!msg.actions || msg.actions.length === 0) && (
                     <div className="mt-2 pt-1.5 border-t border-white/10 flex justify-end">
                       <button
                         type="button"
@@ -1977,6 +2071,15 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                 </div>
               </div>
             ))
+          )}
+          {isProcessing && showSlowThinkingNotice && (
+            <div
+              data-testid="slow-thinking-notice"
+              className="px-2 py-1 text-xs text-[#94A3B8] flex items-center gap-2"
+            >
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-[#E5A93C] shrink-0" />
+              <span>Gisela denkt noch kurz nach…</span>
+            </div>
           )}
           <div ref={scrollEndRef} />
         </div>
