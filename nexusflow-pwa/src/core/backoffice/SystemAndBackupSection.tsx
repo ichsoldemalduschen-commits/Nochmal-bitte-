@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Database, Download, FileUp, Upload, X } from 'lucide-react';
 import { AppStateSnapshot, EventSalesLog, Project, THEME } from '../../types';
 import {
@@ -7,18 +7,33 @@ import {
   getIdbItemSync,
   importFullBackupV2,
   importProjectJsonToTarget,
+  loadIdbItem,
   saveIdbItem
 } from '../../services/storage';
 import { exportSalesLogsCsv } from '../../services/exportBridge';
 import { CloudSyncPanel } from './CloudSyncPanel';
 import { ZentraleAccordion } from './ZentralePrimitives';
 
-interface BlueprintTemplate {
+export interface BlueprintTemplate {
   id: string;
   name: string;
   tasks: string[];
   cart: string[];
 }
+
+const DEFAULT_BLUEPRINTS: BlueprintTemplate[] = [
+  {
+    id: 'bp-event',
+    name: 'Standard-Event Vor-Ort-Checkliste (Pizza Bandit)',
+    tasks: [
+      '[Vorbereitung] Gasflaschen (2x 11kg) + 50 mbar Regler prüfen',
+      '[Vorbereitung] Frischwasser- & Abwasserkanister einsetzen',
+      '[Vorbereitung] Euroboxen mit Teigballen verladen',
+      '[Vor Ort] Saladette-Lift auf 92 cm Arbeitshöhe arretieren'
+    ],
+    cart: ['Einweghandschuhe Nitril', 'Pizzakartons / Servietten']
+  }
+];
 
 interface SystemAndBackupSectionProps {
   isOpen: boolean;
@@ -28,6 +43,7 @@ interface SystemAndBackupSectionProps {
   fullState?: AppStateSnapshot;
   onUpdateProject?: (projectId: string, patch: Partial<Project>) => void;
   onSaveScratchpadToProject: (projectId: string, title: string, content: string) => void;
+  onApplyBlueprint?: (projectId: string, blueprint: BlueprintTemplate) => void;
   onImportFullBackup: (snapshot: AppStateSnapshot) => void;
   onReplaceFullStateFromCloud?: (snapshot: AppStateSnapshot) => void;
   onNotify: (msg: string) => void;
@@ -44,6 +60,7 @@ export const SystemAndBackupSection: React.FC<SystemAndBackupSectionProps> = ({
   fullState,
   onUpdateProject,
   onSaveScratchpadToProject,
+  onApplyBlueprint,
   onImportFullBackup,
   onReplaceFullStateFromCloud,
   onNotify
@@ -51,20 +68,22 @@ export const SystemAndBackupSection: React.FC<SystemAndBackupSectionProps> = ({
   const activeProjects = projects.filter((p) => !p.archived);
 
   const [blueprints, setBlueprints] = useState<BlueprintTemplate[]>(() =>
-    getIdbItemSync<BlueprintTemplate[]>(STORAGE_KEYS.BLUEPRINTS, [
-      {
-        id: 'bp-event',
-        name: 'Standard-Event Vor-Ort-Checkliste (Pizza Bandit)',
-        tasks: [
-          '[Vorbereitung] Gasflaschen (2x 11kg) + 50 mbar Regler prüfen',
-          '[Vorbereitung] Frischwasser- & Abwasserkanister einsetzen',
-          '[Vorbereitung] Euroboxen mit Teigballen verladen',
-          '[Vor Ort] Saladette-Lift auf 92 cm Arbeitshöhe arretieren'
-        ],
-        cart: ['Einweghandschuhe Nitril', 'Pizzakartons / Servietten']
-      }
-    ])
+    getIdbItemSync<BlueprintTemplate[]>(STORAGE_KEYS.BLUEPRINTS, DEFAULT_BLUEPRINTS)
   );
+
+  useEffect(() => {
+    let cancelled = false;
+    void loadIdbItem<BlueprintTemplate[]>(STORAGE_KEYS.BLUEPRINTS, DEFAULT_BLUEPRINTS).then(
+      (loaded) => {
+        if (!cancelled && Array.isArray(loaded)) {
+          setBlueprints(loaded);
+        }
+      }
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const [selectedBlueprintProjectId, setSelectedBlueprintProjectId] = useState(
     projects[0]?.id || 'proj-foodtruck'
   );
@@ -92,9 +111,16 @@ export const SystemAndBackupSection: React.FC<SystemAndBackupSectionProps> = ({
     };
     const next = [bp, ...blueprints];
     setBlueprints(next);
-    saveIdbItem(STORAGE_KEYS.BLUEPRINTS, next);
+    void saveIdbItem(STORAGE_KEYS.BLUEPRINTS, next);
     setNewBlueprintName('');
     onNotify(`Vorlage "${bp.name}" im Tresor gespeichert.`);
+  };
+
+  const handleDeleteBlueprint = (bpId: string, bpName: string) => {
+    const next = blueprints.filter((b) => b.id !== bpId);
+    setBlueprints(next);
+    void saveIdbItem(STORAGE_KEYS.BLUEPRINTS, next);
+    onNotify(`Vorlage "${bpName}" gelöscht.`);
   };
 
   const handleBackupUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -367,7 +393,7 @@ export const SystemAndBackupSection: React.FC<SystemAndBackupSectionProps> = ({
           {blueprints.map((bp) => (
             <div
               key={bp.id}
-              className="p-3 rounded-2xl bg-[#242930] border border-white/5 flex items-center justify-between gap-2"
+              className="p-3 rounded-2xl bg-[#242930] border border-white/5 flex items-center justify-between gap-2 flex-wrap"
             >
               <div className="min-w-0 flex-1">
                 <div className="text-xs font-bold text-white break-words">{bp.name}</div>
@@ -375,21 +401,35 @@ export const SystemAndBackupSection: React.FC<SystemAndBackupSectionProps> = ({
                   {bp.tasks.length} Tasks • {bp.cart.length} Einkaufs-Artikel
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  onSaveScratchpadToProject(
-                    selectedBlueprintProjectId,
-                    bp.name,
-                    `Checklisten-Vorlage:\n${bp.tasks.map((t) => `- ${t}`).join('\n')}`
-                  );
-                  onNotify(`Vorlage "${bp.name}" in Projekt-Infos hinterlegt.`);
-                }}
-                className="min-h-[44px] px-3.5 py-1.5 rounded-xl text-xs font-bold text-white shrink-0 active:scale-95 transition cursor-pointer"
-                style={{ backgroundColor: THEME.accentPrimary }}
-              >
-                Einspielen
-              </button>
+              <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (onApplyBlueprint) {
+                      onApplyBlueprint(selectedBlueprintProjectId, bp);
+                    } else {
+                      onSaveScratchpadToProject(
+                        selectedBlueprintProjectId,
+                        bp.name,
+                        `Checklisten-Vorlage:\n${bp.tasks.map((t) => `- ${t}`).join('\n')}`
+                      );
+                      onNotify(`Vorlage "${bp.name}" in Projekt-Infos hinterlegt.`);
+                    }
+                  }}
+                  className="min-h-[44px] px-3.5 py-1.5 rounded-xl text-xs font-bold text-white shrink-0 active:scale-95 transition cursor-pointer"
+                  style={{ backgroundColor: THEME.accentPrimary }}
+                >
+                  Einspielen
+                </button>
+                <button
+                  type="button"
+                  aria-label={`Vorlage ${bp.name} löschen`}
+                  onClick={() => handleDeleteBlueprint(bp.id, bp.name)}
+                  className="min-h-[44px] px-3 py-1.5 rounded-xl text-xs font-semibold bg-[#181A1B] text-[#94A3B8] hover:text-[#E5A93C] border border-white/10 shrink-0 active:scale-95 transition cursor-pointer"
+                >
+                  Löschen
+                </button>
+              </div>
             </div>
           ))}
         </div>

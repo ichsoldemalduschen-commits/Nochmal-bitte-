@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Cloud, Download, Loader2, Upload } from 'lucide-react';
 import { AppStateSnapshot } from '../../types';
 import { DESIGN_TOKENS } from '../../config/designTokens';
@@ -9,6 +9,7 @@ import {
   pushStateToCloud,
   saveCloudConfig
 } from '../../services/cloudSyncAndPush';
+import { ZentraleToggleRow } from './ZentralePrimitives';
 
 interface CloudSyncPanelProps {
   fullState?: AppStateSnapshot;
@@ -28,6 +29,19 @@ export const CloudSyncPanel: React.FC<CloudSyncPanelProps> = ({
 }) => {
   const [cloudCfg, setCloudCfg] = useState<CloudSyncConfig>(loadCloudConfig);
   const [isSyncingCloud, setIsSyncingCloud] = useState(false);
+
+  useEffect(() => {
+    const onConfigUpdated = (ev: Event) => {
+      const detail = (ev as CustomEvent<CloudSyncConfig>).detail;
+      if (detail) {
+        setCloudCfg(detail);
+      } else {
+        setCloudCfg(loadCloudConfig());
+      }
+    };
+    window.addEventListener('banditos:cloud-config-updated', onConfigUpdated);
+    return () => window.removeEventListener('banditos:cloud-config-updated', onConfigUpdated);
+  }, []);
 
   return (
     <div className="p-3.5 rounded-2xl bg-[#242930] border border-white/5 space-y-3">
@@ -87,6 +101,26 @@ export const CloudSyncPanel: React.FC<CloudSyncPanelProps> = ({
             className="w-full min-w-0 min-h-[44px] px-3.5 py-2 rounded-xl text-xs font-mono bg-[#181A1B] text-[#F1F5F9] border border-white/10 focus:outline-none focus:border-[#14B8A6]"
           />
         </div>
+
+        <ZentraleToggleRow
+          title="Auto-Sync bei Änderungen (5s Debounce)"
+          description="Lädt geänderte Projekte automatisch hoch, sobald Cloud-Sync & URL aktiv sind"
+          checked={cloudCfg.autoSyncOnChange}
+          onToggle={() => {
+            const next = { ...cloudCfg, autoSyncOnChange: !cloudCfg.autoSyncOnChange };
+            setCloudCfg(next);
+            saveCloudConfig(next);
+            onNotify(
+              next.autoSyncOnChange
+                ? 'Automatischer Cloud-Sync bei Änderungen aktiviert.'
+                : 'Automatischer Cloud-Sync deaktiviert.'
+            );
+          }}
+          onLabel="An"
+          offLabel="Aus"
+          testId="toggle-auto-sync-on-change"
+          containerClassName="p-3 rounded-xl bg-[#181A1B] border border-white/5"
+        />
       </div>
 
       <div className="grid grid-cols-2 gap-2 pt-1">

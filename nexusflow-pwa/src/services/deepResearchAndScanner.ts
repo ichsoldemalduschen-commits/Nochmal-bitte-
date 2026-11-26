@@ -78,6 +78,7 @@ export function inspectAndQueueCriticalTopic(
   projectName: string,
   allProjects: Project[]
 ): void {
+  if (!loadAuditSettings().weeklyAutoAuditEnabled) return;
   const criticalRegex = BRAND_CONFIG.criticalAuditKeywords;
   if (!criticalRegex.test(text)) return;
 

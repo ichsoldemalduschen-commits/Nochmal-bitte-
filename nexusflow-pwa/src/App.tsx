@@ -7,6 +7,7 @@ import {
   AmbientLightMode,
   AppStateSnapshot,
   Attachment,
+  BanditUserPreferences,
   CartItem,
   DomainType,
   KnowledgeItem,
@@ -29,8 +30,11 @@ import {
   formatNow,
   loadAiVoiceSettings,
   loadPersistedState,
+  loadUserPrefs,
+  loadUserPrefsAsync,
   saveAiVoiceSettings,
   savePersistedState,
+  saveUserPrefs,
   requestStoragePersistence,
   migrateLocalStorageToIDB,
   loadIdbItem,
@@ -61,6 +65,7 @@ import { FloatingCartOverlay } from './core/front/FloatingCartOverlay';
 import { DeepResearchAndAuditModal } from './components/DeepResearchAndAuditModal';
 import {
   computeNextRecurrenceReminder,
+  DEFAULT_CLOUD_CONFIG,
   formatReminderBadge,
   loadCloudConfig,
   pushStateToCloud,
@@ -68,14 +73,10 @@ import {
 } from './services/cloudSyncAndPush';
 import { useReminderEngine } from './hooks/useReminderEngine';
 import {
-  inspectAndQueueCriticalTopic,
-  loadAuditSettings,
-  loadAuditWatchlist,
-  runDeepResearchWithCitations,
-  saveAuditSettings,
-  saveAuditWatchlist
+  inspectAndQueueCriticalTopic
 } from './services/deepResearchAndScanner';
 import { BackofficeWorkspace, ZentraleSectionId } from './core/BackofficeWorkspace';
+import type { BlueprintTemplate } from './core/backoffice/SystemAndBackupSection';
 
 interface PhotoMeasurePin {
   id: string;
@@ -133,6 +134,18 @@ export default function App() {
   const [companionIsListening, setCompanionIsListening] = useState(false);
   const [companionIsProcessing, setCompanionIsProcessing] = useState(false);
   const [companionIsSpeaking, setCompanionIsSpeaking] = useState(false);
+  const [prefs, setPrefs] = useState<BanditUserPreferences>(loadUserPrefs);
+  const [forceSingleViewSeq, setForceSingleViewSeq] = useState(0);
+  const skipNextAutoSyncRef = useRef<boolean>(true);
+  const autoSyncTimerRef = useRef<number | null>(null);
+
+  const handleUpdatePrefs = (patch: Partial<BanditUserPreferences>) => {
+    setPrefs((prev) => {
+      const next = { ...prev, ...patch };
+      void saveUserPrefs(next);
+      return next;
+    });
+  };
 
   const aiVoiceSettings: AiVoiceSettings = state.aiVoiceSettings || DEFAULT_AI_VOICE_SETTINGS;
   const aiVoiceSettingsRef = useRef<AiVoiceSettings>(aiVoiceSettings);
@@ -220,22 +233,54 @@ export default function App() {
   const { activeReminder, dismissActiveReminder } = useReminderEngine({
     projects: state.projects,
     enabled: state.remindersEnabled !== false,
+    systemPushEnabled: prefs.reminderSystemPushEnabled !== false,
     hydrated,
     onMarkReminderFired: handleMarkReminderFired
   });
+
+  useEffect(() => {
+    document.documentElement.dataset.density = prefs.uiDensity || 'standard';
+  }, [prefs.uiDensity]);
+
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || typeof navigator.vibrate !== 'function') return;
+    const originalVibrate = navigator.vibrate.bind(navigator);
+    try {
+      navigator.vibrate = ((pattern: VibratePattern) => {
+        if (loadUserPrefs().hapticsEnabled === false) {
+          return false;
+        }
+        return originalVibrate(pattern);
+      }) as typeof navigator.vibrate;
+    } catch {
+      return;
+    }
+    return () => {
+      try {
+        navigator.vibrate = originalVibrate;
+      } catch {
+        // ignore
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const onResize = () => {
       // Only auto-update cover mode when ?mode=cover is NOT explicitly set in the URL.
       const urlForcedCover =
         new URLSearchParams(window.location.search).get('mode') === 'cover';
-      if (!urlForcedCover) {
-        setFlip7CoverMode(isCoverScreenEnvironment());
+      if (urlForcedCover) {
+        setFlip7CoverMode(true);
+        return;
       }
+      if (prefs.flipCoverAutoDetect === false) {
+        return;
+      }
+      setFlip7CoverMode(isCoverScreenEnvironment());
     };
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
-  }, []);
+  }, [prefs.flipCoverAutoDetect]);
 
   useEffect(() => {
     let cancelled = false;
@@ -243,9 +288,18 @@ export default function App() {
       // 1. Silent IDB migration & request storage persistence BEFORE loading settings
       requestStoragePersistence();
       await migrateLocalStorageToIDB();
-      const pins = await loadIdbItem<Record<string, PhotoMeasurePin[]>>(STORAGE_KEYS.PHOTO_PINS, {});
+      const [pins, loadedPrefs] = await Promise.all([
+        loadIdbItem<Record<string, PhotoMeasurePin[]>>(STORAGE_KEYS.PHOTO_PINS, {}),
+        loadUserPrefsAsync(),
+        loadIdbItem(STORAGE_KEYS.CLOUD_SYNC, DEFAULT_CLOUD_CONFIG),
+        loadIdbItem(STORAGE_KEYS.AUDIT_SETTINGS, { weeklyAutoAuditEnabled: true, lastRunIso: null }),
+        loadIdbItem(STORAGE_KEYS.BLUEPRINTS, [])
+      ]);
       if (!cancelled && pins && Object.keys(pins).length > 0) {
         setPhotoPins(pins);
+      }
+      if (!cancelled) {
+        setPrefs(loadedPrefs);
       }
 
       // 2. Load persisted app state & unified AI/Voice settings
@@ -273,6 +327,7 @@ export default function App() {
       });
 
       aiVoiceSettingsRef.current = loadedAiVoiceSettings;
+      skipNextAutoSyncRef.current = true;
       setState({
         ...INITIAL_APP_SNAPSHOT,
         ...loaded,
@@ -296,6 +351,35 @@ export default function App() {
   useEffect(() => {
     if (!hydrated) return;
     savePersistedState(state);
+
+    if (skipNextAutoSyncRef.current) {
+      skipNextAutoSyncRef.current = false;
+      return;
+    }
+
+    const cloudCfg = loadCloudConfig();
+    if (!cloudCfg.enabled || !cloudCfg.autoSyncOnChange || !cloudCfg.endpointUrl.trim()) {
+      return;
+    }
+
+    if (autoSyncTimerRef.current !== null) {
+      window.clearTimeout(autoSyncTimerRef.current);
+    }
+
+    const snapshotToPush = state;
+    autoSyncTimerRef.current = window.setTimeout(() => {
+      autoSyncTimerRef.current = null;
+      void pushStateToCloud(snapshotToPush).catch(() => {
+        // Ruhige, stille Fehlerbehandlung im Offline-Betrieb
+      });
+    }, 5000);
+
+    return () => {
+      if (autoSyncTimerRef.current !== null) {
+        window.clearTimeout(autoSyncTimerRef.current);
+        autoSyncTimerRef.current = null;
+      }
+    };
   }, [state, hydrated]);
 
   const toggleCoverMode = (enable: boolean) => {
@@ -792,8 +876,90 @@ export default function App() {
   };
 
   const handleReplaceFullStateFromCloud = (newState: AppStateSnapshot) => {
+    skipNextAutoSyncRef.current = true;
     setState(newState);
     notify('Datenstand aus der Cloud übernommen.');
+  };
+
+  const handleApplyBlueprint = (projectId: string, blueprint: BlueprintTemplate) => {
+    const targetProj =
+      state.projects.find((p) => p.id === projectId) ||
+      state.projects.find((p) => !p.archived) ||
+      state.projects[0];
+    if (!targetProj) return;
+
+    const ts = formatNow();
+    const stamp = Date.now();
+    const newTasks: TaskItem[] = (blueprint.tasks || [])
+      .map((raw) => raw.trim())
+      .filter(Boolean)
+      .map((raw, idx) => {
+        const bracketMatch = raw.match(/^\[([^\]]+)\]\s*(.+)$/);
+        return {
+          id: `t-bp-${stamp}-${idx}`,
+          title: bracketMatch ? bracketMatch[2].trim() : raw,
+          completed: false,
+          priority: 'Mittel',
+          estimatedMinutes: 25,
+          dayBlock: null,
+          reminderAt: '',
+          aiTouched: false,
+          lastModified: ts,
+          changeReason: `Aus Vorlage: ${blueprint.name}`,
+          source: 'Vorlage',
+          assemblyGroup: bracketMatch ? bracketMatch[1].trim() : undefined,
+          customMeta: {}
+        };
+      });
+
+    const newCart: CartItem[] = (blueprint.cart || [])
+      .map((raw) => raw.trim())
+      .filter(Boolean)
+      .map((title, idx) => ({
+        id: `c-bp-${stamp}-${idx}`,
+        title,
+        quantity: '1x',
+        price: '',
+        completed: false,
+        aiTouched: false,
+        lastModified: ts,
+        changeReason: `Aus Vorlage: ${blueprint.name}`,
+        source: 'Vorlage',
+        procurementCheck: buildProcurementCheck(title),
+        customMeta: {}
+      }));
+
+    const infoSummaryParts: string[] = [];
+    if (newTasks.length > 0) {
+      infoSummaryParts.push(`Aufgaben:\n${blueprint.tasks.map((t) => `- ${t}`).join('\n')}`);
+    }
+    if (newCart.length > 0) {
+      infoSummaryParts.push(`Einkauf:\n${blueprint.cart.map((c) => `- ${c}`).join('\n')}`);
+    }
+
+    const newInfo: KnowledgeItem = {
+      id: `k-bp-${stamp}`,
+      title: enforceMaxSixWords(blueprint.name, 'Vorlage'),
+      kind: 'info',
+      content: infoSummaryParts.join('\n\n') || blueprint.name,
+      attachments: [],
+      lastModified: ts,
+      changeReason: 'Vorlage eingespielt',
+      source: 'Vorlage',
+      aiTouched: false,
+      customMeta: {}
+    };
+
+    updateProject(targetProj.id, (p) => ({
+      ...p,
+      tasks: [...newTasks, ...p.tasks],
+      cart: [...newCart, ...p.cart],
+      knowledge: [newInfo, ...(p.knowledge || [])]
+    }));
+
+    notify(
+      `Vorlage "${blueprint.name}" eingespielt (${newTasks.length} Aufgaben, ${newCart.length} Einkäufe).`
+    );
   };
 
   const handleAddKnowledge = (
@@ -1571,6 +1737,9 @@ export default function App() {
               }}
               onOpenFloatingCart={() => setFloatingCartOpen(true)}
               isFloatingCartOpen={floatingCartOpen}
+              prefs={prefs}
+              onUpdatePrefs={handleUpdatePrefs}
+              forceSingleViewSeq={forceSingleViewSeq}
               ambientLightMode={state.ambientLightMode || 'shimmer'}
               onSaveDossierToProject={handleSaveDossierToProject}
               onReconcileReceiptWithCart={handleReconcileReceiptWithCart}
@@ -1645,11 +1814,13 @@ export default function App() {
               onSaveScratchpadToProject={(projId, title, content) => {
                 handleAddKnowledge(projId, 'info', title, content);
               }}
+              onApplyBlueprint={handleApplyBlueprint}
               onChangeApiKey={(key) => setState((prev) => ({ ...prev, userApiKey: key }))}
               onToggleRealityCheck={() =>
                 setState((prev) => ({ ...prev, realityCheckEnabled: !prev.realityCheckEnabled }))
               }
               onChangeHaWebhook={(url) => setState((prev) => ({ ...prev, haWebhookUrl: url }))}
+              onChangeHaEmbed={(url) => setState((prev) => ({ ...prev, haEmbedUrl: url }))}
               onOpenFlip7Cover={() => toggleCoverMode(true)}
               onOpenRealityModal={() => setRealityModalOpen(true)}
               onOpenSelfCheckModal={() => setSelfCheckModalOpen(true)}
@@ -1667,9 +1838,13 @@ export default function App() {
               }}
               aiVoiceSettings={aiVoiceSettings}
               onUpdateAiVoiceSettings={handleUpdateAiVoiceSettings}
+              prefs={prefs}
+              onUpdatePrefs={handleUpdatePrefs}
               onExportFullBackup={handleExportFullBackup}
               onImportFullBackup={(snap) => {
+                skipNextAutoSyncRef.current = true;
                 setState(snap);
+                void loadUserPrefsAsync().then(setPrefs);
                 notify('Backup geladen.');
               }}
               onUploadProjectLogo={async (projId, file) => {
@@ -1703,12 +1878,17 @@ export default function App() {
           state.thumbHubEnabled !== false ? (
             <HexThumbHub
               position={state.thumbHubPosition || 'center'}
+              organicMotion={prefs.organicMotion !== false}
+              cartOpenMode={prefs.cartOpenMode || 'floating'}
               activeProject={activeProject}
               domainProjects={domainProjects}
               allProjects={state.projects}
               activeTab={activeProjectTab}
               onSelectProject={(id) => setSelectedProjectId(id)}
-              onChangeTab={(tab) => setActiveProjectTab(tab)}
+              onChangeTab={(tab) => {
+                setActiveProjectTab(tab);
+                setForceSingleViewSeq((s) => s + 1);
+              }}
               onOpenVoice={(stage) => handleOpenVoice(stage || 1, true)}
               onOpenDeepResearch={() => setDeepResearchModalOpen(true)}
               onOpenSingleFocus={(taskId) => {
@@ -1820,6 +2000,7 @@ export default function App() {
           onSwitchToFullScreen={() => {
             setFloatingCartOpen(false);
             setActiveProjectTab('cart');
+            setForceSingleViewSeq((s) => s + 1);
           }}
           activeProject={activeProject || BRAND_CONFIG.projects['proj-foodtruck'] || state.projects[0]}
           allProjects={state.projects}

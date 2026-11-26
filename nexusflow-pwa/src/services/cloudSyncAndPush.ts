@@ -1,7 +1,6 @@
 import { AppStateSnapshot, Project, ReminderRecurrence, TaskItem } from '../types';
-import { triggerHapticFeedback } from './aiRouter';
 import { BRAND_CONFIG } from '../config/brandConfig';
-import { STORAGE_KEYS, getIdbItemSync, saveIdbItem } from './storage';
+import { STORAGE_KEYS, getIdbItemSync, saveIdbItem, triggerHapticFeedback } from './storage';
 
 export interface CloudSyncConfig {
   enabled: boolean;
@@ -27,6 +26,9 @@ export function loadCloudConfig(): CloudSyncConfig {
 
 export function saveCloudConfig(cfg: CloudSyncConfig): void {
   saveIdbItem(STORAGE_KEYS.CLOUD_SYNC, cfg);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('banditos:cloud-config-updated', { detail: cfg }));
+  }
 }
 
 /**
@@ -252,13 +254,7 @@ export async function triggerDesktopReminderNotification(
   projectName: string,
   taskTitle: string
 ): Promise<void> {
-  if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
-    try {
-      navigator.vibrate([100, 50, 100]);
-    } catch {
-      // ignore
-    }
-  }
+  triggerHapticFeedback([100, 50, 100]);
 
   if (typeof window === 'undefined' || !('Notification' in window)) return;
   if (Notification.permission !== 'granted') return;

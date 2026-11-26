@@ -11,7 +11,7 @@ import {
   Sparkles,
   X
 } from 'lucide-react';
-import { DomainType, Project, ProjectTabId } from '../../types';
+import { CartOpenMode, DomainType, Project, ProjectTabId } from '../../types';
 import { BRAND_CONFIG } from '../../config/brandConfig';
 import { ProjectAvatar } from '../../components/RaccoonAvatar';
 import { ZentraleSectionId } from '../BackofficeWorkspace';
@@ -26,6 +26,7 @@ interface NavigationDrawerProps {
   activeProject?: Project;
   viewAllSections: boolean;
   activeTab: ProjectTabId;
+  cartOpenMode?: CartOpenMode;
   onSelectProjectAndSection: (proj: Project, tab: ProjectTabId | 'ALL') => void;
   onClose: () => void;
   onOpenNewProjectModal: () => void;
@@ -44,6 +45,7 @@ export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({
   activeProject,
   viewAllSections,
   activeTab,
+  cartOpenMode = 'floating',
   onSelectProjectAndSection,
   onClose,
   onOpenNewProjectModal,
@@ -229,7 +231,7 @@ export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({
             <button
               type="button"
               onClick={() => {
-                if (onOpenFloatingCart) {
+                if (cartOpenMode !== 'tab' && onOpenFloatingCart) {
                   onOpenFloatingCart();
                 } else {
                   const target = activeProject || workProjects[0] || privateProjects[0];

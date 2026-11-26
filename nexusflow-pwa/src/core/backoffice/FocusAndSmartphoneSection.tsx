@@ -1,14 +1,15 @@
-import React from 'react';
-import { Brain, Compass, HeartHandshake } from 'lucide-react';
-import { AmbientLightMode, DayBlockId, Project, THEME } from '../../types';
-import { BanditUserPreferences } from '../../services/aiRouter';
+import React, { useState } from 'react';
+import { Brain, ChevronDown, ChevronUp, Compass, HeartHandshake } from 'lucide-react';
+import { AmbientLightMode, BanditUserPreferences, DayBlockId, Project, SelfCheckEntry, THEME } from '../../types';
 import { exportDayPlanIcs } from '../../services/exportBridge';
+import { SelfCheckHistoryPanel } from '../../plugins/mindfulChecks';
 import { ZentraleAccordion, ZentraleToggleRow } from './ZentralePrimitives';
 
 interface FocusAndSmartphoneSectionProps {
   isOpen: boolean;
   onToggle: () => void;
   projects: Project[];
+  selfChecks?: SelfCheckEntry[];
   prefs: BanditUserPreferences;
   onUpdatePrefs: (patch: Partial<BanditUserPreferences>) => void;
   ambientLightMode: AmbientLightMode;
@@ -17,6 +18,8 @@ interface FocusAndSmartphoneSectionProps {
   thumbHubPosition: 'left' | 'center' | 'right';
   onToggleThumbHub?: (enabled: boolean) => void;
   onChangeThumbHubPosition?: (pos: 'left' | 'center' | 'right') => void;
+  realityCheckEnabled?: boolean;
+  onToggleRealityCheck?: () => void;
   onAssignDayBlock: (projectId: string, taskId: string, block: DayBlockId | null) => void;
   onAutoStructureDay: () => void;
   onOpenFlip7Cover: () => void;
@@ -31,6 +34,7 @@ export const FocusAndSmartphoneSection: React.FC<FocusAndSmartphoneSectionProps>
   isOpen,
   onToggle,
   projects,
+  selfChecks = [],
   prefs,
   onUpdatePrefs,
   ambientLightMode,
@@ -39,12 +43,15 @@ export const FocusAndSmartphoneSection: React.FC<FocusAndSmartphoneSectionProps>
   thumbHubPosition,
   onToggleThumbHub,
   onChangeThumbHubPosition,
+  realityCheckEnabled = true,
+  onToggleRealityCheck,
   onAssignDayBlock,
   onAutoStructureDay,
   onOpenFlip7Cover,
   onOpenRealityModal,
   onOpenSelfCheckModal
 }) => {
+  const [historyOpen, setHistoryOpen] = useState(false);
   const activeProjects = projects.filter((p) => !p.archived);
   const allOpenTasks = activeProjects.flatMap((p) =>
     p.tasks.filter((t) => !t.completed).map((t) => ({ project: p, task: t }))
@@ -103,8 +110,8 @@ export const FocusAndSmartphoneSection: React.FC<FocusAndSmartphoneSectionProps>
               },
               {
                 key: 'adhdTimeBufferAndHaptics' as const,
-                title: '4. Zeitblindheits-Puffer (+25 %) & Haptik-Impuls',
-                desc: 'Rechnet 25 % Pufferzeit für Rüstwege ein und vibriert beim Abhaken'
+                title: '4. Zeitblindheits-Puffer (+25 %)',
+                desc: 'Rechnet 25 % Pufferzeit für Rüstwege ein (Vibration separat steuerbar)'
               }
             ].map((item) => (
               <ZentraleToggleRow
@@ -137,25 +144,39 @@ export const FocusAndSmartphoneSection: React.FC<FocusAndSmartphoneSectionProps>
               { id: 'compact', label: 'Kompakt' },
               { id: 'standard', label: 'Standard' },
               { id: 'large', label: 'Groß (Baustelle)' }
-            ].map((d) => (
-              <button
-                type="button"
-                key={d.id}
-                onClick={() => onUpdatePrefs({ uiDensity: d.id as BanditUserPreferences['uiDensity'] })}
-                className={`flex-1 min-w-[104px] min-h-[44px] px-3 py-2 rounded-xl text-xs font-bold border transition active:scale-95 cursor-pointer ${
-                  prefs.uiDensity === d.id
-                    ? 'text-white border-white/30'
-                    : 'bg-[#242930] text-[#94A3B8] border-white/5'
-                }`}
-                style={
-                  prefs.uiDensity === d.id ? { backgroundColor: THEME.accentPrimary } : {}
-                }
-              >
-                {d.label}
-              </button>
-            ))}
+            ].map((d) => {
+              const isSelected = (prefs.uiDensity || 'standard') === d.id;
+              return (
+                <button
+                  type="button"
+                  key={d.id}
+                  data-testid={`ui-density-${d.id}`}
+                  onClick={() => onUpdatePrefs({ uiDensity: d.id as BanditUserPreferences['uiDensity'] })}
+                  className={`flex-1 min-w-[104px] min-h-[44px] px-3 py-2 rounded-xl text-xs font-bold border transition active:scale-95 cursor-pointer ${
+                    isSelected
+                      ? 'text-white border-white/30'
+                      : 'bg-[#242930] text-[#94A3B8] border-white/5'
+                  }`}
+                  style={
+                    isSelected ? { backgroundColor: THEME.accentPrimary } : {}
+                  }
+                >
+                  {d.label}
+                </button>
+              );
+            })}
           </div>
         </div>
+
+        <ZentraleToggleRow
+          title="Organische Begleiter-Animation"
+          description="Puls-Ringe & sanfte Bewegung beim Zuhören und Öffnen"
+          checked={prefs.organicMotion !== false}
+          onToggle={() => onUpdatePrefs({ organicMotion: !(prefs.organicMotion !== false) })}
+          onLabel="An"
+          offLabel="Aus"
+          testId="toggle-organic-motion"
+        />
 
         <div className="p-3.5 rounded-2xl bg-[#242930] border border-white/5 space-y-2.5">
           <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -260,6 +281,46 @@ export const FocusAndSmartphoneSection: React.FC<FocusAndSmartphoneSectionProps>
             </div>
           </div>
         )}
+
+        <ZentraleToggleRow
+          title="Haptik / Vibration"
+          description="Kurzer Vibrations-Impuls bei Aktionen (entkoppelt vom +25 %-Zeitpuffer)"
+          checked={prefs.hapticsEnabled !== false}
+          onToggle={() => onUpdatePrefs({ hapticsEnabled: !(prefs.hapticsEnabled !== false) })}
+          onLabel="An"
+          offLabel="Aus"
+          testId="toggle-haptics-enabled"
+        />
+
+        <div className="p-3.5 rounded-2xl bg-[#242930] border border-white/5 space-y-2">
+          <label className="text-xs text-[#94A3B8] block font-medium">
+            Einkaufswagen-Startmodus:
+          </label>
+          <div className="grid grid-cols-2 gap-2">
+            {[
+              { id: 'floating' as const, label: 'Schwebend (Overlay)' },
+              { id: 'tab' as const, label: 'Vollbild-Tab' }
+            ].map((modeOpt) => {
+              const isSelected = (prefs.cartOpenMode || 'floating') === modeOpt.id;
+              return (
+                <button
+                  type="button"
+                  key={modeOpt.id}
+                  data-testid={`cart-open-mode-${modeOpt.id}`}
+                  onClick={() => onUpdatePrefs({ cartOpenMode: modeOpt.id })}
+                  className={`min-h-[44px] px-3 py-2 rounded-xl text-xs font-bold border transition active:scale-95 cursor-pointer ${
+                    isSelected
+                      ? 'text-white border-white/30'
+                      : 'bg-[#181A1B] text-[#94A3B8] border-white/10 hover:text-white'
+                  }`}
+                  style={isSelected ? { backgroundColor: THEME.accentPrimary } : {}}
+                >
+                  {modeOpt.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
       </div>
 
       {/* ── Tagesplaner & Kalender-Export (390-px-Fix) ── */}
@@ -334,12 +395,38 @@ export const FocusAndSmartphoneSection: React.FC<FocusAndSmartphoneSectionProps>
         >
           Frontdisplay-Kompaktansicht öffnen
         </button>
+
+        <ZentraleToggleRow
+          title="Flip-7 Auto-Erkennung"
+          description="Erkennt schmales Cover-Display automatisch beim Zuklappen (?mode=cover bleibt immer aktiv)"
+          checked={prefs.flipCoverAutoDetect !== false}
+          onToggle={() =>
+            onUpdatePrefs({ flipCoverAutoDetect: !(prefs.flipCoverAutoDetect !== false) })
+          }
+          onLabel="An"
+          offLabel="Aus"
+          testId="toggle-flip-cover-auto-detect"
+        />
+
+        {onToggleRealityCheck && (
+          <ZentraleToggleRow
+            title="Reality-Check aktivieren"
+            description="3-Fragen-Fokus-Impuls im Alltag griffbereit halten"
+            checked={realityCheckEnabled}
+            onToggle={onToggleRealityCheck}
+            onLabel="An"
+            offLabel="Aus"
+            testId="toggle-reality-check"
+          />
+        )}
+
         <div className="grid grid-cols-2 gap-2">
           {onOpenRealityModal && (
             <button
               type="button"
+              disabled={!realityCheckEnabled}
               onClick={onOpenRealityModal}
-              className="min-h-[44px] p-2.5 rounded-xl bg-[#242930] border border-white/5 text-xs font-bold text-white flex items-center justify-center gap-2 active:scale-95 transition cursor-pointer"
+              className="min-h-[44px] p-2.5 rounded-xl bg-[#242930] border border-white/5 text-xs font-bold text-white flex items-center justify-center gap-2 active:scale-95 transition cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed"
             >
               <Compass className="w-4 h-4 text-[#14B8A6] shrink-0" />
               <span>Reality-Check</span>
@@ -354,6 +441,40 @@ export const FocusAndSmartphoneSection: React.FC<FocusAndSmartphoneSectionProps>
               <HeartHandshake className="w-4 h-4 text-[#14B8A6] shrink-0" />
               <span>Selbst-Check</span>
             </button>
+          )}
+        </div>
+
+        {/* Standardmäßig zugeklappte Unterkarte für Selbst-Check-Verlauf */}
+        <div className="rounded-2xl bg-[#242930] border border-white/5 overflow-hidden">
+          <button
+            type="button"
+            aria-expanded={historyOpen}
+            data-testid="toggle-selfcheck-history"
+            onClick={() => setHistoryOpen((v) => !v)}
+            className="w-full min-h-[44px] px-3.5 py-2.5 flex items-center justify-between gap-2 text-left active:bg-white/5 transition cursor-pointer"
+          >
+            <span className="text-xs font-bold text-[#F1F5F9]">Selbst-Check-Verlauf</span>
+            <div className="flex items-center gap-2 shrink-0">
+              <span className="text-xs font-mono text-[#94A3B8]">
+                {selfChecks.length} {selfChecks.length === 1 ? 'Eintrag' : 'Einträge'}
+              </span>
+              {historyOpen ? (
+                <ChevronUp className="w-4 h-4 text-[#94A3B8]" />
+              ) : (
+                <ChevronDown className="w-4 h-4 text-[#94A3B8]" />
+              )}
+            </div>
+          </button>
+          {historyOpen && (
+            <div className="px-3.5 pb-3.5 pt-2 border-t border-white/5">
+              {selfChecks.length === 0 ? (
+                <p className="text-xs text-[#94A3B8]">
+                  Noch keine Selbst-Checks gespeichert.
+                </p>
+              ) : (
+                <SelfCheckHistoryPanel entries={selfChecks} />
+              )}
+            </div>
           )}
         </div>
       </div>

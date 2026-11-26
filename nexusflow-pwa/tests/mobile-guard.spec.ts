@@ -1222,4 +1222,110 @@ test.describe('Block C: Mobile-Guard 390×844 px Gesamt-Schutznetz', () => {
     await expect(page.locator('button:has-text("Stimme Gisela testen")')).toBeVisible();
     await assertNoHorizontalOverflow(page, 'Station 15 – Knowledge-Deep-Link in Bereich 3');
   });
+
+  test('Station 16 – Zentrale v2 Toggle-Offensive: uiDensity large (390px-Schutz), IDB-Persistenz neuer Toggles & Smart-Home geschlossene Schublade', async ({ page }) => {
+    await page.goto('./');
+    await page.waitForLoadState('domcontentloaded');
+
+    // 1. Zentrale öffnen -> Bereich 2 (Fokus, Bedienung & Smartphone) aufklappen
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    await page.getByRole('button', { name: 'Zentrale', exact: true }).click();
+
+    const section2Btn = page.locator('button:has-text("Fokus, Bedienung & Smartphone")');
+    await expect(section2Btn).toBeVisible();
+    await section2Btn.click();
+    await assertNoHorizontalOverflow(page, 'Station 16 – Bereich 2 geöffnet');
+
+    // 2. uiDensity auf Groß umschalten -> data-density="large" & scrollWidth <= 390 prüfen -> zurück auf Standard
+    const largeDensityBtn = page.locator('[data-testid="ui-density-large"]');
+    const standardDensityBtn = page.locator('[data-testid="ui-density-standard"]');
+    await expect(largeDensityBtn).toBeVisible();
+    await largeDensityBtn.click();
+
+    await expect
+      .poll(async () => page.evaluate(() => document.documentElement.dataset.density))
+      .toBe('large');
+    await assertNoHorizontalOverflow(page, 'Station 16 – uiDensity large (17px root)');
+
+    await standardDensityBtn.click();
+    await expect
+      .poll(async () => page.evaluate(() => document.documentElement.dataset.density))
+      .toBe('standard');
+
+    // 3. Neue Toggles prüfen, umschalten & Reload-Persistenz in IndexedDB verifizieren
+    const organicMotionToggle = page.locator('[data-testid="toggle-organic-motion"]');
+    const realityCheckToggle = page.locator('[data-testid="toggle-reality-check"]');
+    const flipAutoDetectToggle = page.locator('[data-testid="toggle-flip-cover-auto-detect"]');
+    const hapticsToggle = page.locator('[data-testid="toggle-haptics-enabled"]');
+
+    await expect(organicMotionToggle).toContainText('An');
+    await expect(realityCheckToggle).toContainText('An');
+    await expect(flipAutoDetectToggle).toContainText('An');
+    await expect(hapticsToggle).toContainText('An');
+
+    // Selbst-Check-Verlauf standardmäßig zugeklappt prüfen
+    const selfCheckHistoryBtn = page.locator('[data-testid="toggle-selfcheck-history"]');
+    await expect(selfCheckHistoryBtn).toHaveAttribute('aria-expanded', 'false');
+    await expect(selfCheckHistoryBtn).toContainText(/\d+\s+Eintr(ag|äge)/);
+    await selfCheckHistoryBtn.click();
+    await expect(selfCheckHistoryBtn).toHaveAttribute('aria-expanded', 'true');
+    await assertNoHorizontalOverflow(page, 'Station 16 – Selbst-Check-Verlauf aufgeklappt');
+    await selfCheckHistoryBtn.click();
+    await expect(selfCheckHistoryBtn).toHaveAttribute('aria-expanded', 'false');
+
+    await organicMotionToggle.click();
+    await realityCheckToggle.click();
+    await flipAutoDetectToggle.click();
+
+    await expect(organicMotionToggle).toContainText('Aus');
+    await expect(realityCheckToggle).toContainText('Aus');
+    await expect(flipAutoDetectToggle).toContainText('Aus');
+    await assertNoHorizontalOverflow(page, 'Station 16 – Toggles umgeschaltet');
+
+    // Kurzes Warten bis IDB-Speicherung abgeschlossen ist, dann Reload
+    await page.waitForTimeout(250);
+    await page.reload();
+    await page.waitForLoadState('domcontentloaded');
+
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    await page.getByRole('button', { name: 'Zentrale', exact: true }).click();
+    await page.locator('button:has-text("Fokus, Bedienung & Smartphone")').click();
+
+    await expect(page.locator('[data-testid="toggle-organic-motion"]')).toContainText('Aus');
+    await expect(page.locator('[data-testid="toggle-reality-check"]')).toContainText('Aus');
+    await expect(page.locator('[data-testid="toggle-flip-cover-auto-detect"]')).toContainText('Aus');
+
+    // Sauber zurück auf An schalten
+    await page.locator('[data-testid="toggle-organic-motion"]').click();
+    await page.locator('[data-testid="toggle-reality-check"]').click();
+    await page.locator('[data-testid="toggle-flip-cover-auto-detect"]').click();
+
+    // 4. Bereich 4 (Erinnerungen, Vorarbeiter & Smart Home) öffnen -> Prinzip der geschlossenen Schublade
+    const section4Btn = page.locator('button:has-text("Erinnerungen, Vorarbeiter & Smart Home")');
+    await section4Btn.click();
+    await assertNoHorizontalOverflow(page, 'Station 16 – Bereich 4 geöffnet');
+
+    const smartHomeToggle = page.locator('[data-testid="toggle-smart-home"]');
+    const haWebhookInput = page.locator('[data-testid="input-ha-webhook-url"]');
+    const haEmbedInput = page.locator('[data-testid="input-ha-embed-url"]');
+
+    await expect(smartHomeToggle).toBeVisible();
+    await expect(smartHomeToggle).toContainText('Aus');
+    await expect(haWebhookInput).toHaveCount(0);
+    await expect(haEmbedInput).toHaveCount(0);
+
+    // Smart Home einschalten -> HA-Felder erscheinen ohne 390-px-Überlauf
+    await smartHomeToggle.click();
+    await expect(smartHomeToggle).toContainText('An');
+    await expect(haWebhookInput).toBeVisible();
+    await expect(haEmbedInput).toBeVisible();
+    await assertNoHorizontalOverflow(page, 'Station 16 – Smart Home Felder eingeblendet');
+
+    // Smart Home wieder ausschalten -> Felder wieder komplett versteckt
+    await smartHomeToggle.click();
+    await expect(smartHomeToggle).toContainText('Aus');
+    await expect(haWebhookInput).toHaveCount(0);
+    await expect(haEmbedInput).toHaveCount(0);
+    await assertNoHorizontalOverflow(page, 'Station 16 – Smart Home geschlossen');
+  });
 });

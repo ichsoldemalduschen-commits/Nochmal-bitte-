@@ -2,6 +2,18 @@
 @tailwind components;
 @tailwind utilities;
 
+html[data-density="compact"] {
+  font-size: 15px;
+}
+
+html[data-density="standard"] {
+  font-size: 16px;
+}
+
+html[data-density="large"] {
+  font-size: 17px;
+}
+
 body {
   background-color: #111317;
   color: #F1F5F9;

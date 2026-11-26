@@ -4,6 +4,7 @@ import {
   AiVoiceSettings,
   AmbientLightMode,
   AppStateSnapshot,
+  BanditUserPreferences,
   DayBlockId,
   DomainType,
   EventSalesLog,
@@ -11,8 +12,12 @@ import {
   SelfCheckEntry,
   THEME
 } from '../types';
-import { loadAmbientLightMode, saveAmbientLightMode } from '../services/storage';
-import { BanditUserPreferences, loadUserPrefs, saveUserPrefs } from '../services/aiRouter';
+import {
+  loadAmbientLightMode,
+  loadUserPrefs,
+  saveAmbientLightMode,
+  saveUserPrefs
+} from '../services/storage';
 import {
   AiAndVoiceSection,
   AutomationSection,
@@ -21,6 +26,7 @@ import {
   SystemAndBackupSection,
   ZentraleFooter
 } from './backoffice';
+import type { BlueprintTemplate } from './backoffice/SystemAndBackupSection';
 
 export type ZentraleSectionId = 'projects' | 'focus' | 'ai' | 'automation' | 'system';
 
@@ -44,9 +50,11 @@ interface BackofficeWorkspaceProps {
     tab: 'tasks' | 'cart' | 'knowledge' | 'extras'
   ) => void;
   onSaveScratchpadToProject: (projectId: string, title: string, content: string) => void;
+  onApplyBlueprint?: (projectId: string, blueprint: BlueprintTemplate) => void;
   onChangeApiKey: (key: string) => void;
   onToggleRealityCheck: () => void;
   onChangeHaWebhook: (url: string) => void;
+  onChangeHaEmbed?: (url: string) => void;
   onOpenFlip7Cover: () => void;
   onOpenRealityModal?: () => void;
   onOpenSelfCheckModal?: () => void;
@@ -68,6 +76,8 @@ interface BackofficeWorkspaceProps {
   onReplaceFullStateFromCloud?: (snapshot: AppStateSnapshot) => void;
   aiVoiceSettings?: AiVoiceSettings;
   onUpdateAiVoiceSettings?: (patch: Partial<AiVoiceSettings>) => void;
+  prefs?: BanditUserPreferences;
+  onUpdatePrefs?: (patch: Partial<BanditUserPreferences>) => void;
   onNotify: (msg: string) => void;
 }
 
@@ -76,8 +86,12 @@ interface BackofficeWorkspaceProps {
  */
 export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
   projects,
+  selfChecks,
   eventSalesLogs,
   userApiKey,
+  realityCheckEnabled,
+  haWebhookUrl,
+  haEmbedUrl,
   initialSection,
   onCloseBackoffice,
   onToggleArchiveProject,
@@ -87,7 +101,11 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
   onTogglePluginForProject,
   onToggleTabForProject,
   onSaveScratchpadToProject,
+  onApplyBlueprint,
   onChangeApiKey,
+  onToggleRealityCheck,
+  onChangeHaWebhook,
+  onChangeHaEmbed,
   onOpenFlip7Cover,
   onOpenRealityModal,
   onOpenSelfCheckModal,
@@ -108,12 +126,15 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
   onReplaceFullStateFromCloud,
   aiVoiceSettings,
   onUpdateAiVoiceSettings,
+  prefs: prefsProp,
+  onUpdatePrefs: onUpdatePrefsProp,
   onNotify
 }) => {
   const [openSection, setOpenSection] = useState<ZentraleSectionId | null>(
     initialSection || null
   );
-  const [prefs, setPrefs] = useState<BanditUserPreferences>(loadUserPrefs);
+  const [localPrefs, setLocalPrefs] = useState<BanditUserPreferences>(loadUserPrefs);
+  const prefs = prefsProp || localPrefs;
   const [ambientLightMode, setAmbientLightMode] = useState<AmbientLightMode>(
     () => ambientLightModeProp || loadAmbientLightMode()
   );
@@ -127,9 +148,13 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
   };
 
   const updatePrefs = (patch: Partial<BanditUserPreferences>) => {
+    if (onUpdatePrefsProp) {
+      onUpdatePrefsProp(patch);
+      return;
+    }
     const next = { ...prefs, ...patch };
-    setPrefs(next);
-    saveUserPrefs(next);
+    setLocalPrefs(next);
+    void saveUserPrefs(next);
   };
 
   const handleAmbientModeChange = (mode: AmbientLightMode) => {
@@ -137,8 +162,7 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
     saveAmbientLightMode(mode);
     onChangeAmbientLightMode?.(mode);
     onNotify(
-      `Hintergrundbeleuchtung: ${
-        mode === 'off' ? 'Aus' : mode === 'static' ? 'Statisch' : 'Sanftes Schimmern'
+      `Hintergrundbeleuchtung: ${mode === 'off' ? 'Aus' : mode === 'static' ? 'Statisch' : 'Sanftes Schimmern'
       }`
     );
   };
@@ -190,6 +214,7 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
         isOpen={openSection === 'focus'}
         onToggle={() => toggleSection('focus')}
         projects={projects}
+        selfChecks={selfChecks}
         prefs={prefs}
         onUpdatePrefs={updatePrefs}
         ambientLightMode={ambientLightMode}
@@ -198,6 +223,8 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
         thumbHubPosition={thumbHubPosition}
         onToggleThumbHub={onToggleThumbHub}
         onChangeThumbHubPosition={onChangeThumbHubPosition}
+        realityCheckEnabled={realityCheckEnabled}
+        onToggleRealityCheck={onToggleRealityCheck}
         onAssignDayBlock={onAssignDayBlock}
         onAutoStructureDay={onAutoStructureDay}
         onOpenFlip7Cover={onOpenFlip7Cover}
@@ -224,6 +251,12 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
         onToggle={() => toggleSection('automation')}
         remindersEnabled={remindersEnabled}
         onToggleRemindersEnabled={onToggleRemindersEnabled}
+        prefs={prefs}
+        onUpdatePrefs={updatePrefs}
+        haWebhookUrl={haWebhookUrl}
+        haEmbedUrl={haEmbedUrl}
+        onChangeHaWebhook={onChangeHaWebhook}
+        onChangeHaEmbed={onChangeHaEmbed}
         onNotify={onNotify}
       />
 
@@ -236,6 +269,7 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
         fullState={fullState}
         onUpdateProject={onUpdateProject}
         onSaveScratchpadToProject={onSaveScratchpadToProject}
+        onApplyBlueprint={onApplyBlueprint}
         onImportFullBackup={onImportFullBackup}
         onReplaceFullStateFromCloud={onReplaceFullStateFromCloud}
         onNotify={onNotify}

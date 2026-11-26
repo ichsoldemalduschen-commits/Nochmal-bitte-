@@ -154,20 +154,23 @@ Die ehemalige Mono-Datei `FrontWorkspace.tsx` (> 2 500 Zeilen) ist in eigenstän
 
 ---
 
-## 11  Zentrale (ehemals Backoffice/Einstellungen)
+## 11  Zentrale v2 (ehemals Backoffice/Einstellungen)
 
-Die gesamte Einstellungs-Ansicht heißt für den Nutzer **„Zentrale"** (intern bleibt der Dateiname `BackofficeWorkspace.tsx` stabil). Die Zentrale ist in **4 Überbereiche** aufgeteilt, die beim Öffnen standardmäßig **alle zugeklappt** sind:
+Die gesamte Einstellungs-Ansicht heißt für den Nutzer **„Zentrale"** (intern bleibt die schlanke Shell `BackofficeWorkspace.tsx`, aufgeteilt in **5 modulare Bereiche** unter `src/core/backoffice/`). Alle 5 Bereiche sind beim Öffnen standardmäßig **zugeklappt**:
 
-| Nr | Bereich | `ZentraleSectionId` | Inhalt |
+| Nr | Bereich (`src/core/backoffice/`) | `ZentraleSectionId` | Inhalt |
 |---|---|---|---|
-| 1 | Projekte & Werkzeuge | `projects` | Projektkarten (390px-Fix: nur Farbpunkt + voller Name + Pfeil), Gesamt-Übersicht-Schalter (`overviewEnabled`), Bild-Tausch, Farb-Presets, Lifecycle, Domain, Module, Plugins, JSON-Export, Archiv |
-| 2 | Fokus, Bedienung & Optik | `focus` | 3-Stufen-Hintergrundbeleuchtung (`off` / `static` / `shimmer`), ADHS & Fokus, Personalisierung, Tagesplaner (4 Blöcke & .ics), Cover-Display & Checks |
-| 3 | KI & Stimme „Gisela" | `ai` | Gemini API-Key & Modellwahl, Azure Speech + Gisela-Test + Offline-Fallback |
-| 4 | Daten, Backup & System | `system` | Cloud-Synchronisation & Push-Zentrale (URL, Token, Auto-Sync, Manuell Hochladen/Herunterladen), Backup/Export/Import, Vorlagen-Tresor (Blueprints), Aktenschrank, Smart Home |
+| 1 | Projekte & Werkzeuge (`ProjectsSection.tsx`) | `projects` | Projektkarten (390px-Fix: nur Farbpunkt + voller Name + Pfeil), Gesamt-Übersicht (`overviewEnabled`), Vorschriften-Wächter (`legalWatchEnabled`), Bild-Tausch, Farb-Presets, Lifecycle, Domain, Module, Plugins, JSON-Export, Archiv, 2-Stufen-Reset-Schutz |
+| 2 | Fokus, Bedienung & Smartphone (`FocusAndSmartphoneSection.tsx`) | `focus` | ADHS-Helfer (+25 %-Puffer separat von Vibration), echte `uiDensity`-`rem`-Skalierung (`compact` 15 px / `standard` 16 px / `large` 17 px via `data-density`), 3-Stufen-Hintergrundbeleuchtung, `organicMotion`, `hapticsEnabled`, `cartOpenMode` (Schwebend vs. Tab), `flipCoverAutoDetect`, `realityCheckEnabled`, `SelfCheckHistoryPanel` (zugeklappt), Tagesplaner & `.ics` |
+| 3 | KI & Stimme „Gisela" (`AiAndVoiceSection.tsx`) | `ai` | Gemini API-Key & Modellwahl, direkter Start-Modus (`activeAiMode`: `⚡ Sprech (Flash)` ↔ `🧠 Research (Pro)`), KI-Antwortstil & Quick-Commands, Azure Speech + Gisela-Test + `continuousListening` + `autoModeDetection` |
+| 4 | Erinnerungen, Vorarbeiter & Smart Home (`AutomationSection.tsx`) | `automation` | Proaktive Erinnerungen (`remindersEnabled`), separater System-Push-Schalter (`reminderSystemPushEnabled`), Browser-Push-Freigabe, Vorschriften-Wächter (`AUDIT_SETTINGS`), Smart Home / Home Assistant (`smartHomeEnabled` als geschlossene Schublade) |
+| 5 | Daten, Backup & System (`SystemAndBackupSection.tsx`, `CloudSyncPanel.tsx`) | `system` | Cloud-Synchronisation (URL, Token, `autoSyncOnChange` mit 5s-Debounce & Pull/Hydration-Loop-Schutz, Hochladen/Herunterladen), Voll-Backup v2 inkl. `BanditUserPreferences`, Projekt-JSON-Import, CSV-Export, Vorlagen-Tresor (`Blueprints` inkl. Tasks/Cart-Übernahme & Löschen) |
+
+**Verbindliche Toggle-Regel (`ZentraleToggleRow`):** Jede neue Einstellung erhält einen einheitlichen Ein-/Ausschalter (`min-h-[44px]`, `ZentraleToggleRow`), bleibt abwärtskompatibel in IndexedDB (`BanditUserPreferences` in `storage.ts`, ohne lose `localStorage`-Keys) und blendet optionale Detail-Felder im Aus-Zustand nach dem Prinzip der geschlossenen Schublade aus.
 
 **Fußzeile (immer sichtbar):** Build-Stempel in `font-mono` + „Neu laden"-Button.
 
-**Deep-Link via `initialSection`:** Honig-Gold-Toasts und View-Settings-Buttons springen direkt zum passenden Bereich (`TasksView` → `focus`, `CartView`/`KnowledgeView` → `projects`, API-Key fehlt → `ai`, Cloud-Sync / Status → `system`).
+**Deep-Link via `initialSection`:** Honig-Gold-Toasts und View-Settings-Buttons springen direkt zum passenden Bereich (`TasksView` → `focus`, `CartView` → `projects`, `KnowledgeView`/API-Key → `ai`, Erinnerungen → `automation`, Cloud-Sync → `system`).
 
 ---
 
@@ -178,7 +181,7 @@ Für jede künftige Änderung gilt ein verbindliches E2E-Qualitätsgate auf mobi
 - **Befehl:** `npm run verify` im Verzeichnis `nexusflow-pwa` (führt `npm run build && npm run test:guard` aus).
 - **Pflicht vor jedem Git-Push:**
   1. `npm run build` muss fehlerfrei durchlaufen.
-  2. Playwright Mobile-Guard (`tests/mobile-guard.spec.ts`) muss alle 14 Stationen (Start & Kopfleiste, NavigationDrawer, TasksView, CartView, KnowledgeView, Block D & VoiceModal, Zentrale mit allen 4 Überbereichen, Deep-Links, Werkzeuge/POS, Wissen-Lösch-Undo & konsolidiertes Modal, Sammel-Tasks/`subTasks`, proaktive Erinnerungen, unsichtbare 3-Modi-Erkennung, Sprach-KI Rundum-Sanierung) zu 100 % grün durchlaufen.
+  2. Playwright Mobile-Guard (`tests/mobile-guard.spec.ts`) muss alle **16 Stationen** (Start & Kopfleiste, NavigationDrawer, TasksView, CartView, KnowledgeView, Block D & VoiceModal, Zentrale mit allen 5 Bereichen, Deep-Links, Werkzeuge/POS, Wissen-Lösch-Undo & konsolidiertes Modal, Sammel-Tasks/`subTasks`, proaktive Erinnerungen, unsichtbare 3-Modi-Erkennung, Sprach-KI Rundum-Sanierung, Zentrale v2 5-Bereiche-Shell, Toggle-Offensive inkl. `uiDensity = large`, IDB-Reload-Persistenz & Smart-Home-Schublade) zu 100 % grün durchlaufen.
   3. Strikte Wächter: 0 ungefangene `pageerror`-Exceptions, 0 unberechtigte `console.error`-Meldungen, 0 horizontale Viewport-Überläufe (`document.documentElement.scrollWidth <= window.innerWidth + 1`).
 
 ---

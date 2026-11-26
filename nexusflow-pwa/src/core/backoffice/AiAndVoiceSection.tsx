@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
-import { CheckCircle2, Key, Loader2, Plus, Trash2, Volume2 } from 'lucide-react';
-import { AiVoiceSettings, THEME, VoiceProvider } from '../../types';
+import { Brain, CheckCircle2, Key, Loader2, Plus, Trash2, Volume2, Zap } from 'lucide-react';
+import { AiVoiceSettings, BanditUserPreferences, THEME, VoiceProvider } from '../../types';
 import {
-  BanditUserPreferences,
   getPreferredModelMode,
   setPreferredModelMode,
   stopAllSpeech,
@@ -177,6 +176,46 @@ export const AiAndVoiceSection: React.FC<AiAndVoiceSectionProps> = ({
             </option>
           ))}
         </select>
+
+        {/* Direkter Start-Modus (activeAiMode) */}
+        <div className="space-y-1.5">
+          <label className="text-xs text-[#94A3B8] block font-medium">
+            Direkter Start-Modus im Begleiter:
+          </label>
+          <div className="grid grid-cols-2 gap-2">
+            {(
+              [
+                { id: 'flash', label: 'Sprech (Flash)', icon: Zap },
+                { id: 'research', label: 'Research (Pro)', icon: Brain }
+              ] as const
+            ).map(({ id, label, icon: Icon }) => {
+              const isSelected = currentAiSettings.activeAiMode === id;
+              return (
+                <button
+                  type="button"
+                  key={id}
+                  data-testid={`active-ai-mode-${id}`}
+                  onClick={() => {
+                    onUpdateAiSettings({ activeAiMode: id });
+                    onNotify(
+                      id === 'flash'
+                        ? 'Start-Modus auf ⚡ Sprech (Flash) gesetzt.'
+                        : 'Start-Modus auf 🧠 Research (Pro) gesetzt.'
+                    );
+                  }}
+                  className={`min-h-[44px] px-3 py-2 rounded-xl text-xs font-bold border flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer ${
+                    isSelected
+                      ? 'bg-[#0A9396] text-white border-[#14B8A6]'
+                      : 'bg-[#181A1B] text-[#94A3B8] border-white/10 hover:text-white'
+                  }`}
+                >
+                  <Icon className="w-4 h-4 shrink-0" />
+                  <span className="break-words">{label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
 
         <button
           type="button"
