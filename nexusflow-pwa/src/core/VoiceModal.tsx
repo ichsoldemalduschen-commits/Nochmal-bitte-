@@ -19,17 +19,28 @@ import {
   X,
   Zap
 } from 'lucide-react';
-import { AiExecutedAction, AiLogEntry, Attachment, Project, THEME } from '../types';
+import { AiExecutedAction, AiLogEntry, AiVoiceSettings, Attachment, Project, THEME } from '../types';
 import {
+  buildLocalFallbackPlan,
   compressImageFile,
+  getPreferredModelMode,
   getTtsEnabled,
   loadUserPrefs,
   setTtsEnabled,
   speakText,
-  stopSpeaking,
+  stopAllSpeech,
   triggerHapticFeedback
 } from '../services/aiRouter';
-import { STORAGE_KEYS, getActiveAiMode, getIdbItemSync, saveActiveAiMode, saveIdbItem } from '../services/storage';
+import {
+  STORAGE_KEYS,
+  getActiveAiMode,
+  getAzureSpeechKey,
+  getAzureSpeechRegion,
+  getIdbItemSync,
+  getVoiceProvider,
+  saveActiveAiMode,
+  saveIdbItem
+} from '../services/storage';
 
 export interface ConversationMessage {
   id: string;
@@ -49,6 +60,8 @@ export interface VoiceModalProps {
   activeProjectName: string;
   projects?: Project[];
   aiLogs?: AiLogEntry[];
+  aiVoiceSettings?: AiVoiceSettings;
+  onUpdateAiVoiceSettings?: (patch: Partial<AiVoiceSettings>) => void;
   themeColors?: {
     primary: string;
     highlight: string;
@@ -61,7 +74,8 @@ export interface VoiceModalProps {
     rawText: string,
     attachment: Attachment | null,
     requestedMode?: 'flash' | 'research',
-    chatHistory?: Array<{ role: 'user' | 'assistant'; text: string }>
+    chatHistory?: Array<{ role: 'user' | 'assistant'; text: string }>,
+    options?: { signal?: AbortSignal; settings?: AiVoiceSettings }
   ) => Promise<{
     replyText: string;
     spokenText: string;
@@ -71,6 +85,19 @@ export interface VoiceModalProps {
     actions: AiExecutedAction[];
     autoUpscaledToPro?: boolean;
   } | void>;
+  onExecuteOfflineFallback?: (
+    rawText: string,
+    attachment: Attachment | null,
+    reason?: string
+  ) => {
+    replyText: string;
+    spokenText: string;
+    needsClarification: boolean;
+    engine: string;
+    logId?: string;
+    actions: AiExecutedAction[];
+    autoUpscaledToPro?: boolean;
+  } | void;
   onAskQuestion: (question: string, attachment: Attachment | null) => Promise<string>;
   onSaveAnswerToInfos: (question: string, answer: string, attachment: Attachment | null) => void;
   onJumpToAction?: (act: AiExecutedAction) => void;
@@ -82,6 +109,7 @@ export interface VoiceModalProps {
 }
 
 const SILENCE_AUTO_SEND_MS = 5000;
+const API_REQUEST_TIMEOUT_MS = 12000;
 
 function buildCleanTranscriptFromResults(results: any): string {
   const segments: string[] = [];
@@ -131,11 +159,14 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
   autoStartMic = true,
   activeProjectName,
   projects = [],
+  aiVoiceSettings,
+  onUpdateAiVoiceSettings,
   themeColors,
   onClose,
   onStageChange,
   onOpenQuickFan,
   onExecuteCommand,
+  onExecuteOfflineFallback,
   onSaveAnswerToInfos,
   onJumpToAction,
   onUndoAiAction,
@@ -152,11 +183,30 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
   const [isProcessing, setIsProcessing] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [speechNotice, setSpeechNotice] = useState('');
+  const [voiceStatusNotice, setVoiceStatusNotice] = useState<string | null>(null);
   const [attachment, setAttachment] = useState<Attachment | null>(null);
   const [remainingMs, setRemainingMs] = useState<number>(SILENCE_AUTO_SEND_MS);
-  const [ttsActive, setTtsActive] = useState<boolean>(getTtsEnabled);
-  const [aiMode, setAiMode] = useState<'flash' | 'research'>(() => getActiveAiMode());
+  const [localTtsActive, setLocalTtsActive] = useState<boolean>(getTtsEnabled);
+  const [localAiMode, setLocalAiMode] = useState<'flash' | 'research'>(() => getActiveAiMode());
   const [upscaleNotice, setUpscaleNotice] = useState<string | null>(null);
+
+  const effectiveSettings: AiVoiceSettings = aiVoiceSettings || {
+    ttsEnabled: localTtsActive,
+    voiceProvider: getVoiceProvider(),
+    azureSpeechKey: getAzureSpeechKey(),
+    azureSpeechRegion: getAzureSpeechRegion(),
+    preferredModelMode: getPreferredModelMode(),
+    activeAiMode: localAiMode
+  };
+  const ttsActive = effectiveSettings.ttsEnabled;
+  const aiMode = effectiveSettings.activeAiMode;
+
+  const settingsRef = useRef<AiVoiceSettings>(effectiveSettings);
+  settingsRef.current = effectiveSettings;
+
+  useEffect(() => {
+    settingsRef.current = effectiveSettings;
+  }, [effectiveSettings]);
 
   // 3-Stufen-Morphing: Stufe 1 (Kompakter Begleiter) vs. Stufe 2 (Volles Gespräch)
   const [currentStage, setCurrentStage] = useState<1 | 2>(stage);
@@ -166,10 +216,36 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
     if (stage) setCurrentStage(stage);
   }, [stage]);
 
+  const activeRequestIdRef = useRef(0);
+  const activeRequestControllerRef = useRef<AbortController | null>(null);
+  const activeTimeoutRef = useRef<number | null>(null);
+  const isSendingRef = useRef(false);
+
+  const cancelPendingRequest = () => {
+    activeRequestIdRef.current += 1;
+    if (activeTimeoutRef.current !== null) {
+      window.clearTimeout(activeTimeoutRef.current);
+      activeTimeoutRef.current = null;
+    }
+    if (activeRequestControllerRef.current) {
+      try {
+        activeRequestControllerRef.current.abort();
+      } catch {
+        // ignore
+      }
+      activeRequestControllerRef.current = null;
+    }
+    isSendingRef.current = false;
+    setIsProcessing(false);
+    onProcessingChange?.(false);
+  };
+
   const updateStage = (newStage: 1 | 2 | 0) => {
     if (newStage === 0) {
-      stopSpeaking();
+      cancelPendingRequest();
+      stopAllSpeech();
       setIsSpeaking(false);
+      onSpeakingChange?.(false);
       stopMicrophone();
       onClose();
       onStageChange?.(0);
@@ -216,8 +292,9 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
   const startMicrophoneImmediately = () => {
     setSpeechNotice('');
     autoSendTriggeredRef.current = false;
-    stopSpeaking();
+    stopAllSpeech();
     setIsSpeaking(false);
+    onSpeakingChange?.(false);
 
     const SpeechRec =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -290,11 +367,20 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
         };
       }
     } else {
+      cancelPendingRequest();
       stopMicrophone();
-      stopSpeaking();
+      stopAllSpeech();
       setIsSpeaking(false);
+      onSpeakingChange?.(false);
     }
   }, [open, autoStartMic]);
+
+  useEffect(() => {
+    return () => {
+      cancelPendingRequest();
+      stopAllSpeech();
+    };
+  }, []);
 
   useEffect(() => {
     if (!open || !isListening || isProcessing) return;
@@ -321,7 +407,53 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
     return () => window.clearInterval(interval);
   }, [open, isListening, isProcessing]);
 
-  const isSendingRef = useRef(false);
+  const speakAssistantReply = (
+    spokenText: string,
+    needsClarification: boolean,
+    requestId: number
+  ) => {
+    if (requestId !== activeRequestIdRef.current) return;
+    stopAllSpeech();
+    const currentSettings = settingsRef.current;
+
+    if (!currentSettings.ttsEnabled) {
+      setIsSpeaking(false);
+      onSpeakingChange?.(false);
+      if (needsClarification && open) {
+        startMicrophoneImmediately();
+      }
+      return;
+    }
+
+    setIsSpeaking(true);
+    onSpeakingChange?.(true);
+    void speakText(
+      spokenText,
+      () => {
+        if (requestId !== activeRequestIdRef.current) return;
+        setIsSpeaking(false);
+        onSpeakingChange?.(false);
+        if (needsClarification && open) {
+          startMicrophoneImmediately();
+        }
+      },
+      (engine, fallbackReason) => {
+        if (requestId !== activeRequestIdRef.current) return;
+        if (
+          settingsRef.current.voiceProvider === 'azure-gisela' &&
+          engine === 'browser-fallback' &&
+          fallbackReason
+        ) {
+          setVoiceStatusNotice(
+            `Gisela nicht erreichbar (${fallbackReason}) – Browser-Stimme aktiv (Auswahl bleibt gespeichert).`
+          );
+        } else if (engine === 'azure-gisela') {
+          setVoiceStatusNotice(null);
+        }
+      },
+      currentSettings
+    );
+  };
 
   const triggerProcess = async (textToProcess: string) => {
     const clean = textToProcess.trim();
@@ -329,7 +461,29 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
     isSendingRef.current = true;
     autoSendTriggeredRef.current = true;
 
+    stopAllSpeech();
+    setIsSpeaking(false);
+    onSpeakingChange?.(false);
     stopMicrophone();
+    setVoiceStatusNotice(null);
+
+    if (activeTimeoutRef.current !== null) {
+      window.clearTimeout(activeTimeoutRef.current);
+      activeTimeoutRef.current = null;
+    }
+    if (activeRequestControllerRef.current) {
+      try {
+        activeRequestControllerRef.current.abort();
+      } catch {
+        // ignore
+      }
+    }
+
+    const requestId = ++activeRequestIdRef.current;
+    const controller = new AbortController();
+    activeRequestControllerRef.current = controller;
+    let settled = false;
+
     setIsProcessing(true);
     onProcessingChange?.(true);
     triggerHapticFeedback([12, 30, 12]);
@@ -354,46 +508,110 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
 
     setMessages((prev) => [...prev, userMsg]);
 
+    const finalizeWithResult = (result: {
+      replyText: string;
+      spokenText: string;
+      needsClarification: boolean;
+      engine: string;
+      logId?: string;
+      actions: AiExecutedAction[];
+      autoUpscaledToPro?: boolean;
+    }) => {
+      const assistantMsg: ConversationMessage = {
+        id: `msg-a-${Date.now()}`,
+        role: 'assistant',
+        text: result.replyText,
+        timestamp: new Date().toLocaleTimeString('de-DE', {
+          hour: '2-digit',
+          minute: '2-digit'
+        }),
+        engine: result.engine,
+        logId: result.logId,
+        actions: result.actions
+      };
+      setMessages((prev) => [...prev, assistantMsg]);
+
+      // Smart Auto-Expand von Stufe 1 nach Stufe 2 bei Klärungsbedarf oder langer Antwort (>120 Zeichen)
+      if (currentStage === 1 && (result.needsClarification || result.replyText.length > 120)) {
+        updateStage(2);
+      }
+
+      speakAssistantReply(result.spokenText, result.needsClarification, requestId);
+      setIsProcessing(false);
+      onProcessingChange?.(false);
+      isSendingRef.current = false;
+    };
+
+    activeTimeoutRef.current = window.setTimeout(() => {
+      if (settled || requestId !== activeRequestIdRef.current) return;
+      settled = true;
+      activeTimeoutRef.current = null;
+      controller.abort();
+      activeRequestControllerRef.current = null;
+      setVoiceStatusNotice('API-Zeitüberschreitung (12s) – lokaler Offline-Fallback aktiv.');
+
+      const fallbackRes = onExecuteOfflineFallback
+        ? onExecuteOfflineFallback(clean, currentAtt, 'Fallback (API-Timeout 12s)')
+        : (() => {
+            const activeProj =
+              projects.find((p) => p.name === activeProjectName && !p.archived) ||
+              projects.find((p) => !p.archived);
+            const plan = buildLocalFallbackPlan(clean, activeProj?.id || 'proj-foodtruck', projects);
+            return {
+              replyText: plan.directAnswer || plan.summary,
+              spokenText: plan.spokenFeedback || plan.summary,
+              needsClarification: Boolean(plan.needsClarification),
+              engine: 'Fallback (API-Timeout 12s)',
+              actions: []
+            };
+          })();
+
+      if (fallbackRes) {
+        finalizeWithResult(fallbackRes);
+      } else {
+        setIsProcessing(false);
+        onProcessingChange?.(false);
+        isSendingRef.current = false;
+      }
+    }, API_REQUEST_TIMEOUT_MS);
+
     try {
-      const result = await onExecuteCommand(clean, currentAtt, aiMode, recentHistory);
+      const currentSettings = settingsRef.current;
+      const result = await onExecuteCommand(
+        clean,
+        currentAtt,
+        currentSettings.activeAiMode,
+        recentHistory,
+        { signal: controller.signal, settings: currentSettings }
+      );
+      if (settled || requestId !== activeRequestIdRef.current) return;
+      settled = true;
+      if (activeTimeoutRef.current !== null) {
+        window.clearTimeout(activeTimeoutRef.current);
+        activeTimeoutRef.current = null;
+      }
+      activeRequestControllerRef.current = null;
+
       if (result) {
         if (result.autoUpscaledToPro) {
           setUpscaleNotice('Sprech → Research (Automatisch für Foto/Analyse auf Pro geschaltet)');
           window.setTimeout(() => setUpscaleNotice(null), 4000);
         }
-
-        const assistantMsg: ConversationMessage = {
-          id: `msg-a-${Date.now()}`,
-          role: 'assistant',
-          text: result.replyText,
-          timestamp: new Date().toLocaleTimeString('de-DE', {
-            hour: '2-digit',
-            minute: '2-digit'
-          }),
-          engine: result.engine,
-          logId: result.logId,
-          actions: result.actions
-        };
-        setMessages((prev) => [...prev, assistantMsg]);
-
-        // Smart Auto-Expand von Stufe 1 nach Stufe 2 bei Klärungsbedarf oder langer Antwort (>120 Zeichen)
-        if (currentStage === 1 && (result.needsClarification || result.replyText.length > 120)) {
-          updateStage(2);
-        }
-
-        setIsSpeaking(true);
-        onSpeakingChange?.(true);
-        speakText(result.spokenText, () => {
-          setIsSpeaking(false);
-          onSpeakingChange?.(false);
-          if (result.needsClarification && open) {
-            startMicrophoneImmediately();
-          }
-        });
+        finalizeWithResult(result);
+      } else {
+        setIsProcessing(false);
+        onProcessingChange?.(false);
+        isSendingRef.current = false;
       }
     } catch (err) {
+      if (settled || requestId !== activeRequestIdRef.current) return;
+      settled = true;
+      if (activeTimeoutRef.current !== null) {
+        window.clearTimeout(activeTimeoutRef.current);
+        activeTimeoutRef.current = null;
+      }
+      activeRequestControllerRef.current = null;
       console.warn('[VoiceModal] Fehler bei Sprachausführung:', err);
-    } finally {
       setIsProcessing(false);
       onProcessingChange?.(false);
       isSendingRef.current = false;
@@ -487,8 +705,9 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
               type="button"
               onClick={() => {
                 if (isSpeaking) {
-                  stopSpeaking();
+                  stopAllSpeech();
                   setIsSpeaking(false);
+                  onSpeakingChange?.(false);
                 } else if (isListening) {
                   if (hasSpokenText) {
                     autoSendTriggeredRef.current = true;
@@ -679,6 +898,13 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
             </div>
           </div>
 
+          {/* Ruhiger Honig-Gold-Statushinweis (Fallback / API-Timeout) */}
+          {voiceStatusNotice && (
+            <div className="px-3 py-1.5 rounded-xl bg-[#E5A93C]/10 border border-[#E5A93C]/30 text-[#E5A93C] text-xs leading-snug">
+              {voiceStatusNotice}
+            </div>
+          )}
+
           {/* Ausklappbare schmale Texteingabezeile in Stufe 1 */}
           {showStage1TextInput && (
             <div className="pt-2 border-t border-white/5 flex items-center gap-2 animate-fadeIn">
@@ -787,9 +1013,18 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
               <button
                 type="button"
                 onClick={() => {
-                  const next = aiMode === 'flash' ? 'research' : 'flash';
-                  setAiMode(next);
-                  saveActiveAiMode(next);
+                  const current = settingsRef.current;
+                  const next: 'flash' | 'research' = current.activeAiMode === 'flash' ? 'research' : 'flash';
+                  const nextPreferred =
+                    next === 'research'
+                      ? (current.preferredModelMode === 'ALWAYS_FLASH' ? 'SMART_PRO' : current.preferredModelMode)
+                      : (current.preferredModelMode === 'ALWAYS_PRO' ? 'SMART_PRO' : current.preferredModelMode);
+                  if (onUpdateAiVoiceSettings) {
+                    onUpdateAiVoiceSettings({ activeAiMode: next, preferredModelMode: nextPreferred });
+                  } else {
+                    setLocalAiMode(next);
+                    saveActiveAiMode(next);
+                  }
                   triggerHapticFeedback(12);
                 }}
                 className={`min-h-[44px] px-3.5 py-1.5 rounded-xl text-xs font-bold border flex items-center gap-1.5 active:scale-95 transition ${
@@ -821,12 +1056,17 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
               <button
                 type="button"
                 onClick={() => {
-                  const next = !ttsActive;
-                  setTtsActive(next);
-                  setTtsEnabled(next);
+                  const next = !settingsRef.current.ttsEnabled;
+                  if (onUpdateAiVoiceSettings) {
+                    onUpdateAiVoiceSettings({ ttsEnabled: next });
+                  } else {
+                    setLocalTtsActive(next);
+                    setTtsEnabled(next);
+                  }
                   if (!next) {
-                    stopSpeaking();
+                    stopAllSpeech();
                     setIsSpeaking(false);
+                    onSpeakingChange?.(false);
                   }
                 }}
                 className={`min-h-[44px] px-2.5 py-1.5 rounded-xl text-xs font-bold border flex items-center gap-1 active:scale-95 transition ${
@@ -885,6 +1125,13 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
             <div className="mt-2 px-3 py-1.5 rounded-xl bg-purple-950/70 border border-purple-500/40 text-purple-200 text-xs flex items-center gap-2 animate-fadeIn">
               <Brain className="w-3.5 h-3.5 text-purple-400 shrink-0" />
               <span className="truncate">{upscaleNotice}</span>
+            </div>
+          )}
+
+          {/* Ruhiger Honig-Gold-Statushinweis (Fallback / API-Timeout) */}
+          {voiceStatusNotice && (
+            <div className="mt-2 px-3 py-1.5 rounded-xl bg-[#E5A93C]/10 border border-[#E5A93C]/30 text-[#E5A93C] text-xs leading-snug">
+              {voiceStatusNotice}
             </div>
           )}
         </div>

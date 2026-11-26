@@ -34,6 +34,7 @@ import {
 import {
   AiExecutedAction,
   AiLogEntry,
+  AiVoiceSettings,
   AmbientLightMode,
   AppStateSnapshot,
   BackofficeTabId,
@@ -41,7 +42,8 @@ import {
   EventSalesLog,
   Project,
   SelfCheckEntry,
-  THEME
+  THEME,
+  VoiceProvider
 } from '../types';
 import { PLUGIN_REGISTRY } from '../plugins/registry';
 import {
@@ -50,14 +52,20 @@ import {
   downloadFullBackupV2,
   importFullBackupV2,
   importProjectJsonToTarget,
+  getActiveAiMode,
   getAzureSpeechKey,
   getAzureSpeechRegion,
   getIdbItemSync,
+  getTtsEnabled,
+  getVoiceProvider,
   loadAmbientLightMode,
+  saveActiveAiMode,
   saveAmbientLightMode,
   saveAzureSpeechKey,
   saveAzureSpeechRegion,
-  saveIdbItem
+  saveIdbItem,
+  saveTtsEnabled,
+  saveVoiceProvider
 } from '../services/storage';
 import {
   CloudSyncConfig,
@@ -73,6 +81,7 @@ import {
   loadUserPrefs,
   saveUserPrefs,
   setPreferredModelMode,
+  stopAllSpeech,
   testGeminiApiKey,
   testGiselaVoice
 } from '../services/aiRouter';
@@ -131,6 +140,8 @@ interface BackofficeWorkspaceProps {
   onChangeAmbientLightMode?: (mode: AmbientLightMode) => void;
   fullState?: AppStateSnapshot;
   onReplaceFullStateFromCloud?: (snapshot: AppStateSnapshot) => void;
+  aiVoiceSettings?: AiVoiceSettings;
+  onUpdateAiVoiceSettings?: (patch: Partial<AiVoiceSettings>) => void;
   onNotify: (msg: string) => void;
 }
 
@@ -176,6 +187,8 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
   onChangeAmbientLightMode,
   fullState,
   onReplaceFullStateFromCloud,
+  aiVoiceSettings,
+  onUpdateAiVoiceSettings,
   onNotify
 }) => {
   const [openSection, setOpenSection] = useState<AccordionSectionId | null>(initialSection || null);
@@ -238,7 +251,6 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
   );
   const [newBlueprintName, setNewBlueprintName] = useState('');
 
-  const [modelMode, setModelMode] = useState<string>(getPreferredModelMode);
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [apiTestStatus, setApiTestStatus] = useState<{
     loading: boolean;
@@ -246,14 +258,37 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
     text?: string;
   }>({ loading: false });
 
-  const [azureSpeechKey, setAzureSpeechKey] = useState<string>(getAzureSpeechKey);
-  const [azureSpeechRegion, setAzureSpeechRegion] = useState<string>(getAzureSpeechRegion);
   const [giselaTesting, setGiselaTesting] = useState(false);
   const [giselaTestStatus, setGiselaTestStatus] = useState<{
     ok: boolean;
     engine: 'azure-gisela' | 'browser-fallback';
     message: string;
   } | null>(null);
+
+  const currentAiSettings: AiVoiceSettings = aiVoiceSettings || {
+    ttsEnabled: getTtsEnabled(),
+    voiceProvider: getVoiceProvider(),
+    azureSpeechKey: getAzureSpeechKey(),
+    azureSpeechRegion: getAzureSpeechRegion(),
+    preferredModelMode: getPreferredModelMode(),
+    activeAiMode: getActiveAiMode()
+  };
+
+  const handleUpdateAiSettings = (patch: Partial<AiVoiceSettings>) => {
+    if (patch.ttsEnabled === false) {
+      stopAllSpeech();
+    }
+    if (onUpdateAiVoiceSettings) {
+      onUpdateAiVoiceSettings(patch);
+      return;
+    }
+    if (patch.ttsEnabled !== undefined) saveTtsEnabled(patch.ttsEnabled);
+    if (patch.voiceProvider !== undefined) saveVoiceProvider(patch.voiceProvider);
+    if (patch.azureSpeechKey !== undefined) saveAzureSpeechKey(patch.azureSpeechKey);
+    if (patch.azureSpeechRegion !== undefined) saveAzureSpeechRegion(patch.azureSpeechRegion);
+    if (patch.preferredModelMode !== undefined) setPreferredModelMode(patch.preferredModelMode);
+    if (patch.activeAiMode !== undefined) saveActiveAiMode(patch.activeAiMode);
+  };
 
   const updatePrefs = (patch: Partial<BanditUserPreferences>) => {
     const next = { ...prefs, ...patch };
@@ -276,7 +311,10 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
     setGiselaTesting(true);
     setGiselaTestStatus(null);
     try {
-      const res = await testGiselaVoice(azureSpeechKey, azureSpeechRegion);
+      const res = await testGiselaVoice(
+        currentAiSettings.azureSpeechKey,
+        currentAiSettings.azureSpeechRegion
+      );
       setGiselaTestStatus(res);
     } catch (e: any) {
       setGiselaTestStatus({
@@ -1279,11 +1317,15 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
             />
 
             <select
-              value={modelMode}
+              value={currentAiSettings.preferredModelMode}
               onChange={(e) => {
-                setModelMode(e.target.value);
-                setPreferredModelMode(e.target.value);
+                const nextMode = e.target.value;
+                const patch: Partial<AiVoiceSettings> = { preferredModelMode: nextMode };
+                if (nextMode === 'ALWAYS_PRO') patch.activeAiMode = 'research';
+                else if (nextMode === 'ALWAYS_FLASH') patch.activeAiMode = 'flash';
+                handleUpdateAiSettings(patch);
               }}
+              aria-label="Intelligenz-Modus wählen"
               className="w-full min-h-[44px] px-3.5 py-2 rounded-xl text-xs bg-[#181A1B] text-white border border-white/10"
             >
               <option value="SMART_PRO">
@@ -1322,7 +1364,7 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
                 className={`p-3 rounded-2xl text-xs border ${
                   apiTestStatus.ok
                     ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
-                    : 'bg-red-500/10 border-red-500/30 text-red-300'
+                    : 'bg-[#E5A93C]/10 border-[#E5A93C]/30 text-[#E5A93C]'
                 }`}
               >
                 {apiTestStatus.text}
@@ -1331,31 +1373,75 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
 
             {/* STIMME GISELA (AZURE NEURAL TTS) */}
             <div className="p-3.5 rounded-2xl bg-[#242930] border border-white/5 space-y-2.5">
-              <div className="flex items-center justify-between">
-                <div className="text-xs font-bold text-white flex items-center gap-2">
-                  <Volume2 className="w-4 h-4 text-[#14B8A6]" />
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div className="text-xs font-bold text-white flex items-center gap-2 min-w-0">
+                  <Volume2 className="w-4 h-4 text-[#14B8A6] shrink-0" />
                   <span>Stimme „Gisela" (Microsoft Azure Neural TTS)</span>
                 </div>
-                <span className="text-xs text-[#94A3B8]">Optional · Offline-Fallback aktiv</span>
+                <button
+                  type="button"
+                  aria-label="Sprachausgabe umschalten"
+                  onClick={() => {
+                    const nextTts = !currentAiSettings.ttsEnabled;
+                    handleUpdateAiSettings({ ttsEnabled: nextTts });
+                    onNotify(nextTts ? 'Sprachausgabe aktiviert.' : 'Sprachausgabe stummgeschaltet.');
+                  }}
+                  className={`min-h-[44px] px-3.5 py-1.5 rounded-xl text-xs font-bold border transition shrink-0 active:scale-95 ${
+                    currentAiSettings.ttsEnabled
+                      ? 'bg-[#0A9396] text-white border-[#14B8A6]'
+                      : 'bg-[#181A1B] text-[#94A3B8] border-white/10'
+                  }`}
+                >
+                  {currentAiSettings.ttsEnabled ? 'Stimme An' : 'Stumm'}
+                </button>
               </div>
+
+              <div className="space-y-1">
+                <label className="text-xs text-[#94A3B8] block font-medium">
+                  Aktive Stimme / TTS-Provider:
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  {(
+                    [
+                      { id: 'azure-gisela', label: 'Gisela (Azure Neural)' },
+                      { id: 'browser', label: 'Browser-Stimme' }
+                    ] as Array<{ id: VoiceProvider; label: string }>
+                  ).map((opt) => (
+                    <button
+                      type="button"
+                      key={opt.id}
+                      onClick={() => {
+                        handleUpdateAiSettings({ voiceProvider: opt.id });
+                        onNotify(
+                          opt.id === 'azure-gisela'
+                            ? 'Stimme auf Gisela (Azure Neural) gesetzt.'
+                            : 'Stimme auf Browser-Sprachausgabe gesetzt.'
+                        );
+                      }}
+                      className={`min-h-[44px] px-3 py-2 rounded-xl text-xs font-bold border transition active:scale-95 ${
+                        currentAiSettings.voiceProvider === opt.id
+                          ? 'bg-[#0A9396] text-white border-[#14B8A6]'
+                          : 'bg-[#181A1B] text-[#94A3B8] border-white/10 hover:text-white'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <div className="space-y-2">
                 <input
                   type="password"
-                  value={azureSpeechKey}
-                  onChange={(e) => {
-                    setAzureSpeechKey(e.target.value);
-                    saveAzureSpeechKey(e.target.value);
-                  }}
+                  value={currentAiSettings.azureSpeechKey}
+                  onChange={(e) => handleUpdateAiSettings({ azureSpeechKey: e.target.value })}
                   placeholder="Azure Speech API-Key (optional)..."
                   className="w-full min-h-[44px] px-3.5 py-2 rounded-xl text-xs font-mono bg-[#181A1B] text-white border border-white/10"
                 />
                 <input
                   type="text"
-                  value={azureSpeechRegion}
-                  onChange={(e) => {
-                    setAzureSpeechRegion(e.target.value);
-                    saveAzureSpeechRegion(e.target.value);
-                  }}
+                  value={currentAiSettings.azureSpeechRegion}
+                  onChange={(e) => handleUpdateAiSettings({ azureSpeechRegion: e.target.value })}
                   placeholder="Azure Region (z. B. germanywestcentral oder westeurope)"
                   className="w-full min-h-[44px] px-3.5 py-2 rounded-xl text-xs bg-[#181A1B] text-white border border-white/10"
                 />
@@ -1378,7 +1464,7 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
                     className={`p-3 rounded-2xl text-xs border ${
                       giselaTestStatus.engine === 'azure-gisela'
                         ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
-                        : 'bg-amber-500/10 border-amber-500/30 text-amber-300'
+                        : 'bg-[#E5A93C]/10 border-[#E5A93C]/30 text-[#E5A93C]'
                     }`}
                   >
                     {giselaTestStatus.message}

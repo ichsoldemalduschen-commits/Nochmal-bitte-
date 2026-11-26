@@ -1,8 +1,9 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { CheckCircle2, MessageSquare, Scale, Mic, Plus, X, Send } from 'lucide-react';
 import {
   AiExecutedAction,
   AiLogEntry,
+  AiVoiceSettings,
   AmbientLightMode,
   AppStateSnapshot,
   Attachment,
@@ -19,10 +20,12 @@ import {
 import { BRAND_CONFIG } from './config/brandConfig';
 import { INITIAL_APP_SNAPSHOT } from './data/pizzaBanditTsaSeed';
 import {
+  DEFAULT_AI_VOICE_SETTINGS,
   downloadStateBackupJson,
-  downloadFullBackupV2,
   formatNow,
+  loadAiVoiceSettings,
   loadPersistedState,
+  saveAiVoiceSettings,
   savePersistedState,
   requestStoragePersistence,
   migrateLocalStorageToIDB,
@@ -37,9 +40,12 @@ import {
 } from './services/storage';
 import {
   askQuickAssistantQuestion,
+  buildLocalFallbackPlan,
   compressImageFile,
   enforceMaxSixWords,
-  routeVoiceCommand
+  routeVoiceCommand,
+  stopAllSpeech,
+  StructuredAiResponse
 } from './services/aiRouter';
 import { buildProcurementCheck } from './plugins/procurementCheck';
 import { RealityCheckModal, SelfCheckModal } from './plugins/mindfulChecks';
@@ -99,7 +105,6 @@ export default function App() {
   const [voiceModalOpen, setVoiceModalOpen] = useState(false);
   const [companionStage, setCompanionStage] = useState<1 | 2>(1);
   const [floatingCartOpen, setFloatingCartOpen] = useState(false);
-  const [quickFanOpen, setQuickFanOpen] = useState(false);
   const [deepResearchModalOpen, setDeepResearchModalOpen] = useState(false);
   const [autoStartMicOnOpen, setAutoStartMicOnOpen] = useState(true);
   const [realityModalOpen, setRealityModalOpen] = useState(false);
@@ -114,18 +119,28 @@ export default function App() {
   const [singleFocusOpen, setSingleFocusOpen] = useState(false);
   const [singleFocusTaskId, setSingleFocusTaskId] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
-  const [companionIsListening, setCompanionIsListening] = useState(false);
-  const [companionIsProcessing, setCompanionIsProcessing] = useState(false);
-  const [companionIsSpeaking, setCompanionIsSpeaking] = useState(false);
+
+  const aiVoiceSettings: AiVoiceSettings = state.aiVoiceSettings || DEFAULT_AI_VOICE_SETTINGS;
+  const aiVoiceSettingsRef = useRef<AiVoiceSettings>(aiVoiceSettings);
+  aiVoiceSettingsRef.current = aiVoiceSettings;
+
+  const handleUpdateAiVoiceSettings = (patch: Partial<AiVoiceSettings>) => {
+    if (patch.ttsEnabled === false) {
+      stopAllSpeech();
+    }
+    const next: AiVoiceSettings = { ...aiVoiceSettingsRef.current, ...patch };
+    aiVoiceSettingsRef.current = next;
+    void saveAiVoiceSettings(next);
+    setState((prev) => ({
+      ...prev,
+      aiVoiceSettings: { ...(prev.aiVoiceSettings || DEFAULT_AI_VOICE_SETTINGS), ...patch }
+    }));
+  };
 
   const handleOpenVoice = (stage: 1 | 2 = 1, autoStart = true) => {
     setCompanionStage(stage);
     setAutoStartMicOnOpen(autoStart);
     setVoiceModalOpen(true);
-  };
-
-  const handleExportFullBackup = () => {
-    downloadFullBackupV2(state).catch(console.warn);
   };
 
   const handleToggleThumbHub = (enabled: boolean) => {
@@ -171,19 +186,24 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    // 1. Silent IDB migration & request storage persistence
-    requestStoragePersistence();
-    migrateLocalStorageToIDB().then(() => {
-      loadIdbItem<Record<string, PhotoMeasurePin[]>>(STORAGE_KEYS.PHOTO_PINS, {}).then((pins) => {
-        if (pins && Object.keys(pins).length > 0) {
-          setPhotoPins(pins);
-        }
-      });
-    });
+    let cancelled = false;
+    (async () => {
+      // 1. Silent IDB migration & request storage persistence BEFORE loading settings
+      requestStoragePersistence();
+      await migrateLocalStorageToIDB();
+      const pins = await loadIdbItem<Record<string, PhotoMeasurePin[]>>(STORAGE_KEYS.PHOTO_PINS, {});
+      if (!cancelled && pins && Object.keys(pins).length > 0) {
+        setPhotoPins(pins);
+      }
 
-    // 2. Load persisted app state
-    loadPersistedState(INITIAL_APP_SNAPSHOT).then(async (loaded) => {
-      const savedAmbientMode = await loadAmbientLightMode();
+      // 2. Load persisted app state & unified AI/Voice settings
+      const loaded = await loadPersistedState(INITIAL_APP_SNAPSHOT);
+      const [savedAmbientMode, loadedAiVoiceSettings] = await Promise.all([
+        loadAmbientLightMode(),
+        loadAiVoiceSettings(loaded)
+      ]);
+      if (cancelled) return;
+
       const normalizedProjects = (loaded.projects || INITIAL_APP_SNAPSHOT.projects).map((p) => {
         const brandProj = (BRAND_CONFIG.projects as Record<string, any>)[p.id];
         return {
@@ -201,19 +221,24 @@ export default function App() {
         };
       });
 
+      aiVoiceSettingsRef.current = loadedAiVoiceSettings;
       setState({
         ...INITIAL_APP_SNAPSHOT,
         ...loaded,
         ambientLightMode: savedAmbientMode || (loaded as any).ambientLightMode || 'shimmer',
         thumbHubEnabled: typeof (loaded as any).thumbHubEnabled === 'boolean' ? (loaded as any).thumbHubEnabled : true,
         thumbHubPosition: (loaded as any).thumbHubPosition || 'center',
+        aiVoiceSettings: loadedAiVoiceSettings,
         projects: normalizedProjects,
         eventSalesLogs: Array.isArray(loaded.eventSalesLogs) ? loaded.eventSalesLogs : [],
         aiLogs: Array.isArray(loaded.aiLogs) ? loaded.aiLogs : [],
         selfChecks: Array.isArray(loaded.selfChecks) ? loaded.selfChecks : []
       });
       setHydrated(true);
-    });
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -775,35 +800,35 @@ export default function App() {
       const nextExplanations =
         item.kind === 'explanation'
           ? [
-              {
-                id: item.id,
-                title: item.title,
-                stepsText: item.stepsText ?? item.content,
-                lastModified: item.lastModified,
-                changeReason: item.changeReason,
-                source: item.source,
-                aiTouched: item.aiTouched,
-                customMeta: item.customMeta || {}
-              },
-              ...(p.explanations || []).filter((e) => e.id !== item.id)
-            ]
+            {
+              id: item.id,
+              title: item.title,
+              stepsText: item.stepsText ?? item.content,
+              lastModified: item.lastModified,
+              changeReason: item.changeReason,
+              source: item.source,
+              aiTouched: item.aiTouched,
+              customMeta: item.customMeta || {}
+            },
+            ...(p.explanations || []).filter((e) => e.id !== item.id)
+          ]
           : p.explanations || [];
       const nextInfos =
         item.kind !== 'explanation'
           ? [
-              {
-                id: item.id,
-                title: item.title,
-                content: item.content,
-                attachments: item.attachments || [],
-                lastModified: item.lastModified,
-                changeReason: item.changeReason,
-                source: item.source,
-                aiTouched: item.aiTouched,
-                customMeta: item.customMeta || {}
-              },
-              ...(p.infos || []).filter((i) => i.id !== item.id)
-            ]
+            {
+              id: item.id,
+              title: item.title,
+              content: item.content,
+              attachments: item.attachments || [],
+              lastModified: item.lastModified,
+              changeReason: item.changeReason,
+              source: item.source,
+              aiTouched: item.aiTouched,
+              customMeta: item.customMeta || {}
+            },
+            ...(p.infos || []).filter((i) => i.id !== item.id)
+          ]
           : p.infos || [];
       return {
         ...p,
@@ -899,27 +924,14 @@ export default function App() {
     else reader.readAsDataURL(file);
   };
 
-  const handleDistributeVoiceCommand = async (
+  const applyAiPlanToAppState = (
     rawText: string,
+    plan: StructuredAiResponse,
+    engine: string,
     attachment: Attachment | null,
-    requestedMode?: 'flash' | 'research',
-    chatHistory?: Array<{ role: 'user' | 'assistant'; text: string }>
+    autoUpscaledToPro?: boolean
   ) => {
-    const activeProjects = state.projects.filter((p) => !p.archived);
     const defaultProjId = BRAND_CONFIG.defaultProjectId;
-    const effectiveDefaultProjId = (!activeProject || activeProject.archived)
-      ? (activeProjects.find((p) => p.id === defaultProjId)?.id || activeProjects[0]?.id || defaultProjId)
-      : activeProject.id;
-    const { plan, engine, autoUpscaledToPro } = await routeVoiceCommand(
-      rawText,
-      state.userApiKey,
-      effectiveDefaultProjId,
-      activeProjects,
-      chatHistory,
-      attachment,
-      requestedMode
-    );
-
     const timestamp = formatNow();
     const executedActions: AiExecutedAction[] = [];
     const logId = `log-${Date.now()}`;
@@ -1169,6 +1181,55 @@ export default function App() {
     };
   };
 
+  const getEffectiveDefaultProjectId = () => {
+    const activeProjects = state.projects.filter((p) => !p.archived);
+    const defaultProjId = BRAND_CONFIG.defaultProjectId;
+    return (!activeProject || activeProject.archived)
+      ? (activeProjects.find((p) => p.id === defaultProjId)?.id || activeProjects[0]?.id || defaultProjId)
+      : activeProject.id;
+  };
+
+  const handleDistributeVoiceCommand = async (
+    rawText: string,
+    attachment: Attachment | null,
+    requestedMode?: 'flash' | 'research',
+    chatHistory?: Array<{ role: 'user' | 'assistant'; text: string }>,
+    options?: { signal?: AbortSignal; settings?: AiVoiceSettings }
+  ) => {
+    const activeProjects = state.projects.filter((p) => !p.archived);
+    const effectiveDefaultProjId = getEffectiveDefaultProjectId();
+    const { plan, engine, autoUpscaledToPro, aborted } = await routeVoiceCommand(
+      rawText,
+      state.userApiKey,
+      effectiveDefaultProjId,
+      activeProjects,
+      chatHistory,
+      attachment,
+      requestedMode,
+      {
+        signal: options?.signal,
+        settings: options?.settings || aiVoiceSettingsRef.current
+      }
+    );
+
+    if (aborted || options?.signal?.aborted) {
+      return;
+    }
+
+    return applyAiPlanToAppState(rawText, plan, engine, attachment, autoUpscaledToPro);
+  };
+
+  const handleExecuteOfflineFallback = (
+    rawText: string,
+    attachment: Attachment | null,
+    reason = 'Fallback (API-Timeout)'
+  ) => {
+    const activeProjects = state.projects.filter((p) => !p.archived);
+    const effectiveDefaultProjId = getEffectiveDefaultProjectId();
+    const plan = buildLocalFallbackPlan(rawText, effectiveDefaultProjId, activeProjects);
+    return applyAiPlanToAppState(rawText, plan, reason, attachment, false);
+  };
+
   const handleUndoAiAction = (logId: string, actionId: string) => {
     setState((prev) => {
       const log = prev.aiLogs.find((l) => l.id === logId);
@@ -1311,8 +1372,11 @@ export default function App() {
           activeProjectName={activeProject?.name || BRAND_CONFIG.projects['proj-foodtruck']?.name || 'Pizza Bandit'}
           projects={state.projects}
           aiLogs={state.aiLogs}
+          aiVoiceSettings={aiVoiceSettings}
+          onUpdateAiVoiceSettings={handleUpdateAiVoiceSettings}
           onClose={() => setVoiceModalOpen(false)}
           onExecuteCommand={handleDistributeVoiceCommand}
+          onExecuteOfflineFallback={handleExecuteOfflineFallback}
           onAskQuestion={(q, att) =>
             askQuickAssistantQuestion(
               q,
@@ -1376,173 +1440,173 @@ export default function App() {
         />
 
         <main className="flex-1 w-full px-3 pt-3 pb-32">
-        {!isBackoffice ? (
-          <FrontWorkspace
-            activeDomain={activeDomain}
-            allProjects={state.projects}
-            domainProjects={domainProjects}
-            activeProject={activeProject}
-            activeTab={activeProjectTab}
-            highlightedItemId={highlightedItemId}
-            userApiKey={state.userApiKey}
-            onSwitchDomain={(d) => {
-              setActiveDomain(d);
-              const firstInDomain = state.projects.find(
-                (p) => !p.archived && isPrivateDomain(p.domain) === isPrivateDomain(d)
-              );
-              if (firstInDomain) setSelectedProjectId(firstInDomain.id);
-            }}
-            onSelectProject={(id) => setSelectedProjectId(id)}
-            onChangeTab={(tab) => setActiveProjectTab(tab)}
-            onOpenNewProjectModal={() => setNewProjectModalOpen(true)}
-            onOpenDeepResearchModal={() => setDeepResearchModalOpen(true)}
-            onUploadProjectLogo={async (projId, file) => {
-              const { dataUrl } = await compressImageFile(file);
-              updateProject(projId, (p) => ({
-                ...p,
-                customLogoUrl: dataUrl
-              }));
-              notify('Projekt-Logo aktualisiert.');
-            }}
-            onResetProjectLogo={(projId) => {
-              updateProject(projId, (p) => ({ ...p, customLogoUrl: './raccoon-logo.png' }));
-              notify('Standard-Logo gesetzt.');
-            }}
-            onConfirmRedDot={handleConfirmRedDot}
-            onAddTask={(projId, title, prio = 'Mittel', mins = 25) => {
-              const ts = formatNow();
-              updateProject(projId, (p) => ({
-                ...p,
-                tasks: [
-                  {
-                    id: `t-${Date.now()}`,
-                    title,
-                    completed: false,
-                    priority: prio,
-                    estimatedMinutes: mins,
-                    dayBlock: null,
-                    reminderAt: '',
-                    aiTouched: false,
-                    lastModified: ts,
-                    changeReason: 'Manuell angelegt',
-                    source: 'Manuell',
-                    customMeta: {}
-                  },
-                  ...p.tasks
-                ]
-              }));
-            }}
-            onToggleTask={handleToggleTask}
-            onDeleteTask={(projId, taskId) =>
-              updateProject(projId, (p) => ({
-                ...p,
-                tasks: p.tasks.filter((t) => t.id !== taskId)
-              }))
-            }
-            onOpenSingleFocus={(taskId) => {
-              setSingleFocusTaskId(taskId || null);
-              setSingleFocusOpen(true);
-            }}
-            onUpdateTask={handleUpdateTask}
-            onMoveTask={handleMoveTask}
-            onResetChecklistForDeployment={(projId) => {
-              const ts = formatNow();
-              updateProject(projId, (p) => ({
-                ...p,
-                tasks: p.tasks.map((t) => ({ ...t, completed: false, lastModified: ts }))
-              }));
-              notify('Checkliste zurückgesetzt.');
-            }}
-            onAddKnowledge={handleAddKnowledge}
-            onUpdateKnowledge={handleUpdateKnowledge}
-            onDeleteKnowledge={handleDeleteKnowledge}
-            onRestoreKnowledge={handleRestoreKnowledge}
-            onUploadKnowledgeAttachment={handleUploadKnowledgeAttachment}
-            onAddExplanation={(projId, title, stepsText) => {
-              handleAddKnowledge(projId, 'explanation', title, stepsText);
-            }}
-            onUpdateExplanation={(projId, expId, title, stepsText) => {
-              handleUpdateKnowledge(projId, expId, title, stepsText);
-            }}
-            onAddInfo={(projId, title, content) => {
-              handleAddKnowledge(projId, 'info', title, content);
-            }}
-            onUploadInfoAttachment={handleUploadKnowledgeAttachment}
-            onPreviewAttachment={(att) => setPreviewAttachment(att)}
-            onAddCartItems={handleAddCartItems}
-            onToggleCartItem={handleToggleCartItem}
-            onDeleteCartItem={handleDeleteCartItem}
-            onUpdateCartItem={handleUpdateCartItem}
-            onMoveCartItem={handleMoveCartItem}
-            onMoveKnowledge={handleMoveKnowledge}
-            onUpdateProjectMeta={(projId, patch) =>
-              updateProject(projId, (p) => ({
-                ...p,
-                customMeta: { ...p.customMeta, ...patch }
-              }))
-            }
-            onRecordEventSale={(entry) =>
-              setState((prev) => ({
-                ...prev,
-                eventSalesLogs: [entry, ...prev.eventSalesLogs]
-              }))
-            }
-            onOpenAddonsBackoffice={(section?: ZentraleSectionId) => {
-              setZentraleSection(section || null);
-              setIsBackoffice(true);
-              setBackofficeTab('addons');
-            }}
-            onOpenFloatingCart={() => setFloatingCartOpen(true)}
-            isFloatingCartOpen={floatingCartOpen}
-            ambientLightMode={state.ambientLightMode || 'shimmer'}
-            onSaveDossierToProject={handleSaveDossierToProject}
-            onReconcileReceiptWithCart={handleReconcileReceiptWithCart}
-            onNotify={notify}
-          />
-        ) : (
-          <BackofficeWorkspace
-            activeTab={backofficeTab}
-            projects={state.projects}
-            aiLogs={state.aiLogs}
-            selfChecks={state.selfChecks}
-            eventSalesLogs={state.eventSalesLogs}
-            userApiKey={state.userApiKey}
-            realityCheckEnabled={state.realityCheckEnabled}
-            haWebhookUrl={state.haWebhookUrl}
-            haEmbedUrl={state.haEmbedUrl}
-            initialSection={zentraleSection}
-            ambientLightMode={state.ambientLightMode || 'shimmer'}
-            onChangeAmbientLightMode={handleChangeAmbientLightMode}
-            fullState={state}
-            onReplaceFullStateFromCloud={handleReplaceFullStateFromCloud}
-            onChangeTab={setBackofficeTab}
-            onCloseBackoffice={() => { setIsBackoffice(false); setZentraleSection(null); }}
-            onJumpToAction={handleJumpToAction}
-            onUndoAiAction={handleUndoAiAction}
-            onMoveAiAction={handleMoveAiAction}
-            onToggleArchiveProject={(projId) => {
-              const ts = formatNow();
-              updateProject(projId, (p) => ({
-                ...p,
-                archived: !p.archived,
-                archivedAt: !p.archived ? ts : undefined
-              }));
-              notify('Archiv-Status aktualisiert.');
-            }}
-            onUpdateProject={handleUpdateProject}
-            onAssignDayBlock={(projId, taskId, block) =>
-              updateProject(projId, (p) => ({
-                ...p,
-                tasks: p.tasks.map((t) => (t.id === taskId ? { ...t, dayBlock: block } : t))
-              }))
-            }
-            onAutoStructureDay={() => {
-              setState((prev) => ({
-                ...prev,
-                projects: prev.projects.map((p) =>
-                  p.archived
-                    ? p
-                    : {
+          {!isBackoffice ? (
+            <FrontWorkspace
+              activeDomain={activeDomain}
+              allProjects={state.projects}
+              domainProjects={domainProjects}
+              activeProject={activeProject}
+              activeTab={activeProjectTab}
+              highlightedItemId={highlightedItemId}
+              userApiKey={state.userApiKey}
+              onSwitchDomain={(d) => {
+                setActiveDomain(d);
+                const firstInDomain = state.projects.find(
+                  (p) => !p.archived && isPrivateDomain(p.domain) === isPrivateDomain(d)
+                );
+                if (firstInDomain) setSelectedProjectId(firstInDomain.id);
+              }}
+              onSelectProject={(id) => setSelectedProjectId(id)}
+              onChangeTab={(tab) => setActiveProjectTab(tab)}
+              onOpenNewProjectModal={() => setNewProjectModalOpen(true)}
+              onOpenDeepResearchModal={() => setDeepResearchModalOpen(true)}
+              onUploadProjectLogo={async (projId, file) => {
+                const { dataUrl } = await compressImageFile(file);
+                updateProject(projId, (p) => ({
+                  ...p,
+                  customLogoUrl: dataUrl
+                }));
+                notify('Projekt-Logo aktualisiert.');
+              }}
+              onResetProjectLogo={(projId) => {
+                updateProject(projId, (p) => ({ ...p, customLogoUrl: './raccoon-logo.png' }));
+                notify('Standard-Logo gesetzt.');
+              }}
+              onConfirmRedDot={handleConfirmRedDot}
+              onAddTask={(projId, title, prio = 'Mittel', mins = 25) => {
+                const ts = formatNow();
+                updateProject(projId, (p) => ({
+                  ...p,
+                  tasks: [
+                    {
+                      id: `t-${Date.now()}`,
+                      title,
+                      completed: false,
+                      priority: prio,
+                      estimatedMinutes: mins,
+                      dayBlock: null,
+                      reminderAt: '',
+                      aiTouched: false,
+                      lastModified: ts,
+                      changeReason: 'Manuell angelegt',
+                      source: 'Manuell',
+                      customMeta: {}
+                    },
+                    ...p.tasks
+                  ]
+                }));
+              }}
+              onToggleTask={handleToggleTask}
+              onDeleteTask={(projId, taskId) =>
+                updateProject(projId, (p) => ({
+                  ...p,
+                  tasks: p.tasks.filter((t) => t.id !== taskId)
+                }))
+              }
+              onOpenSingleFocus={(taskId) => {
+                setSingleFocusTaskId(taskId || null);
+                setSingleFocusOpen(true);
+              }}
+              onUpdateTask={handleUpdateTask}
+              onMoveTask={handleMoveTask}
+              onResetChecklistForDeployment={(projId) => {
+                const ts = formatNow();
+                updateProject(projId, (p) => ({
+                  ...p,
+                  tasks: p.tasks.map((t) => ({ ...t, completed: false, lastModified: ts }))
+                }));
+                notify('Checkliste zurückgesetzt.');
+              }}
+              onAddKnowledge={handleAddKnowledge}
+              onUpdateKnowledge={handleUpdateKnowledge}
+              onDeleteKnowledge={handleDeleteKnowledge}
+              onRestoreKnowledge={handleRestoreKnowledge}
+              onUploadKnowledgeAttachment={handleUploadKnowledgeAttachment}
+              onAddExplanation={(projId, title, stepsText) => {
+                handleAddKnowledge(projId, 'explanation', title, stepsText);
+              }}
+              onUpdateExplanation={(projId, expId, title, stepsText) => {
+                handleUpdateKnowledge(projId, expId, title, stepsText);
+              }}
+              onAddInfo={(projId, title, content) => {
+                handleAddKnowledge(projId, 'info', title, content);
+              }}
+              onUploadInfoAttachment={handleUploadKnowledgeAttachment}
+              onPreviewAttachment={(att) => setPreviewAttachment(att)}
+              onAddCartItems={handleAddCartItems}
+              onToggleCartItem={handleToggleCartItem}
+              onDeleteCartItem={handleDeleteCartItem}
+              onUpdateCartItem={handleUpdateCartItem}
+              onMoveCartItem={handleMoveCartItem}
+              onMoveKnowledge={handleMoveKnowledge}
+              onUpdateProjectMeta={(projId, patch) =>
+                updateProject(projId, (p) => ({
+                  ...p,
+                  customMeta: { ...p.customMeta, ...patch }
+                }))
+              }
+              onRecordEventSale={(entry) =>
+                setState((prev) => ({
+                  ...prev,
+                  eventSalesLogs: [entry, ...prev.eventSalesLogs]
+                }))
+              }
+              onOpenAddonsBackoffice={(section?: ZentraleSectionId) => {
+                setZentraleSection(section || null);
+                setIsBackoffice(true);
+                setBackofficeTab('addons');
+              }}
+              onOpenFloatingCart={() => setFloatingCartOpen(true)}
+              isFloatingCartOpen={floatingCartOpen}
+              ambientLightMode={state.ambientLightMode || 'shimmer'}
+              onSaveDossierToProject={handleSaveDossierToProject}
+              onReconcileReceiptWithCart={handleReconcileReceiptWithCart}
+              onNotify={notify}
+            />
+          ) : (
+            <BackofficeWorkspace
+              activeTab={backofficeTab}
+              projects={state.projects}
+              aiLogs={state.aiLogs}
+              selfChecks={state.selfChecks}
+              eventSalesLogs={state.eventSalesLogs}
+              userApiKey={state.userApiKey}
+              realityCheckEnabled={state.realityCheckEnabled}
+              haWebhookUrl={state.haWebhookUrl}
+              haEmbedUrl={state.haEmbedUrl}
+              initialSection={zentraleSection}
+              ambientLightMode={state.ambientLightMode || 'shimmer'}
+              onChangeAmbientLightMode={handleChangeAmbientLightMode}
+              fullState={state}
+              onReplaceFullStateFromCloud={handleReplaceFullStateFromCloud}
+              onChangeTab={setBackofficeTab}
+              onCloseBackoffice={() => { setIsBackoffice(false); setZentraleSection(null); }}
+              onJumpToAction={handleJumpToAction}
+              onUndoAiAction={handleUndoAiAction}
+              onMoveAiAction={handleMoveAiAction}
+              onToggleArchiveProject={(projId) => {
+                const ts = formatNow();
+                updateProject(projId, (p) => ({
+                  ...p,
+                  archived: !p.archived,
+                  archivedAt: !p.archived ? ts : undefined
+                }));
+                notify('Archiv-Status aktualisiert.');
+              }}
+              onUpdateProject={handleUpdateProject}
+              onAssignDayBlock={(projId, taskId, block) =>
+                updateProject(projId, (p) => ({
+                  ...p,
+                  tasks: p.tasks.map((t) => (t.id === taskId ? { ...t, dayBlock: block } : t))
+                }))
+              }
+              onAutoStructureDay={() => {
+                setState((prev) => ({
+                  ...prev,
+                  projects: prev.projects.map((p) =>
+                    p.archived
+                      ? p
+                      : {
                         ...p,
                         tasks: p.tasks.map((t, i) => {
                           if (t.completed || t.dayBlock) return t;
@@ -1586,13 +1650,16 @@ export default function App() {
                 setState((prev) => ({
                   ...INITIAL_APP_SNAPSHOT,
                   userApiKey: prev.userApiKey,
+                  aiVoiceSettings: prev.aiVoiceSettings,
                   aiLogs: prev.aiLogs,
                   selfChecks: prev.selfChecks,
                   eventSalesLogs: prev.eventSalesLogs
                 }));
                 notify('Projektstruktur aktualisiert.');
               }}
-              onExportFullBackup={handleExportFullBackup}
+              aiVoiceSettings={aiVoiceSettings}
+              onUpdateAiVoiceSettings={handleUpdateAiVoiceSettings}
+              onExportFullBackup={() => downloadStateBackupJson(state)}
               onImportFullBackup={(snap) => {
                 setState(snap);
                 notify('Backup geladen.');
@@ -1642,12 +1709,6 @@ export default function App() {
               onOpenFloatingCart={() => setFloatingCartOpen(true)}
               isCompanionActive={voiceModalOpen}
               isFloatingCartOpen={floatingCartOpen}
-              isFanOpen={quickFanOpen}
-              onToggleFan={setQuickFanOpen}
-              onCloseCompanion={() => setVoiceModalOpen(false)}
-              companionIsListening={companionIsListening}
-              companionIsProcessing={companionIsProcessing}
-              companionIsSpeaking={companionIsSpeaking}
               bottomAiText={bottomAiText}
               onSetBottomAiText={setBottomAiText}
               onSubmitBottomAi={handleBottomAiSubmit}
@@ -1763,15 +1824,35 @@ export default function App() {
           onConfigMissing={(msg) => notify(msg)}
         />
 
-      {/* LEBENDIGER SECHSECK-BEGLEITER (3-STUFEN-MORPHING) */}
-      <VoiceModal
-        open={voiceModalOpen}
-        stage={companionStage}
-        onStageChange={(newStage) => {
-          if (newStage === 0) {
-            setVoiceModalOpen(false);
-          } else {
-            setCompanionStage(newStage);
+        {/* LEBENDIGER SECHSECK-BEGLEITER (3-STUFEN-MORPHING) */}
+        <VoiceModal
+          open={voiceModalOpen}
+          stage={companionStage}
+          onStageChange={(newStage) => {
+            if (newStage === 0) {
+              setVoiceModalOpen(false);
+            } else {
+              setCompanionStage(newStage);
+            }
+          }}
+          themeColors={{
+            primary: activeVisualTheme.primary,
+            highlight: activeVisualTheme.highlight,
+            glow: activeVisualTheme.glow
+          }}
+          autoStartMic={autoStartMicOnOpen}
+          activeProjectName={activeProject?.name || BRAND_CONFIG.projects['proj-foodtruck']?.name || 'Pizza Bandit'}
+          projects={state.projects}
+          aiLogs={state.aiLogs}
+          onClose={() => setVoiceModalOpen(false)}
+          onExecuteCommand={handleDistributeVoiceCommand}
+          onAskQuestion={(q, att) =>
+            askQuickAssistantQuestion(
+              q,
+              activeProject?.name || BRAND_CONFIG.projects['proj-foodtruck']?.name || 'Pizza Bandit',
+              state.userApiKey,
+              att
+            )
           }
         }}
         themeColors={{
@@ -1787,8 +1868,11 @@ export default function App() {
         activeProjectName={activeProject?.name || BRAND_CONFIG.projects['proj-foodtruck']?.name || 'Pizza Bandit'}
         projects={state.projects}
         aiLogs={state.aiLogs}
+        aiVoiceSettings={aiVoiceSettings}
+        onUpdateAiVoiceSettings={handleUpdateAiVoiceSettings}
         onClose={() => setVoiceModalOpen(false)}
         onExecuteCommand={handleDistributeVoiceCommand}
+        onExecuteOfflineFallback={handleExecuteOfflineFallback}
         onAskQuestion={(q, att) =>
           askQuickAssistantQuestion(
             q,

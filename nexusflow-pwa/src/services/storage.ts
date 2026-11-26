@@ -1,5 +1,6 @@
 import { get, set } from 'idb-keyval';
 import {
+  AiVoiceSettings,
   AmbientLightMode,
   AppStateSnapshot,
   KnowledgeItem,
@@ -14,7 +15,8 @@ import {
   CartItem,
   PriorityType,
   DayBlockId,
-  KnowledgeKind
+  KnowledgeKind,
+  VoiceProvider
 } from '../types';
 
 export type { FullBackupV2, BackupImportResult, ProjectImportResult };
@@ -33,6 +35,7 @@ export const STORAGE_KEYS = {
   AUDIT_SETTINGS: 'banditos_auto_audit_settings_v4',
   PREFERRED_MODEL: 'banditos_preferred_gemini_model',
   TTS_ENABLED: 'banditos_tts_enabled',
+  VOICE_PROVIDER: 'banditos_voice_provider_v1',
   AZURE_SPEECH_KEY: 'banditos_azure_speech_key_v1',
   AZURE_SPEECH_REGION: 'banditos_azure_speech_region_v1',
   ACTIVE_AI_MODE: 'banditos_active_ai_mode_v1',
@@ -199,6 +202,7 @@ export async function migrateLocalStorageToIndexedDB(): Promise<void> {
     STORAGE_KEYS.AUDIT_SETTINGS,
     STORAGE_KEYS.PREFERRED_MODEL,
     STORAGE_KEYS.TTS_ENABLED,
+    STORAGE_KEYS.VOICE_PROVIDER,
     STORAGE_KEYS.AZURE_SPEECH_KEY,
     STORAGE_KEYS.AZURE_SPEECH_REGION,
     STORAGE_KEYS.ACTIVE_AI_MODE,
@@ -422,7 +426,16 @@ export function getTtsEnabled(): boolean {
 }
 
 export function saveTtsEnabled(enabled: boolean): void {
-  saveIdbItem(STORAGE_KEYS.TTS_ENABLED, enabled);
+  void saveIdbItem(STORAGE_KEYS.TTS_ENABLED, enabled);
+}
+
+export function getVoiceProvider(): VoiceProvider {
+  const val = getIdbItemSync<string>(STORAGE_KEYS.VOICE_PROVIDER, 'azure-gisela');
+  return val === 'browser' ? 'browser' : 'azure-gisela';
+}
+
+export function saveVoiceProvider(provider: VoiceProvider): void {
+  void saveIdbItem(STORAGE_KEYS.VOICE_PROVIDER, provider);
 }
 
 export function getAzureSpeechKey(): string {
@@ -430,7 +443,7 @@ export function getAzureSpeechKey(): string {
 }
 
 export function saveAzureSpeechKey(key: string): void {
-  saveIdbItem(STORAGE_KEYS.AZURE_SPEECH_KEY, key);
+  void saveIdbItem(STORAGE_KEYS.AZURE_SPEECH_KEY, key);
 }
 
 export function getAzureSpeechRegion(): string {
@@ -438,15 +451,97 @@ export function getAzureSpeechRegion(): string {
 }
 
 export function saveAzureSpeechRegion(region: string): void {
-  saveIdbItem(STORAGE_KEYS.AZURE_SPEECH_REGION, region);
+  void saveIdbItem(STORAGE_KEYS.AZURE_SPEECH_REGION, region);
 }
 
 export function getActiveAiMode(): 'flash' | 'research' {
-  return getIdbItemSync<'flash' | 'research'>(STORAGE_KEYS.ACTIVE_AI_MODE, 'flash');
+  const val = getIdbItemSync<string>(STORAGE_KEYS.ACTIVE_AI_MODE, 'flash');
+  return val === 'research' ? 'research' : 'flash';
 }
 
 export function saveActiveAiMode(mode: 'flash' | 'research'): void {
-  saveIdbItem(STORAGE_KEYS.ACTIVE_AI_MODE, mode);
+  void saveIdbItem(STORAGE_KEYS.ACTIVE_AI_MODE, mode);
+}
+
+export const DEFAULT_AI_VOICE_SETTINGS: AiVoiceSettings = {
+  ttsEnabled: true,
+  voiceProvider: 'azure-gisela',
+  azureSpeechKey: '',
+  azureSpeechRegion: 'germanywestcentral',
+  preferredModelMode: 'SMART_PRO',
+  activeAiMode: 'flash'
+};
+
+/**
+ * Lädt alle KI- & Stimm-Einstellungen konsistent aus IndexedDB (inkl. Snapshot-Fallback)
+ * und befüllt dabei den synchronen Memory-Cache.
+ */
+export async function loadAiVoiceSettings(
+  snapshot?: AppStateSnapshot | null
+): Promise<AiVoiceSettings> {
+  const snapSettings = snapshot?.aiVoiceSettings;
+  const [
+    ttsEnabled,
+    rawProvider,
+    azureSpeechKey,
+    azureSpeechRegion,
+    preferredModelMode,
+    rawActiveAiMode
+  ] = await Promise.all([
+    loadIdbItem<boolean>(
+      STORAGE_KEYS.TTS_ENABLED,
+      snapSettings?.ttsEnabled ?? DEFAULT_AI_VOICE_SETTINGS.ttsEnabled
+    ),
+    loadIdbItem<string>(
+      STORAGE_KEYS.VOICE_PROVIDER,
+      snapSettings?.voiceProvider ?? DEFAULT_AI_VOICE_SETTINGS.voiceProvider
+    ),
+    loadIdbItem<string>(
+      STORAGE_KEYS.AZURE_SPEECH_KEY,
+      snapSettings?.azureSpeechKey ?? DEFAULT_AI_VOICE_SETTINGS.azureSpeechKey
+    ),
+    loadIdbItem<string>(
+      STORAGE_KEYS.AZURE_SPEECH_REGION,
+      snapSettings?.azureSpeechRegion ?? DEFAULT_AI_VOICE_SETTINGS.azureSpeechRegion
+    ),
+    loadIdbItem<string>(
+      STORAGE_KEYS.PREFERRED_MODEL,
+      snapSettings?.preferredModelMode ?? DEFAULT_AI_VOICE_SETTINGS.preferredModelMode
+    ),
+    loadIdbItem<string>(
+      STORAGE_KEYS.ACTIVE_AI_MODE,
+      snapSettings?.activeAiMode ?? DEFAULT_AI_VOICE_SETTINGS.activeAiMode
+    )
+  ]);
+
+  return {
+    ttsEnabled: typeof ttsEnabled === 'boolean' ? ttsEnabled : true,
+    voiceProvider: rawProvider === 'browser' ? 'browser' : 'azure-gisela',
+    azureSpeechKey: typeof azureSpeechKey === 'string' ? azureSpeechKey : '',
+    azureSpeechRegion:
+      typeof azureSpeechRegion === 'string' && azureSpeechRegion.trim()
+        ? azureSpeechRegion
+        : 'germanywestcentral',
+    preferredModelMode:
+      typeof preferredModelMode === 'string' && preferredModelMode.trim()
+        ? preferredModelMode
+        : 'SMART_PRO',
+    activeAiMode: rawActiveAiMode === 'research' ? 'research' : 'flash'
+  };
+}
+
+/**
+ * Speichert alle KI- & Stimm-Einstellungen atomar in IndexedDB + Memory-Cache + LocalStorage-Backup.
+ */
+export async function saveAiVoiceSettings(settings: AiVoiceSettings): Promise<void> {
+  await Promise.all([
+    saveIdbItem(STORAGE_KEYS.TTS_ENABLED, settings.ttsEnabled),
+    saveIdbItem(STORAGE_KEYS.VOICE_PROVIDER, settings.voiceProvider),
+    saveIdbItem(STORAGE_KEYS.AZURE_SPEECH_KEY, settings.azureSpeechKey),
+    saveIdbItem(STORAGE_KEYS.AZURE_SPEECH_REGION, settings.azureSpeechRegion),
+    saveIdbItem(STORAGE_KEYS.PREFERRED_MODEL, settings.preferredModelMode),
+    saveIdbItem(STORAGE_KEYS.ACTIVE_AI_MODE, settings.activeAiMode)
+  ]);
 }
 
 export function getThumbHubEnabled(): boolean {
@@ -700,11 +795,13 @@ export async function importFullBackupV2(
     thumbHubEnabled: typeof appState.thumbHubEnabled === 'boolean' ? appState.thumbHubEnabled : currentSnapshot.thumbHubEnabled,
     thumbHubPosition: appState.thumbHubPosition || currentSnapshot.thumbHubPosition,
     ambientLightMode: appState.ambientLightMode || currentSnapshot.ambientLightMode,
+    aiVoiceSettings: appState.aiVoiceSettings || currentSnapshot.aiVoiceSettings,
   };
 
   // Restore v2-only stores to IDB
   if (isV2) {
     const saves: Promise<void>[] = [];
+    if (mergedState.aiVoiceSettings) saves.push(saveAiVoiceSettings(mergedState.aiVoiceSettings));
     if (raw.userPrefs) saves.push(saveIdbItem(STORAGE_KEYS.USER_PREFS, raw.userPrefs));
     if (raw.blueprints) saves.push(saveIdbItem(STORAGE_KEYS.BLUEPRINTS, raw.blueprints));
     if (raw.photoPins) saves.push(saveIdbItem(STORAGE_KEYS.PHOTO_PINS, raw.photoPins));

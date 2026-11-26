@@ -1,14 +1,26 @@
-import { getAzureSpeechKey, getAzureSpeechRegion, getTtsEnabled } from './storage';
+import { AiVoiceSettings } from '../types';
+import {
+  getAzureSpeechKey,
+  getAzureSpeechRegion,
+  getTtsEnabled,
+  getVoiceProvider
+} from './storage';
 
 let activeAudio: HTMLAudioElement | null = null;
 let activeBlobUrl: string | null = null;
 let activeAbortController: AbortController | null = null;
+let activeSpeechGeneration = 0;
+
+const AZURE_TTS_TIMEOUT_MS = 4500;
 
 /**
- * Bricht jegliche laufende Audio-Wiedergabe (Azure & Browser-Synthesis) sofort und sauber ab.
- * Stellt sicher, dass sich niemals zwei Stimmen überlagern.
+ * Zentrale Audio-Sperre:
+ * Bricht sowohl laufende Azure-TTS-Requests, aktive Audio-Elemente inkl. ObjectURL
+ * als auch window.speechSynthesis sofort und restlos ab.
  */
-export function stopSpeaking(): void {
+export function stopAllSpeech(): void {
+  activeSpeechGeneration += 1;
+
   if (activeAbortController) {
     try {
       activeAbortController.abort();
@@ -20,6 +32,8 @@ export function stopSpeaking(): void {
 
   if (activeAudio) {
     try {
+      activeAudio.onended = null;
+      activeAudio.onerror = null;
       activeAudio.pause();
       activeAudio.currentTime = 0;
       activeAudio.src = '';
@@ -47,6 +61,9 @@ export function stopSpeaking(): void {
   }
 }
 
+/** Abwärtskompatibler Alias für bestehende Module */
+export const stopSpeaking = stopAllSpeech;
+
 function escapeXml(str: string): string {
   return str
     .replace(/&/g, '&amp;')
@@ -56,7 +73,12 @@ function escapeXml(str: string): string {
     .replace(/'/g, '&apos;');
 }
 
-function speakBrowserSynthesis(cleanText: string, onEnd?: () => void): void {
+function speakBrowserSynthesis(
+  cleanText: string,
+  generation: number,
+  onEnd?: () => void
+): void {
+  if (generation !== activeSpeechGeneration) return;
   if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
     if (onEnd) onEnd();
     return;
@@ -66,32 +88,48 @@ function speakBrowserSynthesis(cleanText: string, onEnd?: () => void): void {
     const utter = new SpeechSynthesisUtterance(cleanText);
     utter.lang = 'de-DE';
     utter.rate = 1.05;
+
+    const voices = window.speechSynthesis.getVoices?.() || [];
+    const germanVoice =
+      voices.find((v) => v.lang?.toLowerCase() === 'de-de') ||
+      voices.find((v) => v.lang?.toLowerCase().startsWith('de'));
+    if (germanVoice) {
+      utter.voice = germanVoice;
+    }
+
     utter.onend = () => {
+      if (generation !== activeSpeechGeneration) return;
       if (onEnd) onEnd();
     };
     utter.onerror = () => {
+      if (generation !== activeSpeechGeneration) return;
       if (onEnd) onEnd();
     };
     window.speechSynthesis.speak(utter);
   } catch {
-    if (onEnd) onEnd();
+    if (generation === activeSpeechGeneration && onEnd) onEnd();
   }
 }
 
 /**
- * Zentrale Sprachausgabe der App mit automatischer Priorisierung:
- * 1. Microsoft Azure Speech (de-DE-GiselaNeural)
- * 2. Geräuschloser Fallback auf window.speechSynthesis (offline, timeout > 3.5s oder Fehler)
+ * Zentrale Sprachausgabe der App mit verbindlicher Stimmen-Auflösungskette:
+ * 1. Bei gewähltem Provider 'azure-gisela' + hinterlegtem Key & Region → zwingend Azure de-DE-GiselaNeural.
+ * 2. Nur bei fehlendem Key/Region, Offline-Status, HTTP-Fehler oder Azure-Timeout greift der lokale
+ *    Browser-Fallback und meldet den Grund über onEngineUsed('browser-fallback', reason),
+ *    OHNE die gespeicherte Benutzer-Auswahl zu überschreiben.
  */
 export async function speakText(
   text: string,
   onEnd?: () => void,
-  onEngineUsed?: (engine: 'azure-gisela' | 'browser-fallback') => void
+  onEngineUsed?: (engine: 'azure-gisela' | 'browser-fallback', fallbackReason?: string) => void,
+  settingsOverride?: Partial<AiVoiceSettings>
 ): Promise<void> {
-  // 1. Zuerst alles stoppen
-  stopSpeaking();
+  // 1. Zuerst jede laufende Sprachausgabe hart abbrechen
+  stopAllSpeech();
+  const myGeneration = activeSpeechGeneration;
 
-  if (!getTtsEnabled()) {
+  const ttsEnabled = settingsOverride?.ttsEnabled ?? getTtsEnabled();
+  if (!ttsEnabled) {
     if (onEnd) onEnd();
     return;
   }
@@ -102,14 +140,28 @@ export async function speakText(
     return;
   }
 
-  const key = getAzureSpeechKey().trim();
-  const region = (getAzureSpeechRegion().trim() || 'germanywestcentral').toLowerCase();
+  const voiceProvider = settingsOverride?.voiceProvider ?? getVoiceProvider();
+  const key = (settingsOverride?.azureSpeechKey ?? getAzureSpeechKey()).trim();
+  const region = (settingsOverride?.azureSpeechRegion ?? getAzureSpeechRegion()).trim().toLowerCase();
   const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
 
-  // Wenn kein Azure-Schlüssel oder offline -> sofort Browser-Fallback
-  if (!key || isOffline) {
-    if (onEngineUsed) onEngineUsed('browser-fallback');
-    speakBrowserSynthesis(clean, onEnd);
+  // Nutzer hat explizit Browser-Stimme gewählt
+  if (voiceProvider === 'browser') {
+    onEngineUsed?.('browser-fallback');
+    speakBrowserSynthesis(clean, myGeneration, onEnd);
+    return;
+  }
+
+  // Gisela (Azure Neural) ist gewählt, aber Credentials fehlen oder Gerät ist offline
+  if (!key || !region) {
+    onEngineUsed?.('browser-fallback', 'Azure-Key oder Region fehlt');
+    speakBrowserSynthesis(clean, myGeneration, onEnd);
+    return;
+  }
+
+  if (isOffline) {
+    onEngineUsed?.('browser-fallback', 'Gerät ist offline');
+    speakBrowserSynthesis(clean, myGeneration, onEnd);
     return;
   }
 
@@ -119,9 +171,11 @@ export async function speakText(
 
   const controller = new AbortController();
   activeAbortController = controller;
+  let timedOut = false;
   const timeoutId = window.setTimeout(() => {
+    timedOut = true;
     controller.abort();
-  }, 3500);
+  }, AZURE_TTS_TIMEOUT_MS);
 
   try {
     const endpoint = `https://${region}.tts.speech.microsoft.com/cognitiveservices/v1`;
@@ -139,13 +193,16 @@ export async function speakText(
 
     window.clearTimeout(timeoutId);
 
+    if (myGeneration !== activeSpeechGeneration) {
+      return;
+    }
+
     if (!response.ok) {
-      throw new Error(`Azure TTS HTTP ${response.status}`);
+      throw new Error(`Azure HTTP ${response.status}`);
     }
 
     const blob = await response.blob();
-    // Prüfen, ob während des Ladens abgebrochen wurde
-    if (activeAbortController !== controller) {
+    if (myGeneration !== activeSpeechGeneration || activeAbortController !== controller) {
       return;
     }
 
@@ -155,46 +212,59 @@ export async function speakText(
     activeAudio = audio;
 
     audio.onended = () => {
-      stopSpeaking();
+      if (myGeneration !== activeSpeechGeneration) return;
+      stopAllSpeech();
       if (onEnd) onEnd();
     };
 
     audio.onerror = () => {
-      stopSpeaking();
-      if (onEngineUsed) onEngineUsed('browser-fallback');
-      speakBrowserSynthesis(clean, onEnd);
+      if (myGeneration !== activeSpeechGeneration) return;
+      stopAllSpeech();
+      const fallbackGen = activeSpeechGeneration;
+      onEngineUsed?.('browser-fallback', 'Azure-Audio nicht abspielbar');
+      speakBrowserSynthesis(clean, fallbackGen, onEnd);
     };
 
-    if (onEngineUsed) onEngineUsed('azure-gisela');
+    onEngineUsed?.('azure-gisela');
     await audio.play();
-  } catch {
+  } catch (err: any) {
     window.clearTimeout(timeoutId);
-    stopSpeaking();
-    // Geräuschloser Fallback auf Browser-Stimme
-    if (onEngineUsed) onEngineUsed('browser-fallback');
-    speakBrowserSynthesis(clean, onEnd);
+    // Wenn durch stopAllSpeech() extern abgebrochen wurde (z.B. Modal geschlossen oder neuer Aufruf),
+    // KEINEN Browser-Fallback mehr starten!
+    if (myGeneration !== activeSpeechGeneration) {
+      return;
+    }
+
+    stopAllSpeech();
+    const fallbackGen = activeSpeechGeneration;
+    const reason = timedOut
+      ? 'Azure-Zeitüberschreitung'
+      : err?.message || 'Azure-Verbindungsfehler';
+    onEngineUsed?.('browser-fallback', reason);
+    speakBrowserSynthesis(clean, fallbackGen, onEnd);
   }
 }
 
 /**
- * Testfunktion für Backoffice-Einstellungen:
+ * Testfunktion für Zentrale-Einstellungen:
  * Versucht Azure Gisela gezielt mit den angegebenen Credentials und meldet das Ergebnis zurück.
  */
 export async function testGiselaVoice(
   apiKey: string,
   region: string
 ): Promise<{ ok: boolean; engine: 'azure-gisela' | 'browser-fallback'; message: string }> {
-  stopSpeaking();
+  stopAllSpeech();
+  const myGeneration = activeSpeechGeneration;
   const testPhrase = 'Hallo! Ich bin Gisela. Dein System ist einsatzbereit.';
   const cleanKey = apiKey.trim();
-  const cleanRegion = (region.trim() || 'germanywestcentral').toLowerCase();
+  const cleanRegion = region.trim().toLowerCase();
 
-  if (!cleanKey) {
-    speakBrowserSynthesis(testPhrase);
+  if (!cleanKey || !cleanRegion) {
+    speakBrowserSynthesis(testPhrase, myGeneration);
     return {
       ok: false,
       engine: 'browser-fallback',
-      message: 'Browser-Stimme gesprochen (Kein Azure-Key hinterlegt).'
+      message: 'Browser-Stimme gesprochen (Azure-Key oder Region fehlt).'
     };
   }
 
@@ -204,7 +274,11 @@ export async function testGiselaVoice(
 
   const controller = new AbortController();
   activeAbortController = controller;
-  const timeoutId = window.setTimeout(() => controller.abort(), 3500);
+  let timedOut = false;
+  const timeoutId = window.setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, AZURE_TTS_TIMEOUT_MS);
 
   try {
     const endpoint = `https://${cleanRegion}.tts.speech.microsoft.com/cognitiveservices/v1`;
@@ -221,16 +295,34 @@ export async function testGiselaVoice(
     });
     window.clearTimeout(timeoutId);
 
+    if (myGeneration !== activeSpeechGeneration) {
+      return {
+        ok: false,
+        engine: 'browser-fallback',
+        message: 'Test abgebrochen.'
+      };
+    }
+
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
     }
 
     const blob = await response.blob();
+    if (myGeneration !== activeSpeechGeneration) {
+      return {
+        ok: false,
+        engine: 'browser-fallback',
+        message: 'Test abgebrochen.'
+      };
+    }
+
     const blobUrl = URL.createObjectURL(blob);
     activeBlobUrl = blobUrl;
     const audio = new Audio(blobUrl);
     activeAudio = audio;
-    audio.onended = () => stopSpeaking();
+    audio.onended = () => {
+      if (myGeneration === activeSpeechGeneration) stopAllSpeech();
+    };
     await audio.play();
 
     return {
@@ -240,12 +332,21 @@ export async function testGiselaVoice(
     };
   } catch (err: any) {
     window.clearTimeout(timeoutId);
-    stopSpeaking();
-    speakBrowserSynthesis(testPhrase);
+    if (myGeneration !== activeSpeechGeneration) {
+      return {
+        ok: false,
+        engine: 'browser-fallback',
+        message: 'Test abgebrochen.'
+      };
+    }
+    stopAllSpeech();
+    const fallbackGen = activeSpeechGeneration;
+    speakBrowserSynthesis(testPhrase, fallbackGen);
+    const reason = timedOut ? 'Azure-Zeitüberschreitung' : err?.message || 'Azure-Verbindungsfehler';
     return {
       ok: false,
       engine: 'browser-fallback',
-      message: `Browser-Fallback aktiv (${err?.message || 'Azure-Verbindungsfehler'}).`
+      message: `Browser-Fallback aktiv (${reason}).`
     };
   }
 }

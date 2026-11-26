@@ -4,6 +4,18 @@ export type DayBlockId = 'morning' | 'focus' | 'errands' | 'evening' | null;
 export type ProjectTabId = 'tasks' | 'cart' | 'knowledge' | 'extras' | 'explanations' | 'infos' | 'receipt' | 'research';
 export type BackofficeTabId = 'analytics' | 'planner' | 'addons' | 'system';
 export type AmbientLightMode = 'off' | 'static' | 'shimmer';
+export type VoiceProvider = 'azure-gisela' | 'browser';
+export type PreferredModelMode = 'SMART_PRO' | 'ALWAYS_PRO' | 'ALWAYS_FLASH' | string;
+export type QuickAiMode = 'flash' | 'research';
+
+export interface AiVoiceSettings {
+  ttsEnabled: boolean;
+  voiceProvider: VoiceProvider;
+  azureSpeechKey: string;
+  azureSpeechRegion: string;
+  preferredModelMode: PreferredModelMode;
+  activeAiMode: QuickAiMode;
+}
 
 export const THEME = {
   bgMain: '#111317',
@@ -248,6 +260,7 @@ export interface AppStateSnapshot {
   thumbHubEnabled?: boolean;
   thumbHubPosition?: 'left' | 'center' | 'right';
   ambientLightMode?: AmbientLightMode;
+  aiVoiceSettings?: AiVoiceSettings;
 }
 
 export interface PluginContextProps {

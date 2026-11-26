@@ -1,9 +1,9 @@
-import { AiActionType, Attachment, KnowledgeKind, PriorityType, Project } from '../types';
+import { AiActionType, AiVoiceSettings, Attachment, KnowledgeKind, PriorityType, Project } from '../types';
 import { BRAND_CONFIG } from '../config/brandConfig';
-import { STORAGE_KEYS, getActiveAiMode, getIdbItemSync, saveActiveAiMode, saveIdbItem } from './storage';
-import { speakText, stopSpeaking, testGiselaVoice } from './azureSpeech';
+import { STORAGE_KEYS, getActiveAiMode, getIdbItemSync, saveIdbItem } from './storage';
+import { speakText, stopAllSpeech, stopSpeaking, testGiselaVoice } from './azureSpeech';
 
-export { speakText, stopSpeaking, testGiselaVoice };
+export { speakText, stopAllSpeech, stopSpeaking, testGiselaVoice };
 
 export interface BanditUserPreferences {
   // Schaltbare ADHS-Unterstützung
@@ -169,12 +169,16 @@ export const enforceMaxSixWords = (str: string, fallback = 'Neuer Eintrag'): str
   return words.length <= 6 ? words.join(' ') : words.slice(0, 6).join(' ');
 };
 
-export async function fetchAvailableGeminiModels(apiKey: string): Promise<string[]> {
+export async function fetchAvailableGeminiModels(
+  apiKey: string,
+  signal?: AbortSignal
+): Promise<string[]> {
   const cleanKey = apiKey.trim();
-  if (!cleanKey) return [];
+  if (!cleanKey || signal?.aborted) return [];
   try {
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(cleanKey)}`
+      `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(cleanKey)}`,
+      { signal }
     );
     if (!res.ok) return [];
     const data = await res.json();
@@ -204,11 +208,12 @@ export async function fetchAvailableGeminiModels(apiKey: string): Promise<string
 }
 
 async function buildModelCandidateList(
-  apiKey: string,
+  _apiKey: string,
   task: 'sort' | 'qa',
-  effectiveMode?: 'flash' | 'research'
+  effectiveMode?: 'flash' | 'research',
+  preferredModelModeOverride?: string
 ): Promise<string[]> {
-  const mode = getPreferredModelMode();
+  const mode = (preferredModelModeOverride || getPreferredModelMode() || 'SMART_PRO').trim();
   const defaultsProFirst = [
     'gemini-2.5-pro',
     'gemini-1.5-pro',
@@ -223,18 +228,16 @@ async function buildModelCandidateList(
   ];
 
   let baseList: string[] = [];
-  if (effectiveMode === 'research') {
-    baseList = defaultsProFirst;
-  } else if (effectiveMode === 'flash') {
-    baseList = defaultsFlashFirst;
+  if (mode !== 'SMART_PRO' && mode !== 'ALWAYS_PRO' && mode !== 'ALWAYS_FLASH') {
+    // Direkte Modellwahl aus Zentrale hat Vorrang
+    baseList = [mode, ...defaultsProFirst];
   } else if (mode === 'ALWAYS_PRO') {
     baseList = defaultsProFirst;
   } else if (mode === 'ALWAYS_FLASH') {
     baseList = defaultsFlashFirst;
-  } else if (mode === 'SMART_PRO') {
-    baseList = task === 'qa' ? defaultsProFirst : defaultsFlashFirst;
   } else {
-    baseList = [mode, ...defaultsProFirst];
+    // SMART_PRO: Research-Modus oder Fragen/Fotos -> Pro zuerst, Sortierbefehle -> Flash zuerst
+    baseList = effectiveMode === 'research' || task === 'qa' ? defaultsProFirst : defaultsFlashFirst;
   }
 
   return Array.from(new Set(baseList));
@@ -244,47 +247,80 @@ async function callGeminiWithAutoFallback(
   apiKey: string,
   task: 'sort' | 'qa',
   payload: Record<string, unknown>,
-  effectiveMode?: 'flash' | 'research'
-): Promise<{ ok: boolean; data?: any; usedModel: string; errorMessage?: string }> {
+  effectiveMode?: 'flash' | 'research',
+  preferredModelModeOverride?: string,
+  signal?: AbortSignal
+): Promise<{ ok: boolean; data?: any; usedModel: string; errorMessage?: string; aborted?: boolean }> {
   const cleanKey = apiKey.trim();
-  const candidates = await buildModelCandidateList(cleanKey, task, effectiveMode);
+  const candidates = await buildModelCandidateList(
+    cleanKey,
+    task,
+    effectiveMode,
+    preferredModelModeOverride
+  );
   let lastError = 'Unbekannter API-Fehler';
 
   for (const modelName of candidates) {
+    if (signal?.aborted) {
+      return { ok: false, usedModel: modelName, errorMessage: 'Abgebrochen', aborted: true };
+    }
     const endpoint =
       `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=` +
       encodeURIComponent(cleanKey);
 
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
+    try {
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal
+      });
 
-    if (res.ok) {
-      const data = await res.json();
-      return { ok: true, data, usedModel: modelName };
+      if (res.ok) {
+        const data = await res.json();
+        return { ok: true, data, usedModel: modelName };
+      }
+
+      const errData = await res.json().catch(() => ({}));
+      lastError = errData?.error?.message || `HTTP ${res.status}`;
+      if (res.status === 404) continue;
+      else break;
+    } catch (err: any) {
+      if (signal?.aborted || err?.name === 'AbortError') {
+        return { ok: false, usedModel: modelName, errorMessage: 'Abgebrochen', aborted: true };
+      }
+      lastError = err?.message || 'Netzwerkfehler';
+      break;
     }
-
-    const errData = await res.json().catch(() => ({}));
-    lastError = errData?.error?.message || `HTTP ${res.status}`;
-    if (res.status === 404) continue;
-    else break;
   }
 
-  const liveModels = await fetchAvailableGeminiModels(cleanKey);
+  if (signal?.aborted) {
+    return { ok: false, usedModel: candidates[0], errorMessage: 'Abgebrochen', aborted: true };
+  }
+
+  const liveModels = await fetchAvailableGeminiModels(cleanKey, signal);
   for (const liveModel of liveModels.slice(0, 3)) {
+    if (signal?.aborted) {
+      return { ok: false, usedModel: liveModel, errorMessage: 'Abgebrochen', aborted: true };
+    }
     const endpoint =
       `https://generativelanguage.googleapis.com/v1beta/models/${liveModel}:generateContent?key=` +
       encodeURIComponent(cleanKey);
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-    if (res.ok) {
-      const data = await res.json();
-      return { ok: true, data, usedModel: liveModel };
+    try {
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal
+      });
+      if (res.ok) {
+        const data = await res.json();
+        return { ok: true, data, usedModel: liveModel };
+      }
+    } catch (err: any) {
+      if (signal?.aborted || err?.name === 'AbortError') {
+        return { ok: false, usedModel: liveModel, errorMessage: 'Abgebrochen', aborted: true };
+      }
     }
   }
 
@@ -394,19 +430,19 @@ function buildWorkspaceContextSummary(projects: Project[]): string {
       const knowledgeList = (p.knowledge && p.knowledge.length > 0
         ? p.knowledge
         : [
-            ...(p.explanations || []).map((e) => ({
-              id: e.id,
-              kind: 'explanation' as const,
-              title: e.title,
-              content: e.stepsText
-            })),
-            ...(p.infos || []).map((i) => ({
-              id: i.id,
-              kind: 'info' as const,
-              title: i.title,
-              content: i.content
-            }))
-          ]
+          ...(p.explanations || []).map((e) => ({
+            id: e.id,
+            kind: 'explanation' as const,
+            title: e.title,
+            content: e.stepsText
+          })),
+          ...(p.infos || []).map((i) => ({
+            id: i.id,
+            kind: 'info' as const,
+            title: i.title,
+            content: i.content
+          }))
+        ]
       )
         .slice(0, 8)
         .map(
@@ -414,9 +450,8 @@ function buildWorkspaceContextSummary(projects: Project[]): string {
             `- [${k.kind === 'explanation' ? 'Ablauf' : 'Wissen'}] ${k.title}: ${k.content.slice(0, 120)}`
         )
         .join('\n');
-      return `PROJEKT ID="${p.id}" | NAME="${p.name}" | BEREICH="${p.domain}":\n${
-        openTasks || '(Keine offenen Tasks)'
-      }\n${openCart || ''}\n${knowledgeList || ''}`;
+      return `PROJEKT ID="${p.id}" | NAME="${p.name}" | BEREICH="${p.domain}":\n${openTasks || '(Keine offenen Tasks)'
+        }\n${openCart || ''}\n${knowledgeList || ''}`;
     })
     .join('\n\n');
 }
@@ -539,24 +574,57 @@ export async function routeVoiceCommand(
   allProjects?: Project[],
   chatHistory?: ChatTurnHistory[],
   attachment?: Attachment | null,
-  requestedMode?: 'flash' | 'research'
-): Promise<{ plan: StructuredAiResponse; engine: string; autoUpscaledToPro?: boolean }> {
+  requestedMode?: 'flash' | 'research',
+  options?: { signal?: AbortSignal; settings?: AiVoiceSettings }
+): Promise<{
+  plan: StructuredAiResponse;
+  engine: string;
+  autoUpscaledToPro?: boolean;
+  aborted?: boolean;
+}> {
   const cleanKey = apiKey ? apiKey.trim() : '';
   const prefs = loadUserPrefs();
+  const signal = options?.signal;
+  const preferredModelMode = options?.settings?.preferredModelMode ?? getPreferredModelMode();
 
-  // 1-Tipp-Modus: Flash (⚡ Sprech) vs. Research (🧠 Pro) mit automatischer Hochschaltung bei Foto/Recherche
-  const currentMode = requestedMode || getActiveAiMode() || 'flash';
+  // 1-Tipp-Modus: Flash (⚡ Sprech) vs. Research (🧠 Pro) + Intelligenz-Modus aus Zentrale
+  const currentMode = requestedMode || options?.settings?.activeAiMode || getActiveAiMode() || 'flash';
   const hasPhoto = Boolean(attachment && attachment.dataUrl && attachment.dataUrl.startsWith('data:image/'));
   const isComplexQuery = /(recherche|analyse|vergleich|rechtlich|vorschrift|norm|paragraph|dguv|din|haccp|gutachten|unterschied|warum genau|detailliert|erkläre ausführlich)/i.test(rawText);
-  const autoUpscaledToPro = currentMode === 'flash' && (hasPhoto || isComplexQuery);
-  const effectiveMode: 'flash' | 'research' = autoUpscaledToPro ? 'research' : currentMode;
+
+  let autoUpscaledToPro = false;
+  let effectiveMode: 'flash' | 'research' = currentMode;
+  if (preferredModelMode === 'ALWAYS_PRO') {
+    effectiveMode = 'research';
+  } else if (preferredModelMode === 'ALWAYS_FLASH') {
+    effectiveMode = 'flash';
+  } else {
+    autoUpscaledToPro = currentMode === 'flash' && (hasPhoto || isComplexQuery);
+    effectiveMode = autoUpscaledToPro ? 'research' : currentMode;
+  }
+
+  if (signal?.aborted) {
+    return {
+      plan: {
+        isQuestion: false,
+        needsClarification: false,
+        spokenFeedback: '',
+        directAnswer: '',
+        summary: '',
+        actions: []
+      },
+      engine: 'Abgebrochen',
+      autoUpscaledToPro,
+      aborted: true
+    };
+  }
 
   const toneInstruction =
     prefs.aiTone === 'short'
       ? 'Antworte extrem knapp im Kommando-Stil (1-2 Sätze).'
       : prefs.aiTone === 'coach'
-      ? 'Antworte strukturiert, motivierend und halte den Fokus des Nutzers auf den nächsten greifbaren Schritt.'
-      : 'Antworte als sachlicher, erfahrener technischer Projekt-Partner.';
+        ? 'Antworte strukturiert, motivierend und halte den Fokus des Nutzers auf den nächsten greifbaren Schritt.'
+        : 'Antworte als sachlicher, erfahrener technischer Projekt-Partner.';
 
   const adhdInstruction =
     prefs.adhdMasterEnabled && prefs.adhdTwoMinuteStarter
@@ -581,9 +649,9 @@ REGELN:
       const historyText =
         chatHistory && chatHistory.length > 0
           ? chatHistory
-              .slice(-6)
-              .map((h) => `${h.role === 'user' ? 'Nutzer' : 'BANDIT.OS'}: ${h.text}`)
-              .join('\n')
+            .slice(-6)
+            .map((h) => `${h.role === 'user' ? 'Nutzer' : 'BANDIT.OS'}: ${h.text}`)
+            .join('\n')
           : 'Kein vorheriger Gesprächsverlauf.';
 
       const userParts: any[] = [
@@ -626,8 +694,26 @@ REGELN:
             responseSchema: AI_ROUTER_RESPONSE_SCHEMA
           }
         },
-        effectiveMode
+        effectiveMode,
+        preferredModelMode,
+        signal
       );
+
+      if (result.aborted || signal?.aborted) {
+        return {
+          plan: {
+            isQuestion: false,
+            needsClarification: false,
+            spokenFeedback: '',
+            directAnswer: '',
+            summary: '',
+            actions: []
+          },
+          engine: 'Abgebrochen',
+          autoUpscaledToPro,
+          aborted: true
+        };
+      }
 
       if (!result.ok) {
         const fallback = buildLocalFallbackPlan(rawText, defaultProjectId, allProjects);
@@ -649,19 +735,19 @@ REGELN:
 
         const sanitizedActions = Array.isArray(parsed.actions)
           ? parsed.actions.map((act) => ({
-              ...act,
-              targetProjectId: act.targetProjectId || defaultProjectId || 'proj-foodtruck',
-              shortCheckableTitle: enforceMaxSixWords(act.shortCheckableTitle, 'Neuer Punkt'),
-              detailedExplanation: act.detailedExplanation || rawText,
-              quantityOrMeasure: act.quantityOrMeasure || '1x',
-              estimatedPrice: act.estimatedPrice || '',
-              changeFooterNote: enforceMaxSixWords(
-                act.changeFooterNote || `Durch ${result.usedModel}`,
-                'Durch KI zugeordnet'
-              ),
-              estimatedMinutes: Math.round((Number(act.estimatedMinutes) || 25) * bufferMultiplier),
-              priority: act.priority || 'Mittel'
-            }))
+            ...act,
+            targetProjectId: act.targetProjectId || defaultProjectId || 'proj-foodtruck',
+            shortCheckableTitle: enforceMaxSixWords(act.shortCheckableTitle, 'Neuer Punkt'),
+            detailedExplanation: act.detailedExplanation || rawText,
+            quantityOrMeasure: act.quantityOrMeasure || '1x',
+            estimatedPrice: act.estimatedPrice || '',
+            changeFooterNote: enforceMaxSixWords(
+              act.changeFooterNote || `Durch ${result.usedModel}`,
+              'Durch KI zugeordnet'
+            ),
+            estimatedMinutes: Math.round((Number(act.estimatedMinutes) || 25) * bufferMultiplier),
+            priority: act.priority || 'Mittel'
+          }))
           : [];
 
         return {
@@ -685,6 +771,21 @@ REGELN:
         };
       }
     } catch (err: any) {
+      if (signal?.aborted || err?.name === 'AbortError') {
+        return {
+          plan: {
+            isQuestion: false,
+            needsClarification: false,
+            spokenFeedback: '',
+            directAnswer: '',
+            summary: '',
+            actions: []
+          },
+          engine: 'Abgebrochen',
+          autoUpscaledToPro,
+          aborted: true
+        };
+      }
       console.warn('[BANDIT.OS AI-Router] Fehler:', err);
     }
   }
