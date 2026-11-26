@@ -26,10 +26,12 @@ import {
   getPreferredModelMode,
   getTtsEnabled,
   loadUserPrefs,
+  resolveEffectiveAiMode,
   setTtsEnabled,
   speakText,
   stopAllSpeech,
-  triggerHapticFeedback
+  triggerHapticFeedback,
+  unlockAudioPlayback
 } from '../services/aiRouter';
 import {
   STORAGE_KEYS,
@@ -44,8 +46,10 @@ import {
   saveIdbItem
 } from '../services/storage';
 import {
-  API_TIMEOUT_MS,
+  API_TIMEOUT_FLASH_MS,
+  API_TIMEOUT_PRO_MS,
   SILENCE_COLLECT_MS,
+  SILENCE_DIALOG_MS,
   STT_ABORT_RETRY_DELAY_MS,
   STT_MAX_CONSECUTIVE_ABORTS,
   TTS_ECHO_COOLDOWN_MS,
@@ -131,12 +135,71 @@ export interface VoiceModalProps {
 
 export type VoicePhase = 'IDLE' | 'LISTENING' | 'PROCESSING' | 'SPEAKING' | 'COOLDOWN';
 
-const API_REQUEST_TIMEOUT_MS = API_TIMEOUT_MS;
 const ABORT_RETRY_DELAY_MS = STT_ABORT_RETRY_DELAY_MS;
 const MAX_CONSECUTIVE_ABORTS = STT_MAX_CONSECUTIVE_ABORTS;
 const ECHO_COOLDOWN_MS = TTS_ECHO_COOLDOWN_MS;
 const BARGE_IN_COOLDOWN_MS = 180;
+const ANDROID_ONEND_GRACE_MS = 1200;
 const END_DIALOG_REGEX = /\b(danke,?\s*reicht|fertig|stopp|schluss|bis später|pause)\b/i;
+
+function dedupeTranscriptWords(text: string): string {
+  const words = text.trim().replace(/\s+/g, ' ').split(' ').filter(Boolean);
+  const deduped: string[] = [];
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i];
+    const prevW = deduped[deduped.length - 1];
+    if (prevW && prevW.toLowerCase() === w.toLowerCase()) continue;
+    if (
+      deduped.length >= 2 &&
+      i + 1 < words.length &&
+      deduped[deduped.length - 2].toLowerCase() === w.toLowerCase() &&
+      deduped[deduped.length - 1].toLowerCase() === words[i + 1].toLowerCase()
+    ) {
+      i += 1;
+      continue;
+    }
+    if (
+      deduped.length >= 3 &&
+      i + 2 < words.length &&
+      deduped[deduped.length - 3].toLowerCase() === w.toLowerCase() &&
+      deduped[deduped.length - 2].toLowerCase() === words[i + 1].toLowerCase() &&
+      deduped[deduped.length - 1].toLowerCase() === words[i + 2].toLowerCase()
+    ) {
+      i += 2;
+      continue;
+    }
+    deduped.push(w);
+  }
+  return deduped.join(' ').trim();
+}
+
+function mergeTranscriptWithPrefix(prefix: string, sessionText: string): string {
+  const cleanPrefix = prefix.trim();
+  const cleanSession = sessionText.trim();
+  if (!cleanPrefix) return dedupeTranscriptWords(cleanSession);
+  if (!cleanSession) return dedupeTranscriptWords(cleanPrefix);
+
+  const prefixWords = cleanPrefix.split(/\s+/).filter(Boolean);
+  const sessionWords = cleanSession.split(/\s+/).filter(Boolean);
+
+  let overlap = 0;
+  const maxOverlap = Math.min(prefixWords.length, sessionWords.length);
+  for (let k = maxOverlap; k >= 1; k--) {
+    let matches = true;
+    for (let j = 0; j < k; j++) {
+      if (prefixWords[prefixWords.length - k + j].toLowerCase() !== sessionWords[j].toLowerCase()) {
+        matches = false;
+        break;
+      }
+    }
+    if (matches) {
+      overlap = k;
+      break;
+    }
+  }
+
+  return dedupeTranscriptWords([...prefixWords, ...sessionWords.slice(overlap)].join(' '));
+}
 
 function buildCleanTranscriptFromResults(results: any): string {
   const segments: string[] = [];
@@ -159,25 +222,7 @@ function buildCleanTranscriptFromResults(results: any): string {
     segments.push(rawChunk);
   }
 
-  const joined = segments.join(' ').replace(/\s+/g, ' ').trim();
-  const words = joined.split(' ');
-  const deduped: string[] = [];
-  for (let i = 0; i < words.length; i++) {
-    const w = words[i];
-    const prevW = deduped[deduped.length - 1];
-    if (prevW && prevW.toLowerCase() === w.toLowerCase()) continue;
-    if (
-      deduped.length >= 2 &&
-      i + 1 < words.length &&
-      deduped[deduped.length - 2].toLowerCase() === w.toLowerCase() &&
-      deduped[deduped.length - 1].toLowerCase() === words[i + 1].toLowerCase()
-    ) {
-      i++;
-      continue;
-    }
-    deduped.push(w);
-  }
-  return deduped.join(' ').trim();
+  return dedupeTranscriptWords(segments.join(' '));
 }
 
 export const VoiceModal: React.FC<VoiceModalProps> = ({
@@ -258,6 +303,9 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
   const consecutiveAbortCountRef = useRef(0);
   const cooldownTimerRef = useRef<number | null>(null);
   const retryTimerRef = useRef<number | null>(null);
+  const androidGraceTimerRef = useRef<number | null>(null);
+  const accumulatedPrefixRef = useRef('');
+  const isTypingPausedRef = useRef(false);
 
   const activeRequestIdRef = useRef(0);
   const activeRequestControllerRef = useRef<AbortController | null>(null);
@@ -294,6 +342,10 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
     if (retryTimerRef.current !== null) {
       window.clearTimeout(retryTimerRef.current);
       retryTimerRef.current = null;
+    }
+    if (androidGraceTimerRef.current !== null) {
+      window.clearTimeout(androidGraceTimerRef.current);
+      androidGraceTimerRef.current = null;
     }
   };
 
@@ -345,6 +397,8 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
   const updateStage = (newStage: 1 | 2 | 0) => {
     if (newStage === 0) {
       sessionActiveRef.current = false;
+      accumulatedPrefixRef.current = '';
+      isTypingPausedRef.current = false;
       clearVoiceTimers();
       cancelPendingRequest();
       stopAllSpeech();
@@ -368,6 +422,13 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
     scrollEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, open]);
 
+  const preserveCurrentTranscriptPrefix = () => {
+    const current = transcriptRef.current.trim();
+    if (current) {
+      accumulatedPrefixRef.current = current;
+    }
+  };
+
   const startMicrophoneImmediately = (options?: { bypassDebounce?: boolean }) => {
     // Harte Half-Duplex-Sperre: während PROCESSING oder SPEAKING oder gesperrtem Mic niemals aufnehmen
     if (
@@ -386,6 +447,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
     lastMicToggleRef.current = now;
 
     clearVoiceTimers();
+    isTypingPausedRef.current = false;
     setSpeechNotice('');
     autoSendTriggeredRef.current = false;
     stopAllSpeech();
@@ -409,7 +471,11 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
       let abortedThisSession = false;
       const startLimit =
         settingsRef.current.autoModeDetection !== false
-          ? classifyLiveSpeechIntent('', lastDetectedModeRef.current, true).silenceTimeoutMs
+          ? classifyLiveSpeechIntent(
+              accumulatedPrefixRef.current,
+              lastDetectedModeRef.current,
+              true
+            ).silenceTimeoutMs
           : SILENCE_COLLECT_MS;
       silenceLimitRef.current = startLimit;
       setSilenceLimitMs(startLimit);
@@ -421,7 +487,8 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
           !openRef.current ||
           micLockedRef.current ||
           voicePhaseRef.current === 'PROCESSING' ||
-          voicePhaseRef.current === 'SPEAKING'
+          voicePhaseRef.current === 'SPEAKING' ||
+          recognitionRef.current !== rec
         ) {
           try {
             rec.stop();
@@ -436,12 +503,21 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
       };
 
       rec.onresult = (event: any) => {
+        if (isTypingPausedRef.current || recognitionRef.current !== rec) return;
+        if (androidGraceTimerRef.current !== null) {
+          window.clearTimeout(androidGraceTimerRef.current);
+          androidGraceTimerRef.current = null;
+        }
         consecutiveAbortCountRef.current = 0;
         lastSpeechTimestampRef.current = Date.now();
         const cleanSessionText = buildCleanTranscriptFromResults(event.results);
+        const combinedText = mergeTranscriptWithPrefix(
+          accumulatedPrefixRef.current,
+          cleanSessionText
+        );
         const autoDetect = settingsRef.current.autoModeDetection !== false;
         const classified = classifyLiveSpeechIntent(
-          cleanSessionText,
+          combinedText,
           lastDetectedModeRef.current,
           autoDetect
         );
@@ -449,8 +525,8 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
         silenceLimitRef.current = classified.silenceTimeoutMs;
         setSilenceLimitMs(classified.silenceTimeoutMs);
         setRemainingMs(classified.silenceTimeoutMs);
-        setTranscript(cleanSessionText);
-        transcriptRef.current = cleanSessionText;
+        setTranscript(combinedText);
+        transcriptRef.current = combinedText;
       };
 
       rec.onerror = (event: any) => {
@@ -467,13 +543,19 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
             sessionActiveRef.current &&
             !micLockedRef.current &&
             voicePhaseRef.current !== 'PROCESSING' &&
-            voicePhaseRef.current !== 'SPEAKING'
+            voicePhaseRef.current !== 'SPEAKING' &&
+            !isTypingPausedRef.current
           ) {
+            preserveCurrentTranscriptPrefix();
             consecutiveAbortCountRef.current += 1;
             if (consecutiveAbortCountRef.current >= MAX_CONSECUTIVE_ABORTS) {
               sessionActiveRef.current = false;
               setPhase('IDLE');
-              setVoiceStatusNotice('Mikrofon pausiert – zum Weiterreden tippen');
+              setVoiceStatusNotice(
+                transcriptRef.current.trim()
+                  ? 'Mikrofon pausiert – Text prüfen oder absenden'
+                  : 'Mikrofon pausiert – zum Weiterreden tippen'
+              );
             } else {
               setPhase('COOLDOWN');
               if (retryTimerRef.current !== null) {
@@ -486,7 +568,8 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                   sessionActiveRef.current &&
                   !micLockedRef.current &&
                   voicePhaseRef.current !== 'PROCESSING' &&
-                  voicePhaseRef.current !== 'SPEAKING'
+                  voicePhaseRef.current !== 'SPEAKING' &&
+                  !isTypingPausedRef.current
                 ) {
                   startMicrophoneImmediately({ bypassDebounce: true });
                 }
@@ -504,15 +587,126 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
 
       rec.onend = () => {
         if (recognitionRef.current === rec) recognitionRef.current = null;
-        if (!abortedThisSession && voicePhaseRef.current === 'LISTENING' && !autoSendTriggeredRef.current) {
+        isListeningRef.current = false;
+
+        if (
+          abortedThisSession ||
+          autoSendTriggeredRef.current ||
+          !openRef.current ||
+          micLockedRef.current ||
+          voicePhaseRef.current === 'PROCESSING' ||
+          voicePhaseRef.current === 'SPEAKING'
+        ) {
+          return;
+        }
+
+        if (isTypingPausedRef.current) {
+          if (voicePhaseRef.current === 'LISTENING') setPhase('IDLE');
+          return;
+        }
+
+        const currentCleanText = transcriptRef.current.trim();
+        if (currentCleanText.length > 0 && (voicePhaseRef.current === 'LISTENING' || sessionActiveRef.current)) {
+          sessionActiveRef.current = true;
+          const isIncompleteCollect =
+            liveHintModeRef.current === 'collect' &&
+            (/(?:^|\s)(?:und|oder|aber|für|auf|im|in|an|bei|mit|von|zu|wegen|dass|weil|mal|noch|äh|ähm)[,.…\s]*$/i.test(
+              currentCleanText
+            ) ||
+              currentCleanText.split(/\s+/).length <= 3);
+
+          if (isIncompleteCollect && consecutiveAbortCountRef.current < MAX_CONSECUTIVE_ABORTS) {
+            preserveCurrentTranscriptPrefix();
+            consecutiveAbortCountRef.current += 1;
+            setPhase('COOLDOWN');
+            if (retryTimerRef.current !== null) {
+              window.clearTimeout(retryTimerRef.current);
+            }
+            retryTimerRef.current = window.setTimeout(() => {
+              retryTimerRef.current = null;
+              if (
+                openRef.current &&
+                sessionActiveRef.current &&
+                !micLockedRef.current &&
+                voicePhaseRef.current !== 'PROCESSING' &&
+                voicePhaseRef.current !== 'SPEAKING' &&
+                !isTypingPausedRef.current
+              ) {
+                startMicrophoneImmediately({ bypassDebounce: true });
+              }
+            }, ABORT_RETRY_DELAY_MS);
+            return;
+          }
+
+          // Android Chrome onend mit erkanntem Text: Sitzung offen halten & nach kurzer Nachlauf-Pause regulär absenden
+          setPhase('LISTENING');
+          const graceMs = Math.min(
+            silenceLimitRef.current || ANDROID_ONEND_GRACE_MS,
+            ANDROID_ONEND_GRACE_MS
+          );
+          silenceLimitRef.current = graceMs;
+          setSilenceLimitMs(graceMs);
+          lastSpeechTimestampRef.current = Date.now();
+          setRemainingMs(graceMs);
+          if (androidGraceTimerRef.current !== null) {
+            window.clearTimeout(androidGraceTimerRef.current);
+          }
+          androidGraceTimerRef.current = window.setTimeout(() => {
+            androidGraceTimerRef.current = null;
+            const latestText = transcriptRef.current.trim();
+            if (
+              openRef.current &&
+              !autoSendTriggeredRef.current &&
+              !isTypingPausedRef.current &&
+              voicePhaseRef.current !== 'PROCESSING' &&
+              latestText
+            ) {
+              autoSendTriggeredRef.current = true;
+              void triggerProcess(latestText);
+            }
+          }, graceMs);
+          return;
+        }
+
+        // Transkript noch leer bei Android-onend: einmalig kontrolliert neu starten (über Retry-Zähler gedeckelt)
+        if (openRef.current && sessionActiveRef.current) {
+          consecutiveAbortCountRef.current += 1;
+          if (consecutiveAbortCountRef.current <= 1 && consecutiveAbortCountRef.current < MAX_CONSECUTIVE_ABORTS) {
+            setPhase('COOLDOWN');
+            if (retryTimerRef.current !== null) {
+              window.clearTimeout(retryTimerRef.current);
+            }
+            retryTimerRef.current = window.setTimeout(() => {
+              retryTimerRef.current = null;
+              if (
+                openRef.current &&
+                sessionActiveRef.current &&
+                !micLockedRef.current &&
+                voicePhaseRef.current !== 'PROCESSING' &&
+                voicePhaseRef.current !== 'SPEAKING' &&
+                !isTypingPausedRef.current
+              ) {
+                startMicrophoneImmediately({ bypassDebounce: true });
+              }
+            }, ABORT_RETRY_DELAY_MS);
+            return;
+          }
+          sessionActiveRef.current = false;
+          setPhase('IDLE');
+          setVoiceStatusNotice('Mikrofon pausiert – zum Weiterreden tippen');
+          return;
+        }
+
+        if (voicePhaseRef.current === 'LISTENING') {
           setPhase('IDLE');
         }
       };
 
       recognitionRef.current = rec;
-      setPhase('LISTENING');
       rec.start();
     } catch {
+      recognitionRef.current = null;
+      sessionActiveRef.current = false;
       setPhase('IDLE');
       setVoiceStatusNotice('Mikrofon konnte nicht gestartet werden.');
     }
@@ -523,11 +717,13 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
     if (now - lastMicToggleRef.current < VOICE_START_DEBOUNCE_MS) return;
     lastMicToggleRef.current = now;
 
+    unlockAudioPlayback();
     clearVoiceTimers();
     stopAllSpeech();
     micLockedRef.current = false;
     sessionActiveRef.current = true;
     consecutiveAbortCountRef.current = 0;
+    isTypingPausedRef.current = false;
     setVoiceStatusNotice(null);
     setPhase('COOLDOWN');
 
@@ -545,6 +741,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
   };
 
   const handleManualMicToggle = () => {
+    unlockAudioPlayback();
     if (voicePhaseRef.current === 'PROCESSING') return;
     if (voicePhaseRef.current === 'SPEAKING') {
       handleBargeIn();
@@ -561,6 +758,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
         void triggerProcess(transcriptRef.current);
       } else {
         sessionActiveRef.current = false;
+        accumulatedPrefixRef.current = '';
         clearVoiceTimers();
         stopMicrophone();
         setPhase('IDLE');
@@ -572,6 +770,10 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
     micLockedRef.current = false;
     sessionActiveRef.current = true;
     consecutiveAbortCountRef.current = 0;
+    isTypingPausedRef.current = false;
+    if (transcriptRef.current.trim()) {
+      accumulatedPrefixRef.current = transcriptRef.current.trim();
+    }
     setVoiceStatusNotice(null);
     startMicrophoneImmediately();
   };
@@ -588,23 +790,19 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
       setRemainingMs(baseLimit);
       autoSendTriggeredRef.current = false;
       consecutiveAbortCountRef.current = 0;
+      accumulatedPrefixRef.current = '';
+      isTypingPausedRef.current = false;
       micLockedRef.current = false;
       sessionActiveRef.current = Boolean(autoStartMic);
 
       if (autoStartMic) {
-        const timer = window.setTimeout(() => {
-          if (openRef.current && sessionActiveRef.current) {
-            startMicrophoneImmediately();
-          }
-        }, 50);
-        return () => {
-          window.clearTimeout(timer);
-          stopMicrophone();
-        };
+        startMicrophoneImmediately({ bypassDebounce: true });
       }
     } else {
       sessionActiveRef.current = false;
       lastDetectedModeRef.current = null;
+      accumulatedPrefixRef.current = '';
+      isTypingPausedRef.current = false;
       clearVoiceTimers();
       cancelPendingRequest();
       stopMicrophone();
@@ -618,6 +816,8 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
   useEffect(() => {
     return () => {
       sessionActiveRef.current = false;
+      accumulatedPrefixRef.current = '';
+      isTypingPausedRef.current = false;
       clearVoiceTimers();
       cancelPendingRequest();
       stopMicrophone();
@@ -629,8 +829,9 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
     if (!open || !isListening || isProcessing) return;
 
     const interval = window.setInterval(() => {
+      if (isTypingPausedRef.current) return;
       const currentText = transcriptRef.current.trim();
-      const activeLimit = silenceLimitRef.current || SILENCE_COLLECT_MS;
+      const activeLimit = silenceLimitRef.current || SILENCE_DIALOG_MS;
       if (!currentText) {
         lastSpeechTimestampRef.current = Date.now();
         setRemainingMs(activeLimit);
@@ -769,6 +970,8 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
     autoSendTriggeredRef.current = true;
 
     clearVoiceTimers();
+    accumulatedPrefixRef.current = '';
+    isTypingPausedRef.current = false;
     micLockedRef.current = true;
     stopMicrophone();
     stopAllSpeech();
@@ -793,6 +996,15 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
     let settled = false;
 
     const currentSettings = settingsRef.current;
+    const { effectiveMode: resolvedTimeoutMode } = resolveEffectiveAiMode(
+      clean,
+      attachment,
+      currentSettings.activeAiMode,
+      currentSettings
+    );
+    const requestTimeoutMs =
+      resolvedTimeoutMode === 'research' ? API_TIMEOUT_PRO_MS : API_TIMEOUT_FLASH_MS;
+    const timeoutSeconds = Math.round(requestTimeoutMs / 1000);
     const hintClassification = classifyLiveSpeechIntent(
       clean,
       lastDetectedModeRef.current,
@@ -873,13 +1085,15 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
       activeTimeoutRef.current = null;
       controller.abort();
       activeRequestControllerRef.current = null;
-      setVoiceStatusNotice('API-Zeitüberschreitung (12s) – lokaler Offline-Fallback aktiv.');
+      setVoiceStatusNotice(
+        `API-Zeitüberschreitung (${timeoutSeconds}s) – lokaler Offline-Fallback aktiv.`
+      );
 
       const fallbackRes = onExecuteOfflineFallback
         ? onExecuteOfflineFallback(
             clean,
             currentAtt,
-            'Fallback (API-Timeout 12s)',
+            `Fallback (API-Timeout ${timeoutSeconds}s)`,
             requestHintMode,
             requestPrevMode
           )
@@ -900,7 +1114,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
               needsClarification: Boolean(plan.needsClarification),
               detectedMode: plan.detectedMode,
               expectFollowUp: plan.expectFollowUp,
-              engine: 'Fallback (API-Timeout 12s)',
+              engine: `Fallback (API-Timeout ${timeoutSeconds}s)`,
               actions: []
             };
           })();
@@ -912,7 +1126,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
         setPhase('IDLE');
         isSendingRef.current = false;
       }
-    }, API_REQUEST_TIMEOUT_MS);
+    }, requestTimeoutMs);
 
     try {
       const result = await onExecuteCommand(
@@ -1208,7 +1422,14 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
               {/* 1. ⌨ (Kurz tippen): Schmale Eingabezeile ein-/ausklappen */}
               <button
                 type="button"
-                onClick={() => setShowStage1TextInput((v) => !v)}
+                onClick={() => {
+                  const willOpen = !showStage1TextInput;
+                  if (willOpen) {
+                    isTypingPausedRef.current = true;
+                    clearVoiceTimers();
+                  }
+                  setShowStage1TextInput(willOpen);
+                }}
                 className={`w-11 h-11 min-w-[44px] min-h-[44px] rounded-xl flex items-center justify-center border transition active:scale-95 cursor-pointer ${
                   showStage1TextInput
                     ? 'bg-[#14B8A6]/20 border-[#14B8A6] text-[#14B8A6]'
@@ -1261,11 +1482,16 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                 type="text"
                 value={transcript}
                 onChange={(e) => {
+                  isTypingPausedRef.current = true;
+                  clearVoiceTimers();
                   setTranscript(e.target.value);
                   transcriptRef.current = e.target.value;
+                  accumulatedPrefixRef.current = e.target.value.trim();
                 }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && transcript.trim()) {
+                    unlockAudioPlayback();
+                    autoSendTriggeredRef.current = true;
                     void triggerProcess(transcript);
                   }
                 }}
@@ -1278,6 +1504,8 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                 disabled={!transcript.trim() || isProcessing}
                 onClick={() => {
                   if (transcript.trim()) {
+                    unlockAudioPlayback();
+                    autoSendTriggeredRef.current = true;
                     void triggerProcess(transcript);
                   }
                 }}
@@ -1410,6 +1638,9 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                 type="button"
                 onClick={() => {
                   const next = !settingsRef.current.ttsEnabled;
+                  if (next) {
+                    unlockAudioPlayback();
+                  }
                   if (onUpdateAiVoiceSettings) {
                     onUpdateAiVoiceSettings({ ttsEnabled: next });
                   } else {
@@ -1500,6 +1731,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                 key={idx}
                 disabled={isProcessing}
                 onClick={() => {
+                  unlockAudioPlayback();
                   autoSendTriggeredRef.current = true;
                   void triggerProcess(cmd);
                 }}
@@ -1683,12 +1915,16 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
               type="text"
               value={transcript}
               onChange={(e) => {
+                isTypingPausedRef.current = true;
+                clearVoiceTimers();
                 setTranscript(e.target.value);
                 transcriptRef.current = e.target.value;
+                accumulatedPrefixRef.current = e.target.value.trim();
                 lastSpeechTimestampRef.current = Date.now();
               }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && transcript.trim()) {
+                  unlockAudioPlayback();
                   autoSendTriggeredRef.current = true;
                   void triggerProcess(transcript);
                 }
@@ -1706,6 +1942,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                 type="button"
                 disabled={isProcessing}
                 onClick={() => {
+                  unlockAudioPlayback();
                   autoSendTriggeredRef.current = true;
                   void triggerProcess(transcript);
                 }}

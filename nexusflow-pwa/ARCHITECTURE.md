@@ -75,7 +75,7 @@ Atmosphäre & Listenaufbau:
 
 ### Zentrale Konfigurations-Tokens (`src/config/`)
 - **`src/config/designTokens.ts` (`DESIGN_TOKENS`):** Single Source of Truth für Design-DNA (`canvas: '#111317'`, `surface: '#191C22'`, `accentHoney: '#E5A93C'`, Projekt-Presets, `minTouchPx: 44`, `minFontPx: 12`).
-- **`src/config/runtimeConfig.ts`:** Zentrale Timing- & Schwellenwert-Konstanten für Sprach-KI (`VOICE_START_DEBOUNCE_MS`, `TTS_ECHO_COOLDOWN_MS`, `STT_ABORT_RETRY_DELAY_MS`, `STT_MAX_CONSECUTIVE_ABORTS`, `API_TIMEOUT_MS`) sowie UI-Timer (`CHECK_GLOW_MS`, `UNDO_TOAST_MS`, `REMINDER_POLL_INTERVAL_MS`).
+- **`src/config/runtimeConfig.ts`:** Zentrale Timing- & Schwellenwert-Konstanten für Sprach-KI (`VOICE_START_DEBOUNCE_MS`, `TTS_ECHO_COOLDOWN_MS`, `TTS_PLAYBACK_WATCHDOG_MIN_MS`, `STT_ABORT_RETRY_DELAY_MS`, `STT_MAX_CONSECUTIVE_ABORTS`, `API_TIMEOUT_FLASH_MS`, `API_TIMEOUT_PRO_MS`) sowie UI-Timer (`CHECK_GLOW_MS`, `UNDO_TOAST_MS`, `REMINDER_POLL_INTERVAL_MS`).
 
 ### Modularität & Modal-Konsolidierung
 - **Plugins:** Neue isolierte Werkzeuge ausschließlich in `src/plugins/` anlegen und über `src/plugins/registry.ts` registrieren.
@@ -178,7 +178,7 @@ Für jede künftige Änderung gilt ein verbindliches E2E-Qualitätsgate auf mobi
 - **Befehl:** `npm run verify` im Verzeichnis `nexusflow-pwa` (führt `npm run build && npm run test:guard` aus).
 - **Pflicht vor jedem Git-Push:**
   1. `npm run build` muss fehlerfrei durchlaufen.
-  2. Playwright Mobile-Guard (`tests/mobile-guard.spec.ts`) muss alle 13 Stationen (Start & Kopfleiste, NavigationDrawer, TasksView, CartView, KnowledgeView, Block D & VoiceModal, Zentrale mit allen 4 Überbereichen, Deep-Links, Werkzeuge/POS, Wissen-Lösch-Undo & konsolidiertes Modal, Sammel-Tasks/`subTasks`, proaktive Erinnerungen, unsichtbare 3-Modi-Erkennung) zu 100 % grün durchlaufen.
+  2. Playwright Mobile-Guard (`tests/mobile-guard.spec.ts`) muss alle 14 Stationen (Start & Kopfleiste, NavigationDrawer, TasksView, CartView, KnowledgeView, Block D & VoiceModal, Zentrale mit allen 4 Überbereichen, Deep-Links, Werkzeuge/POS, Wissen-Lösch-Undo & konsolidiertes Modal, Sammel-Tasks/`subTasks`, proaktive Erinnerungen, unsichtbare 3-Modi-Erkennung, Sprach-KI Rundum-Sanierung) zu 100 % grün durchlaufen.
   3. Strikte Wächter: 0 ungefangene `pageerror`-Exceptions, 0 unberechtigte `console.error`-Meldungen, 0 horizontale Viewport-Überläufe (`document.documentElement.scrollWidth <= window.innerWidth + 1`).
 
 ---
@@ -276,4 +276,22 @@ Beide Werkzeuge besitzen oben rechts einen ruhigen `⚙`-Button (`min-h-[44px] m
 
 - **Aufklappbare Sammel-Tasks (`TaskItem.subTasks`):** Aufgaben können beliebig viele Einzelschritte (`SubTaskItem[]`) bündeln. Zugeklappt zeigt die Karte den Fortschrittszähler in `font-mono` (`0/N`) und rotiert automatisch auf den ersten offenen Schritt; bei Erledigung des letzten offenen Sub-Tasks wird der Haupt-Task inkl. 4-Sekunden-Rückgängig-Leiste abgeschlossen (`TasksView.tsx`, `SingleFocusOverlay.tsx`, `Station 11`).
 - **Proaktive Erinnerungen (`src/hooks/useReminderEngine.ts`):** Polling bei Start, `visibilitychange` und `REMINDER_POLL_INTERVAL_MS` (`30000 ms`) auf fällige `reminderAt`-Zeiten (ISO & `"HH:mm"`) ohne Doppelfeuer (`lastReminderFiredAt`). Löst ruhiges Honig-Gold-In-App-Banner (`#E5A93C` mit `Erledigt ✓`, `+30 Min`, `OK`), ServiceWorker-/Web-Notifications sowie `DTSTART`/`DTEND`-Werte im `.ics`-Export aus (`Station 12`).
-- **Unsichtbare 3-Modi-Erkennung (`src/services/voiceModeClassifier.ts` & `aiRouter.ts`):** Klassifiziert laufende Spracheingaben im Hintergrund nach `quick` (`2000 ms`), `dialog` (`3500 ms`) oder `collect` (`5500 ms`), ersetzt hektisch springende Countdown-Sekunden in `VoiceModal.tsx` durch eine ruhige Fortschrittslinie und steuert automatisches Nachhören über `detectedMode`, `expectFollowUp` und `autoModeDetection` (Default `true`, umschaltbar in Zentrale Bereich 3; `Station 13`).
+- **Unsichtbare 3-Modi-Erkennung (`src/services/voiceModeClassifier.ts` & `aiRouter.ts`):** Klassifiziert laufende Spracheingaben im Hintergrund nach `quick` (`2800 ms`), `dialog` (`3800 ms`) oder `collect` (`5500 ms`), ersetzt hektisch springende Countdown-Sekunden in `VoiceModal.tsx` durch eine ruhige Fortschrittslinie und steuert automatisches Nachhören über `detectedMode`, `expectFollowUp` und `autoModeDetection` (Default `true`, umschaltbar in Zentrale Bereich 3; `Station 13`).
+
+---
+
+## 17  Sprach-KI Rundum-Sanierung (Audio-Unlock, Gemini-Tempo, Android-STT & Station 14)
+
+- **Synchroner Mobile-Audio-Unlock & Playback-Watchdog (`src/services/azureSpeech.ts`, `HexThumbHub.tsx`, `VoiceModal.tsx`):**
+  - Ein einzelnes, wiederverwendbares `HTMLAudioElement` (`sharedAudioElement`) wird via `unlockAudioPlayback()` synchron im direkten User-Tap (Sechseck, „Sofort sprechen“, Mikrofon-Toggle, Senden-Buttons, `testGiselaVoice()`) entsperrt und weckt bei Bedarf `window.speechSynthesis` still auf, sodass asynchrone Antworten nach Gemini + Azure auf Android Chrome / iOS Safari nicht an `NotAllowedError` scheitern.
+  - `onEngineUsed?.('azure-gisela')` feuert erst nach erfolgreichem `await audio.play()`.
+  - Ein dynamischer Sicherheits-Watchdog (`TTS_PLAYBACK_WATCHDOG_MIN_MS = 12000`, `Math.max(12000, Math.min(45000, text.length * 140))`) schützt sowohl `HTMLAudioElement` als auch `speakBrowserSynthesis` gegen verschluckte `onend`/`onerror`-Events und verhindert `'SPEAKING'`/`micLockedRef`-Deadlocks.
+- **Gemini-2.5-Flash-First-Routing & Prompt-Diät (`src/services/aiRouter.ts`, `runtimeConfig.ts`):**
+  - Veraltete `gemini-1.5-*`-Modelle sind aus allen Fallback-Listen entfernt (`defaultsFlashFirst: ['gemini-2.5-flash', 'gemini-2.5-pro']`, `defaultsProFirst: ['gemini-2.5-pro', 'gemini-2.5-flash']`).
+  - Im `SMART_PRO`-Modus mit ⚡ `Sprech` bleiben Befehle und normale Fragen (`?`) auf `gemini-2.5-flash` mit `thinkingConfig: { thinkingBudget: 0 }` (inkl. sicherem Retry ohne `thinkingConfig` bei HTTP 400); Pro-Eskalation erfolgt gezielt nur bei 🧠 `Research`, `ALWAYS_PRO`, Foto-Anhang oder Tiefenanalyse-Schlüsselwörtern.
+  - `fetchAvailableGeminiModels()` läuft ausschließlich bei `404` (nicht bei `400`/`401`/`403`/`429`/`AbortError`/Netzwerkfehler).
+  - `buildWorkspaceContextSummary` begrenzt das aktive Projekt auf 10 offene Tasks, 8 Einkäufe und 5 Wissens-Titel (≤ 80 Zeichen) und übrige aktive Projekte auf max. 3 offene Anker-Titel.
+  - `askQuickAssistantQuestion` nutzt sauber die aktuelle Projekt-ID und `aiVoiceSettings`; Timeouts sind getrennt (`API_TIMEOUT_FLASH_MS = 12000`, `API_TIMEOUT_PRO_MS = 25000`).
+- **Android-Chrome-STT-Härtung & Satzende-Schutz (`VoiceModal.tsx`, `voiceModeClassifier.ts`, `storage.ts`):**
+  - `rec.onend` mit bereits erkanntem Text hält die Sitzung mit `1200 ms` Nachlauf bzw. Sammel-Fortsetzung offen; `accumulatedPrefixRef` bewahrt bisheriges Transkript über Auto-Restarts inkl. Überlappungs- und 1-/2-/3-Wort-Phrasen-Deduplizierung.
+  - Offene Satzenden (z. B. *„Notiere mal Aufgabe für“*) blockieren `quick` zuverlässig; `importFullBackupV2` synchronisiert `aiVoiceSettings` konsistent in alle Einzel-Keys (`Station 14`).

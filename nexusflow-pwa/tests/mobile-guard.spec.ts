@@ -1070,4 +1070,76 @@ test.describe('Block C: Mobile-Guard 390×844 px Gesamt-Schutznetz', () => {
     await dialog.locator('button[aria-label="Schließen"]').click();
     await expect(dialog).toBeHidden();
   });
+
+  test('Station 14 – Sprach-KI Rundum-Sanierung: Satzende-Schutz, Stufe-1-Eingabe & Senden, 0 Fehler & 390px-Schutz', async ({ page }) => {
+    // Kontrollierte Web-Speech-Simulation für Android/Mobile-STT-Prüfung (offener Satzanfang)
+    await page.addInitScript(() => {
+      class MockSpeechRecognition {
+        lang = 'de-DE';
+        continuous = true;
+        interimResults = true;
+        maxAlternatives = 1;
+        onstart: (() => void) | null = null;
+        onresult: ((ev: any) => void) | null = null;
+        onerror: ((ev: any) => void) | null = null;
+        onend: (() => void) | null = null;
+
+        start() {
+          setTimeout(() => {
+            this.onstart?.();
+            setTimeout(() => {
+              const resultItem = [{ transcript: 'Notiere mal Aufgabe für' }];
+              this.onresult?.({ results: [resultItem] });
+            }, 60);
+          }, 20);
+        }
+
+        stop() {
+          this.onend?.();
+        }
+      }
+      (window as any).webkitSpeechRecognition = MockSpeechRecognition;
+      (window as any).SpeechRecognition = MockSpeechRecognition;
+    });
+
+    await page.goto('./');
+    await page.waitForLoadState('domcontentloaded');
+
+    const hexBtn = page.locator('button[aria-label="Daumen-Steuerung"]');
+    await expect(hexBtn).toBeVisible();
+
+    // 1. Sechskant-Begleiter öffnen (Stufe 1) -> Synchroner Audio-Unlock & STT startet
+    await hexBtn.click();
+    const stage1Region = page.locator('div[role="region"][aria-label="KI-Begleiter Kompakt"]');
+    await expect(stage1Region).toBeVisible();
+
+    // Offener Satzanfang ("Notiere mal Aufgabe für") darf NICHT nach 2000ms durch Quick abgehackt werden
+    await expect(stage1Region.locator('text=Notiere mal Aufgabe für')).toBeVisible({ timeout: 3000 });
+    await page.waitForTimeout(2300);
+    await expect(stage1Region.locator('text=Höre zu...')).toBeVisible();
+    await expect(stage1Region.locator('text=Notiere mal Aufgabe für')).toBeVisible();
+    await assertNoHorizontalOverflow(page, 'Station 14 – Offener Satzanfang bleibt aktiv');
+
+    // 2. Textfeld in Stufe 1 öffnen (pausiert Auto-Send-Timer), Text vervollständigen & absenden
+    await stage1Region.locator('button[aria-label="Textfeld öffnen"]').click();
+    const stage1Input = stage1Region.locator('input[placeholder*="Befehl oder Notiz"]');
+    await expect(stage1Input).toBeVisible();
+    await stage1Input.fill('Notiere mal Aufgabe für Pizzaofen prüfen');
+
+    const sendBtn = stage1Region.locator('button[aria-label="Befehl senden"]');
+    await expect(sendBtn).toBeEnabled();
+    await sendBtn.click();
+
+    // Aufgabe wurde lokal angelegt und in TasksView eingetragen
+    const tasksSection = page.locator('section:has(h3:has-text("Tasks"))');
+    await expect(tasksSection.locator('text=/Pizzaofen prüfen/i')).toBeVisible({ timeout: 5000 });
+    await expect(stage1Region.locator('text=/Gisela antwortet|Rückgängig|Pizzaofen|Aufgabe/i').first()).toBeVisible({ timeout: 5000 });
+    await assertNoHorizontalOverflow(page, 'Station 14 – Nach Stufe-1-Eingabe & Senden');
+
+    // 3. Sauberes Schließen zurück auf Stufe 0 per erneutem Tipp auf das mittige Sechseck
+    await hexBtn.click();
+    await expect(stage1Region).toBeHidden();
+    await expect(hexBtn).toBeVisible();
+    await assertNoHorizontalOverflow(page, 'Station 14 – Sauber geschlossen zurück auf Stufe 0');
+  });
 });

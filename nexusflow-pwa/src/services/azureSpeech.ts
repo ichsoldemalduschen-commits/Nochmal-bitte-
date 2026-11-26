@@ -1,4 +1,5 @@
 import { AiVoiceSettings } from '../types';
+import { TTS_PLAYBACK_WATCHDOG_MIN_MS } from '../config/runtimeConfig';
 import {
   getAzureSpeechKey,
   getAzureSpeechRegion,
@@ -6,15 +7,109 @@ import {
   getVoiceProvider
 } from './storage';
 
+let sharedAudioElement: HTMLAudioElement | null = null;
+let speechSynthesisUnlocked = false;
 let activeAudio: HTMLAudioElement | null = null;
 let activeBlobUrl: string | null = null;
 let activeAbortController: AbortController | null = null;
+let activePlaybackWatchdogId: number | null = null;
 let activeSpeechGeneration = 0;
 let activeFinishCallback: ((completedNaturally: boolean) => void) | null = null;
 
 const AZURE_TTS_TIMEOUT_MS = 4500;
+const SILENT_AUDIO_DATA_URI =
+  'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
+
+function getSharedAudioElement(): HTMLAudioElement | null {
+  if (typeof Audio === 'undefined') return null;
+  if (!sharedAudioElement) {
+    sharedAudioElement = new Audio();
+    sharedAudioElement.preload = 'auto';
+    (sharedAudioElement as any).playsInline = true;
+  }
+  return sharedAudioElement;
+}
+
+function clearPlaybackWatchdog(): void {
+  if (activePlaybackWatchdogId !== null && typeof window !== 'undefined') {
+    window.clearTimeout(activePlaybackWatchdogId);
+    activePlaybackWatchdogId = null;
+  }
+}
+
+function computePlaybackWatchdogMs(text: string): number {
+  return Math.max(TTS_PLAYBACK_WATCHDOG_MIN_MS, Math.min(45000, text.length * 140));
+}
+
+/**
+ * Synchroner Mobile-Audio-Unlock für Android Chrome & iOS Safari:
+ * Spielt im direkten User-Tap eine winzige stille Data-URI auf dem wiederverwendbaren
+ * `sharedAudioElement` an und weckt bei Bedarf `window.speechSynthesis` still auf.
+ */
+export function unlockAudioPlayback(): void {
+  const audio = getSharedAudioElement();
+  const unlockGen = activeSpeechGeneration;
+
+  if (audio && !activeFinishCallback) {
+    try {
+      audio.muted = true;
+      audio.src = SILENT_AUDIO_DATA_URI;
+      const playPromise = audio.play();
+      if (playPromise && typeof playPromise.then === 'function') {
+        playPromise
+          .then(() => {
+            if (activeSpeechGeneration === unlockGen && !activeFinishCallback) {
+              try {
+                audio.pause();
+                audio.currentTime = 0;
+              } catch {
+                // ignore
+              }
+              audio.muted = false;
+            }
+          })
+          .catch(() => {
+            if (activeSpeechGeneration === unlockGen && !activeFinishCallback) {
+              audio.muted = false;
+            }
+          });
+      } else {
+        try {
+          audio.pause();
+          audio.currentTime = 0;
+        } catch {
+          // ignore
+        }
+        audio.muted = false;
+      }
+    } catch {
+      try {
+        audio.muted = false;
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  if (!speechSynthesisUnlocked && typeof window !== 'undefined' && 'speechSynthesis' in window) {
+    try {
+      if (!window.speechSynthesis.speaking && !window.speechSynthesis.pending) {
+        const silentUtter = new SpeechSynthesisUtterance('');
+        silentUtter.volume = 0;
+        silentUtter.rate = 10;
+        window.speechSynthesis.speak(silentUtter);
+      }
+      window.speechSynthesis.getVoices?.();
+      speechSynthesisUnlocked = true;
+    } catch {
+      // ignore
+    }
+  }
+}
 
 function releasePlaybackResources(): void {
+  clearPlaybackWatchdog();
+
   if (activeAbortController) {
     try {
       activeAbortController.abort();
@@ -30,6 +125,7 @@ function releasePlaybackResources(): void {
       activeAudio.onerror = null;
       activeAudio.pause();
       activeAudio.currentTime = 0;
+      activeAudio.muted = false;
       activeAudio.src = '';
     } catch {
       // ignore
@@ -97,6 +193,7 @@ function speakBrowserSynthesis(
     return;
   }
   try {
+    clearPlaybackWatchdog();
     window.speechSynthesis.cancel();
     const utter = new SpeechSynthesisUtterance(cleanText);
     utter.lang = 'de-DE';
@@ -110,20 +207,37 @@ function speakBrowserSynthesis(
       utter.voice = germanVoice;
     }
 
+    const watchdogMs = computePlaybackWatchdogMs(cleanText);
+    activePlaybackWatchdogId = window.setTimeout(() => {
+      if (generation !== activeSpeechGeneration) return;
+      activePlaybackWatchdogId = null;
+      activeSpeechGeneration += 1;
+      if (activeFinishCallback === finish) activeFinishCallback = null;
+      try {
+        window.speechSynthesis.cancel();
+      } catch {
+        // ignore
+      }
+      finish(true);
+    }, watchdogMs);
+
     utter.onend = () => {
       if (generation !== activeSpeechGeneration) return;
+      clearPlaybackWatchdog();
       if (activeFinishCallback === finish) activeFinishCallback = null;
       activeSpeechGeneration += 1;
       finish(true);
     };
     utter.onerror = () => {
       if (generation !== activeSpeechGeneration) return;
+      clearPlaybackWatchdog();
       if (activeFinishCallback === finish) activeFinishCallback = null;
       activeSpeechGeneration += 1;
       finish(false);
     };
     window.speechSynthesis.speak(utter);
   } catch {
+    clearPlaybackWatchdog();
     if (generation === activeSpeechGeneration) {
       if (activeFinishCallback === finish) activeFinishCallback = null;
       finish(false);
@@ -247,7 +361,16 @@ export function speakText(
 
         const blobUrl = URL.createObjectURL(blob);
         activeBlobUrl = blobUrl;
-        const audio = new Audio(blobUrl);
+        const audio = getSharedAudioElement();
+        if (!audio) {
+          throw new Error('Audio-Element nicht verfügbar');
+        }
+        audio.onended = null;
+        audio.onerror = null;
+        audio.pause();
+        audio.muted = false;
+        audio.src = blobUrl;
+        audio.currentTime = 0;
         activeAudio = audio;
 
         audio.onended = () => {
@@ -268,8 +391,23 @@ export function speakText(
           speakBrowserSynthesis(clean, fallbackGen, finish);
         };
 
-        onEngineUsed?.('azure-gisela');
         await audio.play();
+        if (myGeneration !== activeSpeechGeneration) {
+          finish(false);
+          return;
+        }
+        onEngineUsed?.('azure-gisela');
+
+        clearPlaybackWatchdog();
+        const watchdogMs = computePlaybackWatchdogMs(clean);
+        activePlaybackWatchdogId = window.setTimeout(() => {
+          if (myGeneration !== activeSpeechGeneration) return;
+          activePlaybackWatchdogId = null;
+          activeSpeechGeneration += 1;
+          activeFinishCallback = null;
+          releasePlaybackResources();
+          finish(true);
+        }, watchdogMs);
       })
       .catch((err: any) => {
         window.clearTimeout(timeoutId);
@@ -302,6 +440,7 @@ export async function testGiselaVoice(
   region: string
 ): Promise<{ ok: boolean; engine: 'azure-gisela' | 'browser-fallback'; message: string }> {
   stopAllSpeech();
+  unlockAudioPlayback();
   const myGeneration = activeSpeechGeneration;
   const testPhrase = 'Hallo! Ich bin Gisela. Dein System ist einsatzbereit.';
   const cleanKey = apiKey.trim();
@@ -366,7 +505,16 @@ export async function testGiselaVoice(
 
     const blobUrl = URL.createObjectURL(blob);
     activeBlobUrl = blobUrl;
-    const audio = new Audio(blobUrl);
+    const audio = getSharedAudioElement();
+    if (!audio) {
+      throw new Error('Audio-Element nicht verfügbar');
+    }
+    audio.onended = null;
+    audio.onerror = null;
+    audio.pause();
+    audio.muted = false;
+    audio.src = blobUrl;
+    audio.currentTime = 0;
     activeAudio = audio;
     audio.onended = () => {
       if (myGeneration === activeSpeechGeneration) stopAllSpeech();
