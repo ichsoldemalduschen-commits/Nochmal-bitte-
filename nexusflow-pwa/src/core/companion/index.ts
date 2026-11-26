@@ -9,3 +9,10 @@ export { CompanionStageOne, type CompanionStageOneProps } from './CompanionStage
 export { CompanionChatSheet, type CompanionChatSheetProps } from './CompanionChatSheet';
 export { CompanionMessageItem, type CompanionMessageItemProps } from './CompanionMessageItem';
 export { CompanionComposer, type CompanionComposerProps } from './CompanionComposer';
+export {
+  copyTextToClipboard,
+  formatChatAsMarkdown,
+  formatChatAsPlainText,
+  triggerTextDownload,
+  type ExportableChatMessage
+} from './companionExport';

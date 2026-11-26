@@ -13,7 +13,6 @@ import {
   enforceMaxSixWords,
   getPreferredModelMode,
   getTtsEnabled,
-  loadUserPrefs,
   resolveEffectiveAiMode,
   setTtsEnabled,
   speakText,
@@ -31,6 +30,7 @@ import {
   getIdbItemSync,
   getVoiceProvider,
   loadOfflineAudioMemos,
+  loadUserPrefs,
   saveActiveAiMode,
   saveIdbItem,
   saveOfflineAudioMemos
@@ -48,6 +48,12 @@ import {
 } from '../../config/runtimeConfig';
 import { classifyLiveSpeechIntent } from '../../services/voiceModeClassifier';
 import { useWakeLock } from '../../hooks/useWakeLock';
+import {
+  copyTextToClipboard,
+  formatChatAsMarkdown,
+  formatChatAsPlainText,
+  triggerTextDownload
+} from './companionExport';
 
 export interface ConversationMessage {
   id: string;
@@ -71,6 +77,8 @@ export interface VoiceModalProps {
   autoStartMic?: boolean;
   wakeLockEnabled?: boolean;
   offlineAudioBufferEnabled?: boolean;
+  companionMessageToolsEnabled?: boolean;
+  companionQuickChipsEnabled?: boolean;
   activeProjectId?: string;
   userApiKey?: string;
   offlineAudioMemos?: OfflineAudioMemo[];
@@ -98,6 +106,7 @@ export interface VoiceModalProps {
       settings?: AiVoiceSettings;
       hintMode?: VoiceInteractionMode;
       previousMode?: VoiceInteractionMode | null;
+      overrideAiMode?: 'flash' | 'research';
     }
   ) => Promise<{
     replyText: string;
@@ -133,6 +142,7 @@ export interface VoiceModalProps {
   } | void;
   onAskQuestion: (question: string, attachment: Attachment | null) => Promise<string>;
   onSaveAnswerToInfos: (question: string, answer: string, attachment: Attachment | null) => void;
+  onSaveChatAsKnowledge?: (title: string, content: string) => void;
   onJumpToAction?: (act: AiExecutedAction) => void;
   onUndoAiAction?: (logId: string, actionId: string) => void;
   onMoveAiAction?: (logId: string, actionId: string, newProjectId: string) => void;
@@ -254,11 +264,14 @@ export interface UseVoiceSessionReturn {
   aiMode: 'flash' | 'research';
   upscaleNotice: string | null;
   prefs: BanditUserPreferences;
+  messageToolsEnabled: boolean;
+  quickChipsEnabled: boolean;
 
   // Abgeleitete UI-Werte
   hasSpokenText: boolean;
   progressPercent: number;
   activeProjects: Project[];
+  projectColor: string;
   accentColor: string;
   glowColor: string;
   silenceLineColor: string;
@@ -277,6 +290,7 @@ export interface UseVoiceSessionReturn {
   handleTranscriptChange: (value: string) => void;
   handleSubmitTranscript: (overrideText?: string) => void;
   handleFileUpload: (e: React.ChangeEvent<HTMLInputElement>) => Promise<void>;
+  clearAttachment: () => void;
   handleToggleAiMode: () => void;
   handleToggleTts: () => void;
   handleClearMessages: () => void;
@@ -289,6 +303,14 @@ export interface UseVoiceSessionReturn {
   handleStage1TouchEnd: (clientY: number) => void;
   handleHeaderTouchStart: (clientY: number) => void;
   handleHeaderTouchEnd: (clientY: number) => void;
+  reprocessPrompt: (
+    promptText: string,
+    options?: { attachment?: Attachment | null; mode?: 'flash' | 'research' }
+  ) => void;
+  loadPromptIntoComposer: (promptText: string) => void;
+  exportChatTranscript: (format: 'clipboard' | 'markdown' | 'text') => Promise<boolean>;
+  saveChatAsProjectKnowledge: () => boolean;
+  speakAssistantMessage: (text: string) => void;
 }
 
 /**
@@ -301,6 +323,8 @@ export function useVoiceSession(props: VoiceModalProps): UseVoiceSessionReturn {
     stage = 1,
     autoStartMic = true,
     wakeLockEnabled = true,
+    companionMessageToolsEnabled,
+    companionQuickChipsEnabled,
     activeProjectId,
     offlineAudioMemos: offlineAudioMemosProp,
     onUpdateOfflineAudioMemos,
@@ -314,6 +338,7 @@ export function useVoiceSession(props: VoiceModalProps): UseVoiceSessionReturn {
     onStageChange,
     onExecuteCommand,
     onSaveAnswerToInfos,
+    onSaveChatAsKnowledge,
     onUndoAiAction,
     onListeningChange,
     onProcessingChange,
@@ -418,6 +443,15 @@ export function useVoiceSession(props: VoiceModalProps): UseVoiceSessionReturn {
   const isSendingRef = useRef(false);
 
   const prefs = loadUserPrefs();
+  const messageToolsEnabled =
+    companionMessageToolsEnabled !== undefined
+      ? companionMessageToolsEnabled
+      : prefs.companionMessageToolsEnabled !== false;
+  const quickChipsEnabled =
+    companionQuickChipsEnabled !== undefined
+      ? companionQuickChipsEnabled
+      : prefs.companionQuickChipsEnabled !== false;
+
   const recognitionRef = useRef<any>(null);
   const transcriptRef = useRef('');
   const lastSpeechTimestampRef = useRef<number>(0);
@@ -1093,7 +1127,11 @@ export function useVoiceSession(props: VoiceModalProps): UseVoiceSessionReturn {
     );
   };
 
-  const triggerProcess = async (textToProcess: string, overrideAttachment?: Attachment | null) => {
+  const triggerProcess = async (
+    textToProcess: string,
+    overrideAttachment?: Attachment | null,
+    overrideAiMode?: 'flash' | 'research'
+  ) => {
     const clean = textToProcess.trim();
     if (!clean || voicePhaseRef.current === 'PROCESSING' || isSendingRef.current) return;
     isSendingRef.current = true;
@@ -1126,12 +1164,16 @@ export function useVoiceSession(props: VoiceModalProps): UseVoiceSessionReturn {
     let settled = false;
 
     const currentSettings = settingsRef.current;
+    const effectiveModeForRequest = overrideAiMode || currentSettings.activeAiMode;
+    const requestSettings: AiVoiceSettings = overrideAiMode
+      ? { ...currentSettings, activeAiMode: overrideAiMode }
+      : currentSettings;
     const currentAtt = overrideAttachment !== undefined ? overrideAttachment : attachmentRef.current;
     const { effectiveMode: resolvedTimeoutMode } = resolveEffectiveAiMode(
       clean,
       currentAtt,
-      currentSettings.activeAiMode,
-      currentSettings
+      effectiveModeForRequest,
+      requestSettings
     );
     const hasPhotoAttachment = Boolean(
       currentAtt && (currentAtt.type === 'image' || currentAtt.dataUrl?.startsWith('data:image/'))
@@ -1261,13 +1303,14 @@ export function useVoiceSession(props: VoiceModalProps): UseVoiceSessionReturn {
       const result = await onExecuteCommand(
         clean,
         currentAtt,
-        currentSettings.activeAiMode,
+        effectiveModeForRequest,
         recentHistory,
         {
           signal: controller.signal,
-          settings: currentSettings,
+          settings: requestSettings,
           hintMode: requestHintMode,
-          previousMode: requestPrevMode
+          previousMode: requestPrevMode,
+          overrideAiMode
         }
       );
       if (settled || requestId !== activeRequestIdRef.current) return;
@@ -1334,6 +1377,10 @@ export function useVoiceSession(props: VoiceModalProps): UseVoiceSessionReturn {
     e.target.value = '';
   };
 
+  const clearAttachment = () => {
+    setAttachment(null);
+  };
+
   const handleToggleStage1TextInput = () => {
     const willOpen = !showStage1TextInput;
     if (willOpen) {
@@ -1353,11 +1400,76 @@ export function useVoiceSession(props: VoiceModalProps): UseVoiceSessionReturn {
   };
 
   const handleSubmitTranscript = (overrideText?: string) => {
-    const textToSend = overrideText !== undefined ? overrideText : transcriptRef.current;
-    if (!textToSend.trim()) return;
+    const rawCandidate =
+      overrideText !== undefined
+        ? overrideText
+        : transcriptRef.current.trim() || (attachmentRef.current ? 'Foto oder Datei auswerten' : '');
+    if (!rawCandidate.trim()) return;
     unlockAudioPlayback();
     autoSendTriggeredRef.current = true;
-    void triggerProcess(textToSend);
+    void triggerProcess(rawCandidate);
+  };
+
+  const reprocessPrompt = (
+    promptText: string,
+    options?: { attachment?: Attachment | null; mode?: 'flash' | 'research' }
+  ) => {
+    const clean = promptText.trim();
+    if (!clean || voicePhaseRef.current === 'PROCESSING' || isSendingRef.current) return;
+    unlockAudioPlayback();
+    autoSendTriggeredRef.current = true;
+    void triggerProcess(clean, options?.attachment ?? null, options?.mode);
+  };
+
+  const loadPromptIntoComposer = (promptText: string) => {
+    isTypingPausedRef.current = true;
+    clearVoiceTimers();
+    setTranscript(promptText);
+    transcriptRef.current = promptText;
+    accumulatedPrefixRef.current = promptText.trim();
+    lastSpeechTimestampRef.current = Date.now();
+  };
+
+  const exportChatTranscript = async (
+    format: 'clipboard' | 'markdown' | 'text'
+  ): Promise<boolean> => {
+    const currentMsgs = messagesRef.current;
+    if (format === 'clipboard') {
+      const plain = formatChatAsPlainText(currentMsgs, activeProjectName);
+      return copyTextToClipboard(plain);
+    }
+    const dateStamp = new Date().toISOString().slice(0, 10);
+    if (format === 'markdown') {
+      const md = formatChatAsMarkdown(currentMsgs, activeProjectName);
+      triggerTextDownload(`banditos-chat-${dateStamp}.md`, md, 'text/markdown;charset=utf-8');
+      return true;
+    }
+    const txt = formatChatAsPlainText(currentMsgs, activeProjectName);
+    triggerTextDownload(`banditos-chat-${dateStamp}.txt`, txt, 'text/plain;charset=utf-8');
+    return true;
+  };
+
+  const saveChatAsProjectKnowledge = (): boolean => {
+    const currentMsgs = messagesRef.current;
+    if (currentMsgs.length === 0) return false;
+    const title = enforceMaxSixWords(
+      `Begleiter-Chat ${new Date().toLocaleDateString('de-DE')}`,
+      'Begleiter-Chat'
+    );
+    const content = formatChatAsMarkdown(currentMsgs, activeProjectName);
+    if (onSaveChatAsKnowledge) {
+      onSaveChatAsKnowledge(title, content);
+    } else {
+      onSaveAnswerToInfos(title, content, null);
+    }
+    return true;
+  };
+
+  const speakAssistantMessage = (text: string) => {
+    if (!text.trim()) return;
+    unlockAudioPlayback();
+    stopAllSpeech();
+    void speakText(text, undefined, undefined, settingsRef.current);
   };
 
   const handleToggleAiMode = () => {
@@ -1453,10 +1565,8 @@ export function useVoiceSession(props: VoiceModalProps): UseVoiceSessionReturn {
     if (stage1TouchYRef.current !== null) {
       const deltaY = clientY - stage1TouchYRef.current;
       if (deltaY < -40) {
-        // Hochziehen -> Stufe 2
         updateStage(2);
       } else if (deltaY > 40) {
-        // Runterziehen -> Stufe 0
         updateStage(0);
       }
     }
@@ -1483,6 +1593,7 @@ export function useVoiceSession(props: VoiceModalProps): UseVoiceSessionReturn {
     Math.max(0, (remainingMs / Math.max(1, silenceLimitMs)) * 100)
   );
   const activeProjects = projects.filter((p) => !p.archived);
+  const projectColor = themeColors?.primary || '#0D9488';
   const accentColor = themeColors?.highlight || themeColors?.primary || '#14B8A6';
   const glowColor = themeColors?.glow || 'rgba(20, 184, 166, 0.35)';
   const silenceLineColor = remainingMs < 900 ? '#E5A93C' : accentColor;
@@ -1510,9 +1621,12 @@ export function useVoiceSession(props: VoiceModalProps): UseVoiceSessionReturn {
     aiMode,
     upscaleNotice,
     prefs,
+    messageToolsEnabled,
+    quickChipsEnabled,
     hasSpokenText,
     progressPercent,
     activeProjects,
+    projectColor,
     accentColor,
     glowColor,
     silenceLineColor,
@@ -1527,6 +1641,7 @@ export function useVoiceSession(props: VoiceModalProps): UseVoiceSessionReturn {
     handleTranscriptChange,
     handleSubmitTranscript,
     handleFileUpload,
+    clearAttachment,
     handleToggleAiMode,
     handleToggleTts,
     handleClearMessages,
@@ -1538,6 +1653,11 @@ export function useVoiceSession(props: VoiceModalProps): UseVoiceSessionReturn {
     handleStage1TouchStart,
     handleStage1TouchEnd,
     handleHeaderTouchStart,
-    handleHeaderTouchEnd
+    handleHeaderTouchEnd,
+    reprocessPrompt,
+    loadPromptIntoComposer,
+    exportChatTranscript,
+    saveChatAsProjectKnowledge,
+    speakAssistantMessage
   };
 }

@@ -24,6 +24,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = (props) => {
         offlineAudioBufferEnabled={props.offlineAudioBufferEnabled !== false}
         effectiveOfflineMemos={session.effectiveOfflineMemos}
         onSaveOfflineMemos={session.handleSaveOfflineMemos}
+        projectColor={session.projectColor}
         accentColor={session.accentColor}
         glowColor={session.glowColor}
         silenceLineColor={session.silenceLineColor}
@@ -79,9 +80,11 @@ export const VoiceModal: React.FC<VoiceModalProps> = (props) => {
       onSaveOfflineMemos={session.handleSaveOfflineMemos}
       messages={session.messages}
       transcript={session.transcript}
+      attachment={session.attachment}
       hasSpokenText={session.hasSpokenText}
       isListening={session.isListening}
       isProcessing={session.isProcessing}
+      isSpeaking={session.isSpeaking}
       showSlowThinkingNotice={session.showSlowThinkingNotice}
       wakeLockActive={session.wakeLockActive}
       aiMode={session.aiMode}
@@ -92,6 +95,9 @@ export const VoiceModal: React.FC<VoiceModalProps> = (props) => {
       speechNotice={session.speechNotice}
       quickCommands={session.prefs.quickCommands}
       organicMotion={Boolean(session.prefs.organicMotion)}
+      messageToolsEnabled={session.messageToolsEnabled}
+      quickChipsEnabled={session.quickChipsEnabled}
+      projectColor={session.projectColor}
       progressPercent={session.progressPercent}
       silenceLineColor={session.silenceLineColor}
       scrollEndRef={session.scrollEndRef}
@@ -103,6 +109,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = (props) => {
       onClearMessages={session.handleClearMessages}
       onSubmitTranscript={session.handleSubmitTranscript}
       onFileUpload={session.handleFileUpload}
+      onClearAttachment={session.clearAttachment}
       onTranscriptChange={session.handleTranscriptChange}
       onManualMicToggle={session.handleManualMicToggle}
       onJumpToAction={props.onJumpToAction}
@@ -112,6 +119,13 @@ export const VoiceModal: React.FC<VoiceModalProps> = (props) => {
       onRetryMessage={session.handleRetryMessage}
       onParkAsNote={session.handleParkMessageAsNote}
       onSaveAsInfo={session.handleSaveMessageAsInfo}
+      onSpeakMessage={session.speakAssistantMessage}
+      onEditPrompt={session.loadPromptIntoComposer}
+      onReprocessPrompt={(promptText, mode) =>
+        session.reprocessPrompt(promptText, mode ? { mode } : undefined)
+      }
+      onExportChatTranscript={session.exportChatTranscript}
+      onSaveChatAsKnowledge={session.saveChatAsProjectKnowledge}
     />
   );
 };
