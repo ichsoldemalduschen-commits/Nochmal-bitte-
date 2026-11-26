@@ -1145,6 +1145,23 @@ test.describe('Block C: Mobile-Guard 390×844 px Gesamt-Schutznetz', () => {
     await expect(stage1Region.locator('text=/Gisela antwortet|Rückgängig|Pizzaofen|Aufgabe/i').first()).toBeVisible({ timeout: 5000 });
     await assertNoHorizontalOverflow(page, 'Station 14 – Nach Stufe-1-Eingabe & Senden');
 
+    // 2b. Langer Grübel-/Sabbel-Text (ohne API-Key / im Offline-Fallback) legt KEINEN unerwünschten Task automatisch an
+    const taskCountBefore = await tasksSection.locator('div[id^="item-card-"]').count();
+    await stage1Region.locator('button[aria-label="Textfeld öffnen"]').click();
+    await expect(stage1Input).toBeVisible();
+    await stage1Input.fill(
+      'Ich überlege gerade ob wir beim nächsten Event vielleicht den Arbeitstisch etwas weiter nach links schieben sollten damit alle genug Platz haben'
+    );
+    await expect(sendBtn).toBeEnabled();
+    await sendBtn.click();
+
+    await expect(stage1Region.locator('text=/nichts automatisch|Offline|Gisela antwortet/i').first()).toBeVisible({
+      timeout: 5000
+    });
+    await expect(tasksSection.locator('div[id^="item-card-"]')).toHaveCount(taskCountBefore);
+    await expect(tasksSection).not.toContainText('Ich überlege gerade');
+    await assertNoHorizontalOverflow(page, 'Station 14 – Langer Grübel-Text ohne blinde Task-Anlage');
+
     // 3. Sauberes Schließen zurück auf Stufe 0 per erneutem Tipp auf das mittige Sechseck
     await hexBtn.click();
     await expect(stage1Region).toBeHidden();

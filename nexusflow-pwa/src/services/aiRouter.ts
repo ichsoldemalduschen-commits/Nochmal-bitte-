@@ -156,6 +156,8 @@ export interface StructuredAiResponse {
   needsClarification?: boolean;
   detectedMode?: VoiceInteractionMode;
   expectFollowUp?: boolean;
+  isErrorFallback?: boolean;
+  errorReason?: 'timeout' | 'network' | 'api';
   actions: StructuredAiActionPlan[];
 }
 
@@ -265,13 +267,18 @@ async function buildModelCandidateList(
   return Array.from(new Set(baseList));
 }
 
+const modelsRejectingThinkingConfig = new Set<string>();
+
 function withFlashThinkingDisabled(
   payload: Record<string, unknown>,
   modelName: string,
   effectiveMode?: 'flash' | 'research'
 ): { bodyPayload: Record<string, unknown>; usedThinkingConfig: boolean } {
   const shouldDisableThinking =
-    effectiveMode === 'flash' && modelName.includes('2.5-flash') && payload.generationConfig;
+    effectiveMode === 'flash' &&
+    modelName.includes('2.5-flash') &&
+    !modelsRejectingThinkingConfig.has(modelName) &&
+    payload.generationConfig;
   if (!shouldDisableThinking) {
     return { bodyPayload: payload, usedThinkingConfig: false };
   }
@@ -294,7 +301,14 @@ async function callGeminiWithAutoFallback(
   effectiveMode?: 'flash' | 'research',
   preferredModelModeOverride?: string,
   signal?: AbortSignal
-): Promise<{ ok: boolean; data?: any; usedModel: string; errorMessage?: string; aborted?: boolean }> {
+): Promise<{
+  ok: boolean;
+  data?: any;
+  usedModel: string;
+  errorMessage?: string;
+  errorReason?: 'network' | 'api';
+  aborted?: boolean;
+}> {
   const cleanKey = apiKey.trim();
   const candidates = await buildModelCandidateList(
     cleanKey,
@@ -303,6 +317,7 @@ async function callGeminiWithAutoFallback(
     preferredModelModeOverride
   );
   let lastError = 'Unbekannter API-Fehler';
+  let lastErrorReason: 'network' | 'api' = 'api';
   let hitNon404Failure = false;
 
   for (const modelName of candidates) {
@@ -326,8 +341,9 @@ async function callGeminiWithAutoFallback(
         signal
       });
 
-      // Sicherer Retry ohne thinkingConfig, falls das Modell den Parameter mit HTTP 400 ablehnt
+      // Sicherer Retry ohne thinkingConfig, falls das Modell den Parameter mit HTTP 400 ablehnt (pro Session merken)
       if (res.status === 400 && usedThinkingConfig && !signal?.aborted) {
+        modelsRejectingThinkingConfig.add(modelName);
         res = await fetch(endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -343,6 +359,7 @@ async function callGeminiWithAutoFallback(
 
       const errData = await res.json().catch(() => ({}));
       lastError = errData?.error?.message || `HTTP ${res.status}`;
+      lastErrorReason = 'api';
       if (res.status === 404) {
         continue;
       }
@@ -353,6 +370,7 @@ async function callGeminiWithAutoFallback(
         return { ok: false, usedModel: modelName, errorMessage: 'Abgebrochen', aborted: true };
       }
       lastError = err?.message || 'Netzwerkfehler';
+      lastErrorReason = 'network';
       hitNon404Failure = true;
       break;
     }
@@ -364,6 +382,7 @@ async function callGeminiWithAutoFallback(
       ok: false,
       usedModel: candidates[0],
       errorMessage: signal?.aborted ? 'Abgebrochen' : lastError,
+      errorReason: lastErrorReason,
       aborted: Boolean(signal?.aborted)
     };
   }
@@ -389,17 +408,19 @@ async function callGeminiWithAutoFallback(
       }
       const errData = await res.json().catch(() => ({}));
       lastError = errData?.error?.message || `HTTP ${res.status}`;
+      lastErrorReason = 'api';
       if (res.status !== 404) break;
     } catch (err: any) {
       if (signal?.aborted || err?.name === 'AbortError') {
         return { ok: false, usedModel: liveModel, errorMessage: 'Abgebrochen', aborted: true };
       }
       lastError = err?.message || 'Netzwerkfehler';
+      lastErrorReason = 'network';
       break;
     }
   }
 
-  return { ok: false, usedModel: candidates[0], errorMessage: lastError };
+  return { ok: false, usedModel: candidates[0], errorMessage: lastError, errorReason: lastErrorReason };
 }
 
 const AI_ROUTER_RESPONSE_SCHEMA = {
@@ -543,6 +564,9 @@ function buildWorkspaceContextSummary(projects: Project[], activeProjectId?: str
     .join('\n\n');
 }
 
+const EXPLICIT_OFFLINE_COMMAND_REGEX =
+  /^(?:notiere|erstelle|füge|lege|packe|ergänze|erinnere|kaufe|bestelle|besorge|hake)\b|\b(?:aufgabe\s+(?:anlegen|erstellen|notieren|hinzufügen)|auf\s+(?:den\s+)?einkauf(?:swagen)?|in\s+(?:den\s+)?einkauf(?:swagen)?|auf\s+die\s+einkaufsliste|notiere\s+(?:mir\s+)?(?:mal\s+)?(?:aufgabe|task|info|wissen)|erstelle\s+(?:eine\s+)?aufgabe|erinnere\s+mich\s+an|als\s+(?:aufgabe|task|einkauf|wissen|info)\s+(?:speichern|eintragen|anlegen)|(?:ist\s+)?(?:erledigt|abgehakt))\b/i;
+
 export function buildLocalFallbackPlan(
   rawText: string,
   defaultProjectId: string,
@@ -552,10 +576,11 @@ export function buildLocalFallbackPlan(
 ): StructuredAiResponse {
   const prefs = loadUserPrefs();
   const trimmed = rawText.trim();
+  const words = trimmed.split(/\s+/).filter(Boolean);
   const classifiedHint = hintMode || classifyLiveSpeechIntent(trimmed, previousMode).mode;
   const isQuestion =
-    trimmed.endsWith('?') ||
-    /^(wie|was|wo|wann|warum|welche|welcher|welches|kannst du|weißt du|zeig mir|gib mir)/i.test(
+    trimmed.includes('?') ||
+    /^(wie|was|wo|wann|warum|wieso|welche|welcher|welches|kannst du|weißt du|zeig mir|gib mir)\b/i.test(
       trimmed
     );
 
@@ -569,6 +594,25 @@ export function buildLocalFallbackPlan(
       directAnswer:
         'Offline-Modus aktiv: Für autonome Antworten und Analysen bitte in den Einstellungen unter KI-Schnittstelle den Gemini API-Key prüfen.',
       summary: 'Frage im Offline-Modus',
+      actions: []
+    };
+  }
+
+  const hasExplicitCommand = EXPLICIT_OFFLINE_COMMAND_REGEX.test(trimmed);
+  const isLongBrainstorming = words.length > 15 && !hasExplicitCommand;
+  const isNonCommandDialog = classifiedHint === 'dialog' && !hasExplicitCommand;
+
+  // Im echten Offline-Fallback bei Grübeln, > 15 Wörtern ohne Kommando oder Dialog-Modus keine blinde Aufgabe anlegen
+  if (!hasExplicitCommand || isLongBrainstorming || isNonCommandDialog) {
+    return {
+      isQuestion: false,
+      needsClarification: false,
+      detectedMode: 'dialog',
+      expectFollowUp: false,
+      spokenFeedback: 'Offline wurde nichts automatisch einsortiert.',
+      directAnswer:
+        'Offline-Modus: Kein eindeutiges Aufgaben- oder Einkaufskommando erkannt – es wurde nichts automatisch einsortiert.',
+      summary: 'Offline-Nachdenken – nichts automatisch angelegt.',
       actions: []
     };
   }
@@ -764,9 +808,14 @@ REGELN:
       const historyText =
         chatHistory && chatHistory.length > 0
           ? chatHistory
-            .slice(-6)
-            .map((h) => `${h.role === 'user' ? 'Nutzer' : 'BANDIT.OS'}: ${h.text}`)
-            .join('\n')
+              .slice(-6)
+              .map((h) => {
+                const cleanTurn = String(h.text || '').trim().replace(/\s+/g, ' ');
+                const clippedTurn =
+                  cleanTurn.length > 400 ? `${cleanTurn.slice(0, 397)}...` : cleanTurn;
+                return `${h.role === 'user' ? 'Nutzer' : 'BANDIT.OS'}: ${clippedTurn}`;
+              })
+              .join('\n')
           : 'Kein vorheriger Gesprächsverlauf.';
 
       const userParts: any[] = [
@@ -832,16 +881,27 @@ REGELN:
       }
 
       if (!result.ok) {
-        const fallback = buildLocalFallbackPlan(rawText, defaultProjectId, allProjects, autoHint, options?.previousMode);
+        const errorReason = result.errorReason || 'api';
         return {
           plan: {
-            ...fallback,
-            directAnswer: `Hinweis: API meldete "${result.errorMessage}". Lokale Zuordnung genutzt.`
+            isQuestion: false,
+            needsClarification: false,
+            detectedMode: autoHint,
+            expectFollowUp: false,
+            isErrorFallback: true,
+            errorReason,
+            spokenFeedback: 'Die Verbindung hat diesmal nicht geklappt – es wurde nichts angelegt.',
+            directAnswer:
+              errorReason === 'network'
+                ? 'Die Verbindung hat diesmal zu lange gedauert oder wurde unterbrochen – es wurde nichts angelegt.'
+                : `Die KI-Anfrage hat diesmal nicht geklappt (${result.errorMessage || 'API-Fehler'}) – es wurde nichts angelegt.`,
+            summary: 'Verbindungsfehler – nichts angelegt.',
+            actions: []
           },
-          engine: `Fallback (${result.errorMessage})`,
+          engine: `Fehler (${result.errorMessage || 'API'})`,
           autoUpscaledToPro,
-          detectedMode: fallback.detectedMode,
-          expectFollowUp: fallback.expectFollowUp
+          detectedMode: autoHint,
+          expectFollowUp: false
         };
       }
 
@@ -901,6 +961,26 @@ REGELN:
           expectFollowUp: resolvedFollowUp
         };
       }
+
+      return {
+        plan: {
+          isQuestion: false,
+          needsClarification: false,
+          detectedMode: autoHint,
+          expectFollowUp: false,
+          isErrorFallback: true,
+          errorReason: 'api',
+          spokenFeedback: 'Antwort konnte nicht gelesen werden – es wurde nichts angelegt.',
+          directAnswer:
+            'Die KI-Antwort war diesmal unvollständig – es wurde nichts angelegt.',
+          summary: 'Unvollständige Antwort – nichts angelegt.',
+          actions: []
+        },
+        engine: `Fehler (${result.usedModel})`,
+        autoUpscaledToPro,
+        detectedMode: autoHint,
+        expectFollowUp: false
+      };
     } catch (err: any) {
       if (signal?.aborted || err?.name === 'AbortError') {
         return {
@@ -918,6 +998,26 @@ REGELN:
         };
       }
       console.warn('[BANDIT.OS AI-Router] Fehler:', err);
+      const errorReason: 'network' | 'api' = err instanceof SyntaxError ? 'api' : 'network';
+      return {
+        plan: {
+          isQuestion: false,
+          needsClarification: false,
+          detectedMode: autoHint,
+          expectFollowUp: false,
+          isErrorFallback: true,
+          errorReason,
+          spokenFeedback: 'Die Verbindung hat diesmal nicht geklappt – es wurde nichts angelegt.',
+          directAnswer:
+            'Die Verbindung hat diesmal zu lange gedauert oder wurde unterbrochen – es wurde nichts angelegt.',
+          summary: 'Verbindungsfehler – nichts angelegt.',
+          actions: []
+        },
+        engine: 'Fehler (Verbindung)',
+        autoUpscaledToPro,
+        detectedMode: autoHint,
+        expectFollowUp: false
+      };
     }
   }
 
