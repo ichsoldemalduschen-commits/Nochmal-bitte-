@@ -932,4 +932,74 @@ test.describe('Block C: Mobile-Guard 390×844 px Gesamt-Schutznetz', () => {
 
     await assertNoHorizontalOverflow(page, 'Station 11 – Auto-Abschluss & Rückgängig');
   });
+
+  test('Station 12 – Proaktive Erinnerungen: Schnell-Chip setzen, fälliges Honig-Gold-Banner auslösen & +30 Min Snooze (390px-Schutz)', async ({ page }) => {
+    await page.goto('./');
+    await page.waitForLoadState('domcontentloaded');
+
+    const tasksSection = page.locator('section:has(h3:has-text("Tasks"))');
+    await expect(tasksSection).toBeVisible();
+
+    const firstCard = tasksSection.locator('div[id^="item-card-"]').first();
+    await expect(firstCard).toBeVisible();
+    const cardId = await firstCard.getAttribute('id');
+    expect(cardId).toBeTruthy();
+    const card = page.locator(`#${cardId}`);
+
+    // 1. Aufgabe aufklappen -> Bearbeiten öffnen -> Schnell-Chip „Abend-Check 20:00“ setzen & speichern
+    await card.locator('.cursor-pointer').nth(1).click();
+    await card.locator('button:has-text("Bearbeiten")').click();
+
+    const eveningChip = card.locator('button:has-text("Abend-Check 20:00")');
+    await expect(eveningChip).toBeVisible();
+    await eveningChip.click();
+    await card.locator('button:has-text("Speichern")').click();
+
+    // Ruhiges Mono-Meta-Tag ⏰ 20:00 auf der Karte prüfen
+    const reminderMeta = card.locator('span.font-mono:has-text("⏰")');
+    await expect(reminderMeta).toBeVisible();
+    await expect(reminderMeta).toContainText('20:00');
+    await assertNoHorizontalOverflow(page, 'Station 12 – Erinnerung auf Karte gesetzt');
+
+    // 2. Fällige Erinnerungszeit (2 Minuten in der Vergangenheit) setzen -> Honig-Gold-Banner erscheint
+    await card.locator('button:has-text("Bearbeiten")').click();
+    const pastLocalValue = await page.evaluate(() => {
+      const d = new Date(Date.now() - 2 * 60 * 1000);
+      const y = d.getFullYear();
+      const mo = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      const h = String(d.getHours()).padStart(2, '0');
+      const mi = String(d.getMinutes()).padStart(2, '0');
+      return `${y}-${mo}-${day}T${h}:${mi}`;
+    });
+    const dtInput = card.locator('input[type="datetime-local"]');
+    await expect(dtInput).toBeVisible();
+    await dtInput.fill(pastLocalValue);
+    await card.locator('button:has-text("Speichern")').click();
+
+    const reminderBanner = page.locator('[data-testid="in-app-reminder-banner"]');
+    await expect(reminderBanner).toBeVisible({ timeout: 5000 });
+
+    const doneBtn = reminderBanner.locator('button:has-text("Erledigt")');
+    const snoozeBtn = reminderBanner.locator('button:has-text("+30 Min")');
+    const okBtn = reminderBanner.locator('button:has-text("OK")');
+
+    await expect(doneBtn).toBeVisible();
+    await expect(snoozeBtn).toBeVisible();
+    await expect(okBtn).toBeVisible();
+
+    for (const btn of [doneBtn, snoozeBtn, okBtn]) {
+      const box = await btn.boundingBox();
+      expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
+    }
+
+    await assertNoHorizontalOverflow(page, 'Station 12 – Erinnerungsbanner sichtbar');
+
+    // 3. Auf +30 Min tippen -> Banner verschwindet sauber und poppt nicht erneut auf
+    await snoozeBtn.click();
+    await expect(reminderBanner).toBeHidden();
+    await page.waitForTimeout(300);
+    await expect(reminderBanner).toBeHidden();
+    await assertNoHorizontalOverflow(page, 'Station 12 – Nach +30 Min Snooze');
+  });
 });

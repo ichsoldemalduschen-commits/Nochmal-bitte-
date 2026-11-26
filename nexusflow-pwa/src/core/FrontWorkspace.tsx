@@ -15,6 +15,7 @@ import {
   PriorityType,
   Project,
   ProjectTabId,
+  ReminderRecurrence,
   TaskItem,
   AmbientLightMode
 } from '../types';
@@ -86,8 +87,12 @@ interface FrontWorkspaceProps {
     title: string,
     priority?: PriorityType,
     estimatedMinutes?: number,
-    assemblyGroup?: string
+    assemblyGroup?: string,
+    reminderAt?: string,
+    reminderRecurrence?: ReminderRecurrence
   ) => void;
+  externalUndoAction?: { message: string; undo: () => void } | null;
+  onClearExternalUndo?: () => void;
   onDeleteTask: (projectId: string, taskId: string) => void;
   onUpdateTask?: (projectId: string, taskId: string, patch: Partial<TaskItem>) => void;
   onMoveTask?: (fromProjectId: string, toProjectId: string, taskId: string) => void;
@@ -154,6 +159,8 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
   onToggleSubTask,
   onDeleteSubTask,
   onAddTask,
+  externalUndoAction,
+  onClearExternalUndo,
   onDeleteTask,
   onUpdateTask,
   onMoveTask,
@@ -437,7 +444,7 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
       )}
 
       {/* 4-SEKUNDEN-RÜCKGÄNGIG-LEISTE (direkt über der unteren Leiste) */}
-      {undoAction && (
+      {(undoAction || externalUndoAction) && (
         <div
           role="status"
           className="fixed bottom-20 left-1/2 -translate-x-1/2 z-40 w-[92%] max-w-[420px] min-h-[44px] px-4 py-2.5 rounded-2xl border shadow-2xl flex items-center justify-between gap-3 animate-fadeIn backdrop-blur-md"
@@ -449,14 +456,16 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
           <div className="flex items-center gap-2 min-w-0 flex-1">
             <RotateCcw className="w-4 h-4 text-[#94A3B8] shrink-0" />
             <span className="text-xs font-medium text-[#F1F5F9] truncate">
-              {undoAction.message}
+              {(undoAction || externalUndoAction)!.message}
             </span>
           </div>
           <button
             type="button"
             onClick={() => {
-              undoAction.undo();
+              const active = undoAction || externalUndoAction;
+              active?.undo();
               setUndoAction(null);
+              onClearExternalUndo?.();
               triggerHapticFeedback(10);
             }}
             className="min-h-[44px] min-w-[44px] px-3.5 rounded-xl text-xs font-bold shrink-0 active:scale-95 transition cursor-pointer flex items-center justify-center"

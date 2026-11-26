@@ -1,4 +1,5 @@
 import { EventSalesLog, Project } from '../types';
+import { parseReminderDate } from './cloudSyncAndPush';
 
 export function exportEventSalesToCsv(logs: EventSalesLog[]): void {
   const header = [
@@ -36,6 +37,16 @@ export function exportEventSalesToCsv(logs: EventSalesLog[]): void {
   URL.revokeObjectURL(url);
 }
 
+function formatIcsLocalDateTime(date: Date): string {
+  const y = date.getFullYear();
+  const mo = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  const h = String(date.getHours()).padStart(2, '0');
+  const mi = String(date.getMinutes()).padStart(2, '0');
+  const s = String(date.getSeconds()).padStart(2, '0');
+  return `${y}${mo}${d}T${h}${mi}${s}`;
+}
+
 export function exportScheduledTasksToIcs(projects: Project[]): number {
   const blockTimes: Record<string, { start: string; end: string }> = {
     morning: { start: '063000', end: '083000' },
@@ -57,14 +68,23 @@ export function exportScheduledTasksToIcs(projects: Project[]): number {
     .forEach((proj) => {
       proj.tasks.forEach((t, idx) => {
         if (t.completed) return;
+        const hasExplicitIsoReminder = Boolean(t.reminderAt && (t.reminderAt.includes('T') || t.reminderAt.includes('-')));
+        const parsedReminder = hasExplicitIsoReminder ? parseReminderDate(t.reminderAt) : null;
         const slot = blockTimes[t.dayBlock ?? 'focus'] || blockTimes.focus;
+        const dtStart = parsedReminder
+          ? formatIcsLocalDateTime(parsedReminder)
+          : `${todayCompact}T${slot.start}`;
+        const dtEnd = parsedReminder
+          ? formatIcsLocalDateTime(new Date(parsedReminder.getTime() + (t.estimatedMinutes || 30) * 60_000))
+          : `${todayCompact}T${slot.end}`;
+
         count++;
         lines.push(
           'BEGIN:VEVENT',
           `UID:nexusflow-${t.id}-${idx}@local`,
           `DTSTAMP:${todayCompact}T060000`,
-          `DTSTART:${todayCompact}T${slot.start}`,
-          `DTEND:${todayCompact}T${slot.end}`,
+          `DTSTART:${dtStart}`,
+          `DTEND:${dtEnd}`,
           `SUMMARY:[${proj.name}] ${t.title}`,
           `DESCRIPTION:Prioritaet: ${t.priority} | Dauer: ${t.estimatedMinutes} Min.`,
           'END:VEVENT'

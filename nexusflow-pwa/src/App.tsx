@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { CheckCircle2, MessageSquare, Scale, Mic, Plus, X, Send } from 'lucide-react';
+import { CheckCircle2, Clock, MessageSquare, Scale, Mic, Plus, X, Send } from 'lucide-react';
 import {
   AiExecutedAction,
   AiLogEntry,
@@ -13,11 +13,14 @@ import {
   KnowledgeKind,
   Project,
   ProjectTabId,
+  ReminderRecurrence,
   SubTaskItem,
   TaskItem,
   THEME
 } from './types';
 import { BRAND_CONFIG } from './config/brandConfig';
+import { DESIGN_TOKENS } from './config/designTokens';
+import { UNDO_TOAST_MS } from './config/runtimeConfig';
 import { INITIAL_APP_SNAPSHOT } from './data/pizzaBanditTsaSeed';
 import {
   DEFAULT_AI_VOICE_SETTINGS,
@@ -56,10 +59,13 @@ import { SingleFocusOverlay } from './core/front/SingleFocusOverlay';
 import { FloatingCartOverlay } from './core/front/FloatingCartOverlay';
 import { DeepResearchAndAuditModal } from './components/DeepResearchAndAuditModal';
 import {
-  checkAndFireDueReminders,
+  computeNextRecurrenceReminder,
+  formatReminderBadge,
   loadCloudConfig,
-  pushStateToCloud
+  pushStateToCloud,
+  toLocalDateTimeInputValue
 } from './services/cloudSyncAndPush';
+import { useReminderEngine } from './hooks/useReminderEngine';
 import {
   inspectAndQueueCriticalTopic,
   loadAuditSettings,
@@ -118,6 +124,11 @@ export default function App() {
   const [singleFocusOpen, setSingleFocusOpen] = useState(false);
   const [singleFocusTaskId, setSingleFocusTaskId] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [externalUndoAction, setExternalUndoAction] = useState<{
+    message: string;
+    undo: () => void;
+  } | null>(null);
+  const externalUndoTimerRef = useRef<number | null>(null);
   const [companionIsListening, setCompanionIsListening] = useState(false);
   const [companionIsProcessing, setCompanionIsProcessing] = useState(false);
   const [companionIsSpeaking, setCompanionIsSpeaking] = useState(false);
@@ -177,6 +188,40 @@ export default function App() {
     setToast(msg);
     window.setTimeout(() => setToast(null), 3200);
   };
+
+  const registerExternalUndo = (action: { message: string; undo: () => void }) => {
+    if (externalUndoTimerRef.current !== null) {
+      window.clearTimeout(externalUndoTimerRef.current);
+    }
+    setExternalUndoAction(action);
+    externalUndoTimerRef.current = window.setTimeout(() => {
+      setExternalUndoAction(null);
+      externalUndoTimerRef.current = null;
+    }, UNDO_TOAST_MS);
+  };
+
+  const handleMarkReminderFired = (projId: string, taskId: string, firedIso: string) => {
+    setState((prev) => ({
+      ...prev,
+      projects: prev.projects.map((p) =>
+        p.id !== projId
+          ? p
+          : {
+              ...p,
+              tasks: p.tasks.map((t) =>
+                t.id === taskId ? { ...t, lastReminderFiredAt: firedIso } : t
+              )
+            }
+      )
+    }));
+  };
+
+  const { activeReminder, dismissActiveReminder } = useReminderEngine({
+    projects: state.projects,
+    enabled: state.remindersEnabled !== false,
+    hydrated,
+    onMarkReminderFired: handleMarkReminderFired
+  });
 
   useEffect(() => {
     const onResize = () => {
@@ -1379,7 +1424,15 @@ export default function App() {
                 notify('Standard-Logo gesetzt.');
               }}
               onConfirmRedDot={handleConfirmRedDot}
-              onAddTask={(projId, title, prio = 'Mittel', mins = 25, assemblyGroup) => {
+              onAddTask={(
+                projId,
+                title,
+                prio = 'Mittel',
+                mins = 25,
+                assemblyGroup,
+                reminderAt,
+                reminderRecurrence
+              ) => {
                 const ts = formatNow();
                 updateProject(projId, (p) => ({
                   ...p,
@@ -1391,7 +1444,8 @@ export default function App() {
                       priority: prio,
                       estimatedMinutes: mins,
                       dayBlock: null,
-                      reminderAt: '',
+                      reminderAt: reminderAt || '',
+                      reminderRecurrence: reminderAt ? reminderRecurrence || 'none' : undefined,
                       aiTouched: false,
                       lastModified: ts,
                       changeReason: 'Manuell angelegt',
@@ -1403,6 +1457,8 @@ export default function App() {
                   ]
                 }));
               }}
+              externalUndoAction={externalUndoAction}
+              onClearExternalUndo={() => setExternalUndoAction(null)}
               onToggleTask={handleToggleTask}
               onAddSubTask={handleAddSubTask}
               onToggleSubTask={handleToggleSubTask}
@@ -1573,6 +1629,11 @@ export default function App() {
               thumbHubPosition={state.thumbHubPosition || 'center'}
               onToggleThumbHub={handleToggleThumbHub}
               onChangeThumbHubPosition={handleChangeThumbHubPosition}
+              remindersEnabled={state.remindersEnabled !== false}
+              onToggleRemindersEnabled={(enabled) => {
+                setState((prev) => ({ ...prev, remindersEnabled: enabled }));
+                notify(enabled ? 'Erinnerungen aktiviert.' : 'Erinnerungen pausiert.');
+              }}
               onNotify={notify}
             />
           )}
@@ -2005,6 +2066,117 @@ export default function App() {
                   </pre>
                 )}
               </div>
+            </div>
+          </div>
+        )}
+
+        {activeReminder && (
+          <div
+            role="alertdialog"
+            aria-label="Aufgaben-Erinnerung"
+            data-testid="in-app-reminder-banner"
+            className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[48] w-[calc(100%-24px)] max-w-[440px] rounded-2xl border p-3.5 shadow-2xl space-y-3 animate-fadeIn backdrop-blur-md"
+            style={{
+              backgroundColor: DESIGN_TOKENS.surface,
+              borderColor: `${DESIGN_TOKENS.accentHoney}66`,
+              boxShadow: '0 12px 36px rgba(0,0,0,0.7), 0 0 20px rgba(229,169,60,0.16)'
+            }}
+          >
+            <div className="flex items-start gap-2.5 min-w-0">
+              <div
+                className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 border"
+                style={{
+                  backgroundColor: `${DESIGN_TOKENS.accentHoney}1A`,
+                  borderColor: `${DESIGN_TOKENS.accentHoney}44`
+                }}
+              >
+                <Clock className="w-4 h-4" style={{ color: DESIGN_TOKENS.accentHoney }} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs font-bold uppercase tracking-wider text-[#E5A93C]">
+                    {activeReminder.projectName}
+                  </span>
+                  <span className="text-xs font-mono text-[#94A3B8]">
+                    ⏰ {formatReminderBadge(activeReminder.task.reminderAt)}
+                  </span>
+                </div>
+                <p className="text-sm font-semibold text-[#F1F5F9] leading-snug break-words mt-0.5">
+                  {activeReminder.task.title}
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  const { projectId, task, firedKey } = activeReminder;
+                  const rec: ReminderRecurrence = task.reminderRecurrence || 'none';
+                  const nowIso = new Date().toISOString();
+                  if (rec === 'daily' || rec === 'weekly') {
+                    const nextAt = computeNextRecurrenceReminder(task.reminderAt, rec);
+                    handleUpdateTask(projectId, task.id, {
+                      reminderAt: nextAt,
+                      lastReminderFiredAt: nowIso
+                    });
+                    notify(`Für heute erledigt – nächste Erinnerung ${formatReminderBadge(nextAt)}`);
+                  } else {
+                    handleUpdateTask(projectId, task.id, {
+                      completed: true,
+                      lastReminderFiredAt: nowIso
+                    });
+                    registerExternalUndo({
+                      message: `„${task.title}“ erledigt`,
+                      undo: () => handleToggleTask(projectId, task.id)
+                    });
+                  }
+                  dismissActiveReminder(firedKey);
+                }}
+                className="min-h-[44px] px-2.5 py-2 rounded-xl text-xs font-bold text-[#111317] active:scale-95 transition cursor-pointer flex items-center justify-center"
+                style={{ backgroundColor: DESIGN_TOKENS.accentHoney }}
+              >
+                Erledigt ✓
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const { projectId, task, firedKey } = activeReminder;
+                  const snoozed = toLocalDateTimeInputValue(new Date(Date.now() + 30 * 60 * 1000));
+                  handleUpdateTask(projectId, task.id, {
+                    reminderAt: snoozed,
+                    lastReminderFiredAt: undefined
+                  });
+                  dismissActiveReminder(firedKey);
+                  notify(`Erinnerung verschoben auf ${formatReminderBadge(snoozed)}.`);
+                }}
+                className="min-h-[44px] px-2.5 py-2 rounded-xl text-xs font-semibold bg-[#111317] hover:bg-[#22262F] text-[#F1F5F9] border border-white/10 active:scale-95 transition cursor-pointer flex items-center justify-center"
+              >
+                +30 Min
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const { projectId, task, firedKey } = activeReminder;
+                  const rec: ReminderRecurrence = task.reminderRecurrence || 'none';
+                  const nowIso = new Date().toISOString();
+                  if (rec === 'daily' || rec === 'weekly') {
+                    const nextAt = computeNextRecurrenceReminder(task.reminderAt, rec);
+                    handleUpdateTask(projectId, task.id, {
+                      reminderAt: nextAt,
+                      lastReminderFiredAt: nowIso
+                    });
+                  } else {
+                    handleUpdateTask(projectId, task.id, {
+                      lastReminderFiredAt: nowIso
+                    });
+                  }
+                  dismissActiveReminder(firedKey);
+                }}
+                className="min-h-[44px] px-2.5 py-2 rounded-xl text-xs font-semibold bg-[#111317] hover:bg-[#22262F] text-[#94A3B8] hover:text-[#F1F5F9] border border-white/10 active:scale-95 transition cursor-pointer flex items-center justify-center"
+              >
+                OK
+              </button>
             </div>
           </div>
         )}

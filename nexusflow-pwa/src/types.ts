@@ -1,6 +1,7 @@
 export type DomainType = 'business' | 'private';
 export type PriorityType = 'Hoch' | 'Mittel' | 'Niedrig';
 export type DayBlockId = 'morning' | 'focus' | 'errands' | 'evening' | null;
+export type ReminderRecurrence = 'none' | 'daily' | 'weekly';
 export type ProjectTabId = 'tasks' | 'cart' | 'knowledge' | 'extras' | 'receipt' | 'research';
 export type BackofficeTabId = 'analytics' | 'planner' | 'addons' | 'system';
 export type AmbientLightMode = 'off' | 'static' | 'shimmer';
@@ -65,6 +66,8 @@ export interface TaskItem {
   estimatedMinutes: number;
   dayBlock: DayBlockId;
   reminderAt: string;
+  reminderRecurrence?: ReminderRecurrence;
+  lastReminderFiredAt?: string;
   aiTouched: boolean;
   lastModified: string;
   changeReason: string;
@@ -246,6 +249,7 @@ export interface AppStateSnapshot {
   thumbHubEnabled?: boolean;
   thumbHubPosition?: 'left' | 'center' | 'right';
   ambientLightMode?: AmbientLightMode;
+  remindersEnabled?: boolean;
   aiVoiceSettings?: AiVoiceSettings;
 }
 

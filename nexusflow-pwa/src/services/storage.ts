@@ -19,6 +19,7 @@ import {
   CartItem,
   PriorityType,
   DayBlockId,
+  ReminderRecurrence,
   KnowledgeKind,
   VoiceProvider
 } from '../types';
@@ -261,6 +262,13 @@ function migrateProjectInternal(rawProject: any): { project: Project; migrated: 
       estimatedMinutes: Number(t?.estimatedMinutes) || 15,
       dayBlock: (t?.dayBlock as DayBlockId) || null,
       reminderAt: String(t?.reminderAt || ''),
+      reminderRecurrence:
+        t?.reminderRecurrence === 'daily' ||
+        t?.reminderRecurrence === 'weekly' ||
+        t?.reminderRecurrence === 'none'
+          ? (t.reminderRecurrence as ReminderRecurrence)
+          : undefined,
+      lastReminderFiredAt: t?.lastReminderFiredAt ? String(t.lastReminderFiredAt) : undefined,
       aiTouched: Boolean(t?.aiTouched),
       lastModified: t?.lastModified || formatNow(),
       changeReason: t?.changeReason || '',
@@ -379,6 +387,8 @@ export function migrateAppState(raw: unknown): { state: AppStateSnapshot; migrat
     userApiKey: typeof src.userApiKey === 'string' ? src.userApiKey : '',
     realityCheckEnabled:
       typeof src.realityCheckEnabled === 'boolean' ? src.realityCheckEnabled : true,
+    remindersEnabled:
+      typeof src.remindersEnabled === 'boolean' ? src.remindersEnabled : true,
     haWebhookUrl: typeof src.haWebhookUrl === 'string' ? src.haWebhookUrl : '',
     haEmbedUrl: typeof src.haEmbedUrl === 'string' ? src.haEmbedUrl : ''
   };
@@ -547,7 +557,8 @@ export async function loadPersistedState(
         ...migratedStored,
         schemaVersion: 2,
         thumbHubEnabled: typeof (stored as any).thumbHubEnabled === 'boolean' ? (stored as any).thumbHubEnabled : true,
-        thumbHubPosition: (stored as any).thumbHubPosition || 'center'
+        thumbHubPosition: (stored as any).thumbHubPosition || 'center',
+        remindersEnabled: typeof (stored as any).remindersEnabled === 'boolean' ? (stored as any).remindersEnabled : true
       };
       if (migrated || (stored as any).schemaVersion !== 2) {
         await savePersistedState(finalState);
@@ -566,7 +577,8 @@ export async function loadPersistedState(
             ...migratedParsed,
             schemaVersion: 2,
             thumbHubEnabled: typeof (parsed as any).thumbHubEnabled === 'boolean' ? (parsed as any).thumbHubEnabled : true,
-            thumbHubPosition: (parsed as any).thumbHubPosition || 'center'
+            thumbHubPosition: (parsed as any).thumbHubPosition || 'center',
+            remindersEnabled: typeof (parsed as any).remindersEnabled === 'boolean' ? (parsed as any).remindersEnabled : true
           };
           if (migrated || (parsed as any).schemaVersion !== 2) {
             await savePersistedState(finalState);
@@ -584,7 +596,8 @@ export async function loadPersistedState(
     ...migratedSeed,
     schemaVersion: 2,
     thumbHubEnabled: true,
-    thumbHubPosition: 'center'
+    thumbHubPosition: 'center',
+    remindersEnabled: true
   };
 }
 
@@ -1011,6 +1024,7 @@ export async function importFullBackupV2(
     thumbHubEnabled: typeof migratedAppState.thumbHubEnabled === 'boolean' ? migratedAppState.thumbHubEnabled : currentSnapshot.thumbHubEnabled,
     thumbHubPosition: migratedAppState.thumbHubPosition || currentSnapshot.thumbHubPosition,
     ambientLightMode: migratedAppState.ambientLightMode || currentSnapshot.ambientLightMode,
+    remindersEnabled: typeof migratedAppState.remindersEnabled === 'boolean' ? migratedAppState.remindersEnabled : currentSnapshot.remindersEnabled,
     aiVoiceSettings: migratedAppState.aiVoiceSettings || currentSnapshot.aiVoiceSettings,
   };
 

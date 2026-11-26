@@ -127,6 +127,8 @@ interface BackofficeWorkspaceProps {
   onResetProjectLogo?: (projectId: string) => void;
   thumbHubEnabled?: boolean;
   thumbHubPosition?: 'left' | 'center' | 'right';
+  remindersEnabled?: boolean;
+  onToggleRemindersEnabled?: (enabled: boolean) => void;
   onToggleThumbHub?: (enabled: boolean) => void;
   onChangeThumbHubPosition?: (pos: 'left' | 'center' | 'right') => void;
   ambientLightMode?: AmbientLightMode;
@@ -174,6 +176,8 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
   onResetProjectLogo,
   thumbHubEnabled = true,
   thumbHubPosition = 'center',
+  remindersEnabled = true,
+  onToggleRemindersEnabled,
   onToggleThumbHub,
   onChangeThumbHubPosition,
   ambientLightMode: ambientLightModeProp = 'shimmer',
@@ -1741,35 +1745,60 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
                 )}
               </div>
 
-              {/* Native Push-Erinnerungen */}
-              <div className="p-3.5 rounded-2xl bg-[#242930] border border-white/5 flex items-center justify-between gap-3">
-                <div className="min-w-0 flex-1">
-                  <div className="text-xs font-bold text-white flex items-center gap-2">
-                    <Bell className="w-4 h-4 text-[#14B8A6]" />
-                    <span>Native Smartphone Push-Erinnerungen</span>
+              {/* Native Push-Erinnerungen & In-App Engine */}
+              <div className="p-3.5 rounded-2xl bg-[#242930] border border-white/5 space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-xs font-bold text-white flex items-center gap-2">
+                      <Bell className="w-4 h-4 text-[#E5A93C]" />
+                      <span>Proaktive Erinnerungen (Banner &amp; Desktop)</span>
+                    </div>
+                    <div className="text-xs text-[#94A3B8]">
+                      Status:{' '}
+                      {typeof Notification !== 'undefined'
+                        ? Notification.permission === 'granted'
+                          ? 'Desktop-Push erlaubt (granted)'
+                          : Notification.permission === 'denied'
+                          ? 'Desktop-Push blockiert (denied) – In-App-Banner aktiv'
+                          : 'Browser-Freigabe noch offen (default) – In-App-Banner aktiv'
+                        : 'Nur In-App-Banner'}
+                    </div>
                   </div>
-                  <div className="text-xs text-[#94A3B8]">
-                    Meldet fällige Aufgaben-Zeiten direkt auf dem Sperrbildschirm
+                  <div className="flex items-center gap-2 shrink-0">
+                    {onToggleRemindersEnabled && (
+                      <button
+                        type="button"
+                        data-testid="toggle-reminders-enabled"
+                        onClick={() => onToggleRemindersEnabled(!remindersEnabled)}
+                        className="min-h-[44px] px-3.5 py-1.5 rounded-xl text-xs font-bold shrink-0 active:scale-95 transition cursor-pointer"
+                        style={{
+                          backgroundColor: remindersEnabled ? '#E5A93C' : '#374151',
+                          color: remindersEnabled ? '#111317' : '#F1F5F9'
+                        }}
+                      >
+                        {remindersEnabled ? 'Erinnerungen An' : 'Erinnerungen Aus'}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const ok = await requestPushNotificationPermission();
+                        setPushGranted(ok);
+                        onNotify(
+                          ok
+                            ? 'Push-Benachrichtigungen sind aktiviert!'
+                            : 'Bitte Benachrichtigungen in den Browser-Einstellungen erlauben.'
+                        );
+                      }}
+                      className="min-h-[44px] px-3.5 py-1.5 rounded-xl text-xs font-bold text-white shrink-0 active:scale-95 transition cursor-pointer"
+                      style={{
+                        backgroundColor: pushGranted ? THEME.accentPrimary : '#374151'
+                      }}
+                    >
+                      {pushGranted ? 'Push Aktiv' : 'Freigeben'}
+                    </button>
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    const ok = await requestPushNotificationPermission();
-                    setPushGranted(ok);
-                    onNotify(
-                      ok
-                        ? 'Push-Benachrichtigungen sind aktiviert!'
-                        : 'Bitte Benachrichtigungen in den Browser-Einstellungen erlauben.'
-                    );
-                  }}
-                  className="min-h-[44px] px-3.5 py-1.5 rounded-xl text-xs font-bold text-white shrink-0 active:scale-95 transition cursor-pointer"
-                  style={{
-                    backgroundColor: pushGranted ? THEME.accentPrimary : '#374151'
-                  }}
-                >
-                  {pushGranted ? 'Aktiv' : 'Freigeben'}
-                </button>
               </div>
             </div>
 
