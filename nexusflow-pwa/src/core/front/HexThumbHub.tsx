@@ -1,10 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Eye, LayoutGrid, Loader2, Mic, Scale, Send, Settings, ShoppingCart, Volume2, X } from 'lucide-react';
-import { Project, ProjectTabId } from '../../types';
+import { CartOpenMode, Project, ProjectTabId } from '../../types';
 import { unlockAudioPlayback } from '../../services/azureSpeech';
+import { triggerHapticFeedback } from '../../services/storage';
 
 export interface HexThumbHubProps {
   position?: 'left' | 'center' | 'right';
+  organicMotion?: boolean;
+  cartOpenMode?: CartOpenMode;
   activeProject?: Project;
   domainProjects: Project[];
   allProjects?: Project[];
@@ -36,6 +39,8 @@ export interface HexThumbHubProps {
 
 export const HexThumbHub: React.FC<HexThumbHubProps> = ({
   position = 'center',
+  organicMotion = true,
+  cartOpenMode = 'floating',
   activeProject,
   domainProjects,
   allProjects = [],
@@ -130,11 +135,7 @@ export const HexThumbHub: React.FC<HexThumbHubProps> = ({
     holdTimerRef.current = setTimeout(() => {
       didTriggerGestureRef.current = true;
       clearHoldState();
-      try {
-        navigator.vibrate?.(20);
-      } catch {
-        // ignore
-      }
+      triggerHapticFeedback(20);
       setIsFanOpen(true);
     }, 320);
   };
@@ -145,11 +146,7 @@ export const HexThumbHub: React.FC<HexThumbHubProps> = ({
     if (deltaY > 30) {
       didTriggerGestureRef.current = true;
       clearHoldState();
-      try {
-        navigator.vibrate?.(20);
-      } catch {
-        // ignore
-      }
+      triggerHapticFeedback(20);
       setIsFanOpen(true);
     }
   };
@@ -164,22 +161,16 @@ export const HexThumbHub: React.FC<HexThumbHubProps> = ({
         setIsFanOpen(false);
       } else if (isCompanionActive) {
         // Stufe 1 schließen per erneutem Tipp
-        try {
-          navigator.vibrate?.(15);
-        } catch {
-          // ignore
-        }
+        triggerHapticFeedback(15);
         onCloseCompanion?.();
       } else {
         // Stufe 0 → Stufe 1: Synchroner Audio-Unlock + Pulsringe + Öffnen beim Loslassen
         unlockAudioPlayback();
-        try {
-          navigator.vibrate?.(15);
-        } catch {
-          // ignore
+        triggerHapticFeedback(15);
+        if (organicMotion) {
+          setPulseRings([Date.now(), Date.now() + 90]);
+          setTimeout(() => setPulseRings([]), 500);
         }
-        setPulseRings([Date.now(), Date.now() + 90]);
-        setTimeout(() => setPulseRings([]), 500);
         onOpenVoice(1);
       }
     }
@@ -361,22 +352,28 @@ export const HexThumbHub: React.FC<HexThumbHubProps> = ({
                   <span>1-Fokus</span>
                 </button>
 
-                {/* Neuer Schnell-Einstieg: Einkauf (Schwebend) */}
+                {/* Neuer Schnell-Einstieg: Einkauf (Schwebend oder Vollbild-Tab je nach Einstellung) */}
                 <button
                   type="button"
                   onClick={() => {
                     setIsFanOpen(false);
-                    if (onOpenFloatingCart) {
+                    if (cartOpenMode !== 'tab' && onOpenFloatingCart) {
                       onOpenFloatingCart();
                     } else {
                       onChangeTab('cart');
                     }
                   }}
                   className="min-h-[44px] px-3 py-2 rounded-xl text-xs font-semibold bg-[#111317] hover:bg-[#22262F] text-[#F1F5F9] border border-white/5 flex items-center justify-center gap-1.5 active:scale-95 transition cursor-pointer"
-                  title="Einkaufswagen schwebend öffnen"
+                  title={
+                    cartOpenMode === 'tab'
+                      ? 'Einkaufswagen als Tab öffnen'
+                      : 'Einkaufswagen schwebend öffnen'
+                  }
                 >
                   <ShoppingCart className="w-4 h-4 text-[#14B8A6] shrink-0" />
-                  <span className="truncate">Einkauf (Schwebend)</span>
+                  <span className="truncate">
+                    {cartOpenMode === 'tab' ? 'Einkauf (Tab)' : 'Einkauf (Schwebend)'}
+                  </span>
                 </button>
 
                 {/* Vorschriften-Wächter (⚖️) – NUR sichtbar wenn legalWatchEnabled aktiv ist */}
@@ -459,7 +456,9 @@ export const HexThumbHub: React.FC<HexThumbHubProps> = ({
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
           onPointerCancel={handlePointerCancel}
-          className={`w-[72px] h-[72px] min-w-[72px] min-h-[72px] rounded-2xl flex items-center justify-center relative cursor-pointer select-none touch-none transition-all duration-300 hex-companion-breathing ${isPressed ? 'scale-[0.94] drop-shadow-[0_0_14px_rgba(229,169,60,0.45)]' : 'active:scale-95'
+          className={`w-[72px] h-[72px] min-w-[72px] min-h-[72px] rounded-2xl flex items-center justify-center relative cursor-pointer select-none touch-none transition-all duration-300 ${
+            organicMotion ? 'hex-companion-breathing ' : ''
+          }${isPressed ? 'scale-[0.94] drop-shadow-[0_0_14px_rgba(229,169,60,0.45)]' : 'active:scale-95'
             }`}
           style={
             {
@@ -485,14 +484,17 @@ export const HexThumbHub: React.FC<HexThumbHubProps> = ({
             width="72"
             height="72"
             viewBox="0 0 72 72"
-            className={`absolute inset-0 w-full h-full pointer-events-none ${isCompanionActive && companionIsListening
-              ? 'hex-active-listening'
-              : isCompanionActive && companionIsProcessing
-                ? 'hex-active-thinking'
-                : isCompanionActive && companionIsSpeaking
-                  ? 'hex-active-speaking'
-                  : ''
-              }`}
+            className={`absolute inset-0 w-full h-full pointer-events-none ${
+              !organicMotion
+                ? ''
+                : isCompanionActive && companionIsListening
+                  ? 'hex-active-listening'
+                  : isCompanionActive && companionIsProcessing
+                    ? 'hex-active-thinking'
+                    : isCompanionActive && companionIsSpeaking
+                      ? 'hex-active-speaking'
+                      : ''
+            }`}
           >
             {/* Äußerer Rand in Projektfarbe */}
             <path

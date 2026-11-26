@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import {
   Attachment,
+  BanditUserPreferences,
   CartItem,
   CustomMeta,
   DomainType,
@@ -23,12 +24,11 @@ import { BRAND_CONFIG } from '../config/brandConfig';
 import { StepByStepAudioGuide } from '../components/StepByStepAudioGuide';
 import { PLUGIN_REGISTRY } from '../plugins/registry';
 import {
-  BanditUserPreferences,
+  loadAmbientLightMode,
   loadUserPrefs,
   saveUserPrefs,
   triggerHapticFeedback
-} from '../services/aiRouter';
-import { loadAmbientLightMode } from '../services/storage';
+} from '../services/storage';
 import { UNDO_TOAST_MS } from '../config/runtimeConfig';
 import { ZentraleSectionId } from './BackofficeWorkspace';
 import {
@@ -133,6 +133,9 @@ interface FrontWorkspaceProps {
   onOpenAddonsBackoffice: (section?: ZentraleSectionId) => void;
   onOpenFloatingCart?: () => void;
   isFloatingCartOpen?: boolean;
+  prefs?: BanditUserPreferences;
+  onUpdatePrefs?: (patch: Partial<BanditUserPreferences>) => void;
+  forceSingleViewSeq?: number;
   onNotify: (msg: string) => void;
 }
 
@@ -183,12 +186,16 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
   onOpenAddonsBackoffice,
   onOpenFloatingCart,
   isFloatingCartOpen = false,
+  prefs: prefsProp,
+  onUpdatePrefs: onUpdatePrefsProp,
+  forceSingleViewSeq = 0,
   ambientLightMode = 'shimmer',
   onSaveDossierToProject,
   onReconcileReceiptWithCart,
   onNotify
 }) => {
-  const [prefs, setPrefs] = useState<BanditUserPreferences>(loadUserPrefs);
+  const [localPrefs, setLocalPrefs] = useState<BanditUserPreferences>(loadUserPrefs);
+  const prefs = prefsProp || localPrefs;
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [activeAudioGuideExp, setActiveAudioGuideExp] = useState<any | null>(null);
   const [viewAllSections, setViewAllSections] = useState(true);
@@ -269,9 +276,13 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
   };
 
   const updatePrefs = (patch: Partial<BanditUserPreferences>) => {
+    if (onUpdatePrefsProp) {
+      onUpdatePrefsProp(patch);
+      return;
+    }
     const next = { ...prefs, ...patch };
-    setPrefs(next);
-    saveUserPrefs(next);
+    setLocalPrefs(next);
+    void saveUserPrefs(next);
   };
 
   const themeColors = useMemo(() => {
@@ -329,6 +340,12 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
       onChangeTab(getFirstActiveTab(activeProject));
     }
   }, [activeProject, viewAllSections, onChangeTab]);
+
+  useEffect(() => {
+    if (forceSingleViewSeq > 0) {
+      setViewAllSections(false);
+    }
+  }, [forceSingleViewSeq]);
 
   const selectProjectAndSection = (proj: Project, tab: ProjectTabId | 'ALL') => {
     if (proj.domain !== activeDomain) onSwitchDomain(proj.domain);
@@ -545,6 +562,7 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
         activeProject={activeProject}
         viewAllSections={viewAllSections}
         activeTab={activeTab}
+        cartOpenMode={prefs.cartOpenMode || 'floating'}
         onSelectProjectAndSection={selectProjectAndSection}
         onClose={() => setDrawerOpen(false)}
         onOpenNewProjectModal={onOpenNewProjectModal}
@@ -646,7 +664,7 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
               onConfirmRedDot={onConfirmRedDot}
               onMoveKnowledge={onMoveKnowledge}
               onSetActiveAudioGuideExp={setActiveAudioGuideExp}
-              onOpenSettings={() => onOpenAddonsBackoffice('projects')}
+              onOpenSettings={() => onOpenAddonsBackoffice('ai')}
               onAskAi={(prompt) => {
                 navigator.clipboard?.writeText(prompt);
                 onNotify('In Zwischenablage kopiert & Deep Research geöffnet.');

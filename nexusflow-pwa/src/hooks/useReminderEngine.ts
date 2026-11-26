@@ -17,6 +17,7 @@ export interface DueReminderItem {
 interface UseReminderEngineOptions {
   projects: Project[];
   enabled: boolean;
+  systemPushEnabled?: boolean;
   hydrated: boolean;
   onMarkReminderFired: (projectId: string, taskId: string, firedIso: string) => void;
 }
@@ -24,6 +25,7 @@ interface UseReminderEngineOptions {
 export function useReminderEngine({
   projects,
   enabled,
+  systemPushEnabled = true,
   hydrated,
   onMarkReminderFired
 }: UseReminderEngineOptions) {
@@ -33,6 +35,9 @@ export function useReminderEngine({
 
   const onMarkFiredRef = useRef(onMarkReminderFired);
   onMarkFiredRef.current = onMarkReminderFired;
+
+  const systemPushEnabledRef = useRef(systemPushEnabled);
+  systemPushEnabledRef.current = systemPushEnabled;
 
   const notifiedKeysRef = useRef<Set<string>>(new Set());
 
@@ -57,7 +62,9 @@ export function useReminderEngine({
         notifiedKeysRef.current.add(firedKey);
         const firedIso = now.toISOString();
         onMarkFiredRef.current(proj.id, task.id, firedIso);
-        void triggerDesktopReminderNotification(proj.name, task.title);
+        if (systemPushEnabledRef.current) {
+          void triggerDesktopReminderNotification(proj.name, task.title);
+        }
 
         newItems.push({
           projectId: proj.id,

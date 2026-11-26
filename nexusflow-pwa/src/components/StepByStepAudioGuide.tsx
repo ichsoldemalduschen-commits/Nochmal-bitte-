@@ -9,7 +9,8 @@ import {
   X
 } from 'lucide-react';
 import { KnowledgeItem, THEME } from '../types';
-import { speakText, stopSpeaking, triggerHapticFeedback } from '../services/aiRouter';
+import { speakText, stopSpeaking } from '../services/aiRouter';
+import { triggerHapticFeedback } from '../services/storage';
 
 interface StepByStepAudioGuideProps {
   item?: KnowledgeItem | null;

@@ -9,6 +9,30 @@ export type VoiceProvider = 'azure-gisela' | 'browser';
 export type PreferredModelMode = 'SMART_PRO' | 'ALWAYS_PRO' | 'ALWAYS_FLASH' | string;
 export type QuickAiMode = 'flash' | 'research';
 export type VoiceInteractionMode = 'quick' | 'collect' | 'dialog';
+export type UiDensityMode = 'compact' | 'standard' | 'large';
+export type CartOpenMode = 'floating' | 'tab';
+
+export interface BanditUserPreferences {
+  // Schaltbare ADHS-Unterstützung
+  adhdMasterEnabled: boolean;
+  adhdFocusAnchor: boolean;
+  adhdSingleTaskMode: boolean;
+  adhdTwoMinuteStarter: boolean;
+  adhdTimeBufferAndHaptics: boolean;
+  // Personalisierung & Zentrale v2 Toggles
+  uiDensity: UiDensityMode;
+  aiTone: 'short' | 'partner' | 'coach';
+  organicMotion: boolean;
+  hapticsEnabled?: boolean;
+  cartOpenMode?: CartOpenMode;
+  flipCoverAutoDetect?: boolean;
+  reminderSystemPushEnabled?: boolean;
+  smartHomeEnabled?: boolean;
+  quickCommands: string[];
+  activeFocusTaskId: string | null;
+  activeFocusTaskTitle: string | null;
+  activeFocusProjectId: string | null;
+}
 
 export interface AiVoiceSettings {
   ttsEnabled: boolean;

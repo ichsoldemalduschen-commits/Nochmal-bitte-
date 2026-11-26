@@ -5,6 +5,7 @@ import {
   AmbientLightMode,
   AppStateSnapshot,
   Attachment,
+  BanditUserPreferences,
   DomainType,
   KnowledgeItem,
   Project,
@@ -844,6 +845,131 @@ export function saveAmbientLightMode(mode: AmbientLightMode): void {
   saveIdbItem(STORAGE_KEYS.AMBIENT_LIGHT_MODE, mode);
 }
 
+export const DEFAULT_USER_PREFS: BanditUserPreferences = {
+  adhdMasterEnabled: true,
+  adhdFocusAnchor: true,
+  adhdSingleTaskMode: true,
+  adhdTwoMinuteStarter: true,
+  adhdTimeBufferAndHaptics: true,
+  uiDensity: 'standard',
+  aiTone: 'partner',
+  organicMotion: true,
+  hapticsEnabled: true,
+  cartOpenMode: 'floating',
+  flipCoverAutoDetect: true,
+  reminderSystemPushEnabled: true,
+  smartHomeEnabled: false,
+  quickCommands: [
+    'Gib mir ein kurzes 3-Punkte-Briefing für dieses Projekt',
+    'Welche Materialien fehlen noch im Einkaufswagen?',
+    'Brich mir die nächste große Aufgabe in 2-Minuten-Schritte herunter'
+  ],
+  activeFocusTaskId: null,
+  activeFocusTaskTitle: null,
+  activeFocusProjectId: null
+};
+
+export function normalizeUserPrefs(
+  raw?: Partial<BanditUserPreferences> | null
+): BanditUserPreferences {
+  const src = raw && typeof raw === 'object' ? raw : {};
+  const uiDensity: BanditUserPreferences['uiDensity'] =
+    src.uiDensity === 'compact' || src.uiDensity === 'large' ? src.uiDensity : 'standard';
+  const aiTone: BanditUserPreferences['aiTone'] =
+    src.aiTone === 'short' || src.aiTone === 'coach' ? src.aiTone : 'partner';
+
+  return {
+    ...DEFAULT_USER_PREFS,
+    ...src,
+    adhdMasterEnabled:
+      typeof src.adhdMasterEnabled === 'boolean'
+        ? src.adhdMasterEnabled
+        : DEFAULT_USER_PREFS.adhdMasterEnabled,
+    adhdFocusAnchor:
+      typeof src.adhdFocusAnchor === 'boolean'
+        ? src.adhdFocusAnchor
+        : DEFAULT_USER_PREFS.adhdFocusAnchor,
+    adhdSingleTaskMode:
+      typeof src.adhdSingleTaskMode === 'boolean'
+        ? src.adhdSingleTaskMode
+        : DEFAULT_USER_PREFS.adhdSingleTaskMode,
+    adhdTwoMinuteStarter:
+      typeof src.adhdTwoMinuteStarter === 'boolean'
+        ? src.adhdTwoMinuteStarter
+        : DEFAULT_USER_PREFS.adhdTwoMinuteStarter,
+    adhdTimeBufferAndHaptics:
+      typeof src.adhdTimeBufferAndHaptics === 'boolean'
+        ? src.adhdTimeBufferAndHaptics
+        : DEFAULT_USER_PREFS.adhdTimeBufferAndHaptics,
+    uiDensity,
+    aiTone,
+    organicMotion:
+      typeof src.organicMotion === 'boolean' ? src.organicMotion : DEFAULT_USER_PREFS.organicMotion,
+    hapticsEnabled:
+      typeof src.hapticsEnabled === 'boolean'
+        ? src.hapticsEnabled
+        : DEFAULT_USER_PREFS.hapticsEnabled,
+    cartOpenMode: src.cartOpenMode === 'tab' ? 'tab' : 'floating',
+    flipCoverAutoDetect:
+      typeof src.flipCoverAutoDetect === 'boolean'
+        ? src.flipCoverAutoDetect
+        : DEFAULT_USER_PREFS.flipCoverAutoDetect,
+    reminderSystemPushEnabled:
+      typeof src.reminderSystemPushEnabled === 'boolean'
+        ? src.reminderSystemPushEnabled
+        : DEFAULT_USER_PREFS.reminderSystemPushEnabled,
+    smartHomeEnabled:
+      typeof src.smartHomeEnabled === 'boolean'
+        ? src.smartHomeEnabled
+        : DEFAULT_USER_PREFS.smartHomeEnabled,
+    quickCommands: Array.isArray(src.quickCommands)
+      ? src.quickCommands
+      : DEFAULT_USER_PREFS.quickCommands,
+    activeFocusTaskId:
+      typeof src.activeFocusTaskId === 'string' ? src.activeFocusTaskId : null,
+    activeFocusTaskTitle:
+      typeof src.activeFocusTaskTitle === 'string' ? src.activeFocusTaskTitle : null,
+    activeFocusProjectId:
+      typeof src.activeFocusProjectId === 'string' ? src.activeFocusProjectId : null
+  };
+}
+
+export function loadUserPrefs(): BanditUserPreferences {
+  const raw = getIdbItemSync<Partial<BanditUserPreferences>>(
+    STORAGE_KEYS.USER_PREFS,
+    DEFAULT_USER_PREFS
+  );
+  return normalizeUserPrefs(raw);
+}
+
+export async function loadUserPrefsAsync(): Promise<BanditUserPreferences> {
+  const raw = await loadIdbItem<Partial<BanditUserPreferences>>(
+    STORAGE_KEYS.USER_PREFS,
+    DEFAULT_USER_PREFS
+  );
+  return normalizeUserPrefs(raw);
+}
+
+export async function saveUserPrefs(prefs: BanditUserPreferences): Promise<void> {
+  const normalized = normalizeUserPrefs(prefs);
+  await saveIdbItem(STORAGE_KEYS.USER_PREFS, normalized);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('banditos:prefs-updated', { detail: normalized }));
+  }
+}
+
+export function triggerHapticFeedback(pattern: number | number[] = 14): void {
+  const prefs = loadUserPrefs();
+  if (prefs.hapticsEnabled === false) return;
+  try {
+    if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+      navigator.vibrate(pattern);
+    }
+  } catch {
+    // ignore
+  }
+}
+
 export interface SavedScannedReceipt {
   id: string;
   projectId: string;
@@ -995,7 +1121,7 @@ export async function saveDoughCalcDefaults(defaults: DoughCalcDefaults): Promis
 
 export async function downloadFullBackupV2(snapshot: AppStateSnapshot): Promise<FullBackupV2> {
   const [
-    userPrefs,
+    rawUserPrefs,
     blueprints,
     photoPins,
     aiChat,
@@ -1005,7 +1131,7 @@ export async function downloadFullBackupV2(snapshot: AppStateSnapshot): Promise<
     posSlots,
     doughCalcDefaults
   ] = await Promise.all([
-    loadIdbItem<any>(STORAGE_KEYS.USER_PREFS, {}),
+    loadIdbItem<Partial<BanditUserPreferences>>(STORAGE_KEYS.USER_PREFS, DEFAULT_USER_PREFS),
     loadIdbItem<any>(STORAGE_KEYS.BLUEPRINTS, []),
     loadIdbItem<any>(STORAGE_KEYS.PHOTO_PINS, {}),
     loadIdbItem<any>(STORAGE_KEYS.AI_CHAT, []),
@@ -1015,6 +1141,8 @@ export async function downloadFullBackupV2(snapshot: AppStateSnapshot): Promise<
     loadIdbItem<PosPizzaSlot[]>(POS_SLOTS_KEY, []),
     loadIdbItem<DoughCalcDefaults>(DOUGH_CALC_DEFAULTS_KEY, DEFAULT_DOUGH_CALC_DEFAULTS),
   ]);
+
+  const userPrefs = normalizeUserPrefs(rawUserPrefs);
 
   const backup: FullBackupV2 = {
     backupVersion: 2,
@@ -1089,7 +1217,9 @@ export async function importFullBackupV2(
   if (isV2) {
     const saves: Promise<void>[] = [];
     if (resolvedVoiceSettings) saves.push(saveAiVoiceSettings(resolvedVoiceSettings));
-    if (raw.userPrefs) saves.push(saveIdbItem(STORAGE_KEYS.USER_PREFS, raw.userPrefs));
+    if (raw.userPrefs && typeof raw.userPrefs === 'object') {
+      saves.push(saveUserPrefs(normalizeUserPrefs(raw.userPrefs)));
+    }
     if (raw.blueprints) saves.push(saveIdbItem(STORAGE_KEYS.BLUEPRINTS, raw.blueprints));
     if (raw.photoPins) saves.push(saveIdbItem(STORAGE_KEYS.PHOTO_PINS, raw.photoPins));
     if (raw.aiChat) saves.push(saveIdbItem(STORAGE_KEYS.AI_CHAT, raw.aiChat));
