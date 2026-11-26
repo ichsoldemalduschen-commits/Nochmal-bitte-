@@ -1,7 +1,7 @@
-export type DomainType = 'business' | 'private' | 'arbeit' | 'privat';
+export type DomainType = 'business' | 'private';
 export type PriorityType = 'Hoch' | 'Mittel' | 'Niedrig';
 export type DayBlockId = 'morning' | 'focus' | 'errands' | 'evening' | null;
-export type ProjectTabId = 'tasks' | 'cart' | 'knowledge' | 'extras' | 'explanations' | 'infos' | 'receipt' | 'research';
+export type ProjectTabId = 'tasks' | 'cart' | 'knowledge' | 'extras' | 'receipt' | 'research';
 export type BackofficeTabId = 'analytics' | 'planner' | 'addons' | 'system';
 export type AmbientLightMode = 'off' | 'static' | 'shimmer';
 export type VoiceProvider = 'azure-gisela' | 'browser';
@@ -41,7 +41,6 @@ export interface Attachment {
   size: string;
   dataUrl: string | null;
   textContent?: string | null;
-  summaryText?: string | null;
 }
 
 export interface ProcurementCheckData {
@@ -63,29 +62,6 @@ export interface TaskItem {
   changeReason: string;
   source: string;
   assemblyGroup?: string;
-  customMeta: CustomMeta;
-}
-
-export interface ExplanationItem {
-  id: string;
-  title: string;
-  stepsText: string;
-  lastModified: string;
-  changeReason: string;
-  source: string;
-  aiTouched: boolean;
-  customMeta: CustomMeta;
-}
-
-export interface InfoItem {
-  id: string;
-  title: string;
-  content: string;
-  attachments: Attachment[];
-  lastModified: string;
-  changeReason: string;
-  source: string;
-  aiTouched: boolean;
   customMeta: CustomMeta;
 }
 
@@ -111,6 +87,7 @@ export interface CartItem {
   quantity: string;
   price: string;
   completed: boolean;
+  boughtAt?: string;
   aiTouched: boolean;
   lastModified: string;
   changeReason: string;
@@ -120,7 +97,7 @@ export interface CartItem {
 }
 
 export type LifecycleType = 'permanent' | 'project';
-export type BusinessDomain = 'business' | 'private';
+export type BusinessDomain = DomainType;
 
 export interface Project {
   id: string;
@@ -144,9 +121,7 @@ export interface Project {
   enabledPlugins: string[];
   enabledTabs?: ('tasks' | 'cart' | 'knowledge' | 'extras')[];
   tasks: TaskItem[];
-  knowledge?: KnowledgeItem[];
-  explanations: ExplanationItem[];
-  infos: InfoItem[];
+  knowledge: KnowledgeItem[];
   cart: CartItem[];
 }
 
@@ -250,6 +225,7 @@ export interface DoughCalcDefaults {
 }
 
 export interface AppStateSnapshot {
+  schemaVersion?: number;
   projects: Project[];
   aiLogs: AiLogEntry[];
   selfChecks: SelfCheckEntry[];
@@ -278,7 +254,7 @@ export interface PluginDefinition {
   name: string;
   shortLabel: string;
   description: string;
-  recommendedDomains: DomainType[];
+  recommendedDomains: Array<DomainType | 'arbeit' | 'privat'>;
   metaKeysUsed: string[];
   render: (ctx: PluginContextProps) => JSX.Element;
 }

@@ -18,6 +18,7 @@ const createBlueprintSvg = (title: string, subtitle: string): string => {
 };
 
 export const INITIAL_APP_SNAPSHOT: AppStateSnapshot = {
+  schemaVersion: 2,
   userApiKey: '',
   realityCheckEnabled: true,
   haWebhookUrl: 'http://homeassistant.local:8123/api/webhook/nexusflow_tsa_shelly',
@@ -25,7 +26,7 @@ export const INITIAL_APP_SNAPSHOT: AppStateSnapshot = {
   projects: [
     {
       id: 'proj-foodtruck',
-      domain: 'arbeit',
+      domain: 'business',
       name: 'Pizza Bandit (TSA & Foodtruck)',
       subtitle: 'Feuerwehranhänger-Ausbau (6 Baugruppen), 450 °C Kuppelofen & Live-Streetfood',
       icon: 'RaccoonBandit',
@@ -42,7 +43,7 @@ export const INITIAL_APP_SNAPSHOT: AppStateSnapshot = {
       tasks: [
         {
           id: 'tsa-bg1-t1',
-          title: '[BG 1 • Auszugtisch] Schwerlastauszüge 130 kg mit Rastbolzen montieren',
+          title: 'Schwerlastauszüge 130 kg mit Rastbolzen montieren',
           completed: true,
           priority: 'Hoch',
           estimatedMinutes: 60,
@@ -57,7 +58,7 @@ export const INITIAL_APP_SNAPSHOT: AppStateSnapshot = {
         },
         {
           id: 'tsa-bg2-t1',
-          title: '[BG 2 • Saladette-Lift] Scherenhub-Gestell & GN-1/6-Kühlaufsatz einpassen',
+          title: 'Scherenhub-Gestell & GN-1/6-Kühlaufsatz einpassen',
           completed: false,
           priority: 'Hoch',
           estimatedMinutes: 55,
@@ -72,7 +73,7 @@ export const INITIAL_APP_SNAPSHOT: AppStateSnapshot = {
         },
         {
           id: 'tsa-bg3-t1',
-          title: '[BG 3 • Ofen/Hecktür/Gas] 50 mbar Duomatic-Regler & Hecktür-Hitzeschutz prüfen',
+          title: '50 mbar Duomatic-Regler & Hecktür-Hitzeschutz prüfen',
           completed: false,
           priority: 'Hoch',
           estimatedMinutes: 40,
@@ -87,7 +88,7 @@ export const INITIAL_APP_SNAPSHOT: AppStateSnapshot = {
         },
         {
           id: 'tsa-bg4-t1',
-          title: '[BG 4 • Waschbecken/Hygiene] Doppelwaschbecken, Tauchpumpe & 12V/230V Boiler anschließen',
+          title: 'Doppelwaschbecken, Tauchpumpe & 12V/230V Boiler anschließen',
           completed: false,
           priority: 'Hoch',
           estimatedMinutes: 45,
@@ -102,7 +103,7 @@ export const INITIAL_APP_SNAPSHOT: AppStateSnapshot = {
         },
         {
           id: 'tsa-bg5-t1',
-          title: '[BG 5 • Elektrik/Blaulicht/Shelly] Shelly Plus 2PM für Arbeitslicht & Deko-Blaulicht verdrahten',
+          title: 'Shelly Plus 2PM für Arbeitslicht & Deko-Blaulicht verdrahten',
           completed: false,
           priority: 'Mittel',
           estimatedMinutes: 35,
@@ -117,7 +118,7 @@ export const INITIAL_APP_SNAPSHOT: AppStateSnapshot = {
         },
         {
           id: 'tsa-bg6-t1',
-          title: '[BG 6 • Eurobox-Lager/Optik] Teigballen-Eurobox-Schiene (60x40) & Anthrazit-Folierung anbringen',
+          title: 'Teigballen-Eurobox-Schiene (60x40) & Anthrazit-Folierung anbringen',
           completed: false,
           priority: 'Mittel',
           estimatedMinutes: 50,
@@ -131,11 +132,12 @@ export const INITIAL_APP_SNAPSHOT: AppStateSnapshot = {
           customMeta: { boxKapazitaet: '12 Pizzaballen-Boxen' }
         }
       ],
-      explanations: [
+      knowledge: [
         {
           id: 'tsa-exp-all6',
+          kind: 'explanation',
           title: 'TSA-Ausbau Masterplan: Alle 6 Baugruppen & Montage-Reihenfolge',
-          stepsText: [
+          content: [
             '1. Baugruppe 1 (Auszugtisch): Alu-Systemprofil 40x40 auf Siebdruck-Bodenplatte verschrauben, 130-kg-Vollauszüge mit Verriegelung im eingeklappten und ausgezogenen Zustand sichern, CNS-Edelstahlplatte kantenbündig aufsetzen.',
             '2. Baugruppe 2 (Saladette-Lift): Verstellbares Hubgestell seitlich neben dem Auszugtisch montieren, Transportsicherung für die Fahrt verbolzen, GN-Kühlwanne vibrationsgedämpft lagern.',
             '3. Baugruppe 3 (Pizzaofen / Hecktür / Gas): Hecktür-Feststeller sturmsicher auf 110° arretieren, Alu-Hitzeschutzschild zum Türblatt montieren, 2x 11 kg Propangas über GOK Gewerbe-Duomatic (50 mbar + Schlauchbruchsicherung nach BGV D34) anschließen.',
@@ -143,6 +145,7 @@ export const INITIAL_APP_SNAPSHOT: AppStateSnapshot = {
             '5. Baugruppe 5 (Elektrik / Beleuchtung / Blaulicht inkl. Shelly): CEE 16A Einspeisung -> Personenschutz-FI 30mA -> 2x LS B16A. Shelly Plus 2PM im Kleinverteiler schaltet Kanal 1 (blendfreie 4000K Teig-Beleuchtung) und Kanal 2 (12V/24V Feuerwehr-Kennleuchte für Show-Momente auf Events).',
             '6. Baugruppe 6 (Eurobox-Lager / Außenoptik): Durchgehende Winkelprofile für 60x40 cm Pizzaballen-Boxen im Vorderwagen; Außenhaut in Seidenmatt-Anthrazit (#181A1B) mit Petrol-Akzentstreifen & Pizza-Bandit-Waschbär.'
           ].join('\n'),
+          attachments: [],
           lastModified: '13.11.2026, 09:15 Uhr',
           changeReason: 'Alle 6 TSA-Baugruppen dokumentiert',
           source: 'TSA-Seed',
@@ -151,23 +154,24 @@ export const INITIAL_APP_SNAPSHOT: AppStateSnapshot = {
         },
         {
           id: 'tsa-exp-event',
+          kind: 'explanation',
           title: 'Event-Aufbau Checkliste vor Ort (15-Minuten-Routine)',
-          stepsText: [
+          content: [
             '1. Anhängerkeile setzen, Stützfüße auskurbeln und TSA per Kreuzwasserwaage exakt ins Wasser stellen.',
             '2. CEE 16A Kabel einstecken, FI-Prüftaste drücken, Saladette & Shelly-Arbeitslicht einschalten.',
             '3. Hecktür verriegeln, Gas-Dichtheitsprüfung (Manometer/Lecksuchspray), Kuppelofen auf 440 °C Steintemperatur vorheizen.',
             '4. Auszugtisch ausfahren & einrasten, Pizzaschaufeln einhängen und im Reiter „Extras“ den Live-Verkaufs-Clicker nullen.'
           ].join('\n'),
+          attachments: [],
           lastModified: '13.11.2026, 09:20 Uhr',
           changeReason: 'Standard-Eventroutine',
           source: 'TSA-Seed',
           aiTouched: false,
           customMeta: {}
-        }
-      ],
-      infos: [
+        },
         {
           id: 'tsa-info-1',
+          kind: 'info',
           title: 'TSA Feuerwehranhänger – Baugruppen-Maße, Gewichte & Shelly-Endpunkte',
           content: [
             '• Basis-Fahrzeug: Feuerwehr-TSA | Zul. Gesamtgewicht: 1.000 kg (ungebremst/gebremst je Achse prüfen)',
@@ -248,7 +252,7 @@ export const INITIAL_APP_SNAPSHOT: AppStateSnapshot = {
     },
     {
       id: 'proj-baeckerei',
-      domain: 'arbeit',
+      domain: 'business',
       name: 'Bäckerei',
       subtitle: 'Sauerteigführung, Etagenöfen, Langzeit-Rezepturen & Rohstoff-Disposition',
       icon: 'Croissant',
@@ -287,22 +291,23 @@ export const INITIAL_APP_SNAPSHOT: AppStateSnapshot = {
           customMeta: {}
         }
       ],
-      explanations: [
+      knowledge: [
         {
           id: 'e-b1',
+          kind: 'explanation',
           title: 'Weizen-Langzeitführung (Baguette & Ciabatta – 75% Hydration)',
-          stepsText:
+          content:
             '1. Autolyse: 100% Weizenmehl T550 mit 70% kaltem Wasser 4 Min. mischen, 45 Min. ruhen.\n2. Hauptteig: 5% Restwasser, 2,4% Meersalz, 0,4% Frischhefe & 10% Lievito Madre einkneten.\n3. Stockgare: 3x Dehnen & Falten alle 40 Min., danach 18 Std. bei 5 °C reifen lassen.',
+          attachments: [],
           lastModified: '13.11.2026, 06:10 Uhr',
           changeReason: 'Restwasser präzisiert',
           source: 'Manuell',
           aiTouched: false,
           customMeta: {}
-        }
-      ],
-      infos: [
+        },
         {
           id: 'i-b1',
+          kind: 'info',
           title: 'Mehl-Silo & Kühlhaus Referenzwerte',
           content:
             '• Silo 1 (Weizen T550): 1.450 kg | Silo 2 (Roggen T1150): 820 kg\n• Gärverzögerer: +4,5 °C bei 84% rel. Luftfeuchtigkeit',
@@ -331,7 +336,7 @@ export const INITIAL_APP_SNAPSHOT: AppStateSnapshot = {
     },
     {
       id: 'proj-smarthome',
-      domain: 'privat',
+      domain: 'private',
       name: 'Smart Home',
       subtitle: 'Home Assistant, Zigbee2MQTT, Shelly-Flotte & Proxmox-Rack',
       icon: 'Wifi',
@@ -356,22 +361,23 @@ export const INITIAL_APP_SNAPSHOT: AppStateSnapshot = {
           customMeta: {}
         }
       ],
-      explanations: [
+      knowledge: [
         {
           id: 'e-s1',
+          kind: 'explanation',
           title: 'WLAN / Zigbee Kanal-Trennung (Störungsfreier Betrieb)',
-          stepsText:
+          content:
             '1. 2,4 GHz WLAN fest auf Kanal 1 & 6 fixieren.\n2. Zigbee2MQTT auf Kanal 25 betreiben.\n3. Shelly-Aktoren ins isolierte IoT-VLAN 30 einbinden.',
+          attachments: [],
           lastModified: '10.11.2026, 20:00 Uhr',
           changeReason: 'Frequenzplan hinterlegt',
           source: 'Manuell',
           aiTouched: false,
           customMeta: {}
-        }
-      ],
-      infos: [
+        },
         {
           id: 'i-s1',
+          kind: 'info',
           title: 'VLAN & Shelly IP-Übersicht',
           content:
             '• VLAN 10 (Server): 192.168.10.0/24\n• VLAN 30 (IoT & TSA-Shelly): 192.168.30.0/24',
@@ -400,7 +406,7 @@ export const INITIAL_APP_SNAPSHOT: AppStateSnapshot = {
     },
     {
       id: 'proj-gewohnheiten',
-      domain: 'privat',
+      domain: 'private',
       name: 'Gewohnheiten',
       subtitle: 'Ruhige Alltags-Routinen, Fokus-Anker & Regeneration ohne Bewertungsdruck',
       icon: 'Repeat',
@@ -439,13 +445,12 @@ export const INITIAL_APP_SNAPSHOT: AppStateSnapshot = {
           customMeta: {}
         }
       ],
-      explanations: [],
-      infos: [],
+      knowledge: [],
       cart: []
     },
     {
       id: 'proj-alltag',
-      domain: 'privat',
+      domain: 'private',
       name: 'Alltag',
       subtitle: 'Haushalt, Fahrzeug, Steuerbelege & private Besorgungen',
       icon: 'Sun',
@@ -470,8 +475,7 @@ export const INITIAL_APP_SNAPSHOT: AppStateSnapshot = {
           customMeta: {}
         }
       ],
-      explanations: [],
-      infos: [],
+      knowledge: [],
       cart: [
         {
           id: 'c-a1',
@@ -489,7 +493,7 @@ export const INITIAL_APP_SNAPSHOT: AppStateSnapshot = {
     },
     {
       id: 'proj-archiv-hafenfest',
-      domain: 'arbeit',
+      domain: 'business',
       name: 'Pizza Bandit Sommer-Catering Hafenfest (Archiv)',
       subtitle: 'Abgeschlossene Event-Abrechnung & Mengen-Nachkalkulation',
       icon: 'RaccoonBandit',
@@ -515,8 +519,7 @@ export const INITIAL_APP_SNAPSHOT: AppStateSnapshot = {
           customMeta: {}
         }
       ],
-      explanations: [],
-      infos: [],
+      knowledge: [],
       cart: []
     }
   ],

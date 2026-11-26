@@ -71,7 +71,7 @@ interface FrontWorkspaceProps {
   onOpenDeepResearchModal?: () => void;
   onConfirmRedDot: (
     projectId: string,
-    section: 'tasks' | 'explanations' | 'infos' | 'cart' | 'knowledge',
+    section: 'tasks' | 'cart' | 'knowledge',
     itemId: string
   ) => void;
   onResetChecklist?: (projectId: string) => void;
@@ -81,7 +81,8 @@ interface FrontWorkspaceProps {
     projectId: string,
     title: string,
     priority?: PriorityType,
-    estimatedMinutes?: number
+    estimatedMinutes?: number,
+    assemblyGroup?: string
   ) => void;
   onDeleteTask: (projectId: string, taskId: string) => void;
   onUpdateTask?: (projectId: string, taskId: string, patch: Partial<TaskItem>) => void;
@@ -107,10 +108,6 @@ interface FrontWorkspaceProps {
     itemId: string,
     file: File
   ) => void;
-  onAddExplanation: (projectId: string, title: string, steps: string) => void;
-  onUpdateExplanation: (projectId: string, expId: string, title: string, steps: string) => void;
-  onAddInfo: (projectId: string, title: string, content: string) => void;
-  onUploadInfoAttachment: (projectId: string, infoId: string, file: File) => void;
   onPreviewAttachment: (att: Attachment) => void;
   onAddCartItems: (
     projectId: string,
@@ -159,10 +156,6 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
   onDeleteKnowledge,
   onRestoreKnowledge,
   onUploadKnowledgeAttachment,
-  onAddExplanation,
-  onUpdateExplanation,
-  onAddInfo,
-  onUploadInfoAttachment,
   onPreviewAttachment,
   onAddCartItems,
   onToggleCartItem,
@@ -282,12 +275,12 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
         label: brandProj.domainLabel
       };
     }
-    return (activeDomain === 'privat' || activeDomain === 'private')
+    return activeDomain === 'private'
       ? BRAND_CONFIG.domainColors.private
       : BRAND_CONFIG.domainColors.business;
   }, [activeDomain, activeProject]);
 
-  const isPrivDomain = (d?: string) => d === 'privat' || d === 'private';
+  const isPrivDomain = (d?: DomainType) => d === 'private';
   const projectsSource = allProjects.length > 0 ? allProjects : domainProjects;
   const workProjects = projectsSource.filter((p) => !p.archived && !isPrivDomain(p.domain));
   const privateProjects = projectsSource.filter((p) => !p.archived && isPrivDomain(p.domain));
@@ -345,10 +338,7 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
   const showCartSection =
     !isFloatingCartOpen && (viewAllSections || activeTab === 'cart') && isTabEnabled(activeProject, 'cart');
   const showKnowledgeSection =
-    (viewAllSections ||
-      activeTab === 'knowledge' ||
-      activeTab === 'explanations' ||
-      activeTab === 'infos') &&
+    (viewAllSections || activeTab === 'knowledge') &&
     isTabEnabled(activeProject, 'knowledge');
   const showExtrasSection =
     (!viewAllSections && activeTab === 'extras') && isTabEnabled(activeProject, 'extras');
@@ -633,10 +623,6 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
               onDeleteKnowledge={onDeleteKnowledge}
               onRestoreKnowledge={onRestoreKnowledge}
               onUploadKnowledgeAttachment={onUploadKnowledgeAttachment}
-              onAddExplanation={onAddExplanation}
-              onUpdateExplanation={onUpdateExplanation}
-              onAddInfo={onAddInfo}
-              onUploadInfoAttachment={onUploadInfoAttachment}
               onPreviewAttachment={onPreviewAttachment}
               onConfirmRedDot={onConfirmRedDot}
               onMoveKnowledge={onMoveKnowledge}

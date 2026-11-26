@@ -30,7 +30,7 @@ interface CartViewProps {
   onMoveCartItem?: (fromProjectId: string, toProjectId: string, cartId: string) => void;
   onConfirmRedDot: (
     projectId: string,
-    section: 'tasks' | 'explanations' | 'infos' | 'cart' | 'knowledge',
+    section: 'tasks' | 'cart' | 'knowledge',
     itemId: string
   ) => void;
   onOpenSettings?: () => void;
@@ -60,7 +60,6 @@ export const CartView: React.FC<CartViewProps> = ({
   const [newCartTitle, setNewCartTitle] = useState('');
   const [newCartQty, setNewCartQty] = useState('1x');
   const [newCartPrice, setNewCartPrice] = useState('');
-  const [globalCartMode] = useState(true);
   const [cartProjectFilter, setCartProjectFilter] = useState<string>('ALL');
   const [cartCategoryFilter, setCartCategoryFilter] = useState<'ALL' | 'open' | 'completed'>('ALL');
   const [editingCartId, setEditingCartId] = useState<string | null>(null);
@@ -77,27 +76,20 @@ export const CartView: React.FC<CartViewProps> = ({
   };
 
   const displayedCart = useMemo(() => {
-    let items: Array<CartItem & { originProjectId: string; originProjectName: string }>;
-
-    if (globalCartMode && allProjects.length > 0) {
-      items = allProjects
-        .filter((p) => !p.archived)
-        .flatMap((p) =>
-          p.cart.map((c) => ({
-            ...c,
-            originProjectId: p.id,
-            originProjectName: p.name
-          }))
-        );
-    } else if (activeProject) {
-      items = [...activeProject.cart].map((c) => ({
-        ...c,
-        originProjectId: activeProject.id,
-        originProjectName: activeProject.name
-      }));
-    } else {
-      items = [];
-    }
+    const sourceProjects =
+      allProjects.length > 0
+        ? allProjects.filter((p) => !p.archived)
+        : activeProject
+        ? [activeProject]
+        : [];
+    const items: Array<CartItem & { originProjectId: string; originProjectName: string }> =
+      sourceProjects.flatMap((p) =>
+        p.cart.map((c) => ({
+          ...c,
+          originProjectId: p.id,
+          originProjectName: p.name
+        }))
+      );
 
     return items
       .filter((c) => {
@@ -117,7 +109,7 @@ export const CartView: React.FC<CartViewProps> = ({
         if (b.id === glowItemId) return 1;
         return Number(a.completed) - Number(b.completed);
       });
-  }, [activeProject, allProjects, globalCartMode, cartProjectFilter, cartCategoryFilter, searchQuery, glowItemId]);
+  }, [activeProject, allProjects, cartProjectFilter, cartCategoryFilter, searchQuery, glowItemId]);
 
   const handleSoftToggle = (e: React.MouseEvent, item: CartItem & { originProjectId: string }) => {
     e.stopPropagation();
@@ -440,11 +432,9 @@ export const CartView: React.FC<CartViewProps> = ({
                       </span>
                     )}
 
-                    {globalCartMode && (
-                      <span className="text-xs font-medium text-[#94A3B8] px-2 py-0.5 rounded-md bg-[#111317]">
-                        {originProject.name}
-                      </span>
-                    )}
+                    <span className="text-xs font-medium text-[#94A3B8] px-2 py-0.5 rounded-md bg-[#111317]">
+                      {originProject.name}
+                    </span>
 
                     {/* KI-Badge: Warmes Honig-Gold #E5A93C */}
                     {item.aiTouched && (

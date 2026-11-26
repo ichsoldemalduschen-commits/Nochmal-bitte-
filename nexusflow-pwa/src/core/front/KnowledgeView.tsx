@@ -49,14 +49,10 @@ interface KnowledgeViewProps {
     itemId: string,
     file: File
   ) => void;
-  onAddExplanation: (projectId: string, title: string, steps: string) => void;
-  onUpdateExplanation: (projectId: string, expId: string, title: string, steps: string) => void;
-  onAddInfo: (projectId: string, title: string, content: string) => void;
-  onUploadInfoAttachment: (projectId: string, infoId: string, file: File) => void;
   onPreviewAttachment: (att: Attachment) => void;
   onConfirmRedDot: (
     projectId: string,
-    section: 'tasks' | 'explanations' | 'infos' | 'cart' | 'knowledge',
+    section: 'tasks' | 'cart' | 'knowledge',
     itemId: string
   ) => void;
   onMoveKnowledge?: (fromProjectId: string, toProjectId: string, itemId: string) => void;
@@ -80,10 +76,6 @@ export const KnowledgeView: React.FC<KnowledgeViewProps> = ({
   onDeleteKnowledge,
   onRestoreKnowledge,
   onUploadKnowledgeAttachment,
-  onAddExplanation,
-  onUpdateExplanation,
-  onAddInfo,
-  onUploadInfoAttachment,
   onPreviewAttachment,
   onConfirmRedDot,
   onMoveKnowledge,
@@ -106,35 +98,7 @@ export const KnowledgeView: React.FC<KnowledgeViewProps> = ({
   const [editKnowledgeContent, setEditKnowledgeContent] = useState('');
 
   const projectKnowledge: KnowledgeItem[] = useMemo(() => {
-    if (Array.isArray(activeProject.knowledge) && activeProject.knowledge.length > 0) {
-      return activeProject.knowledge;
-    }
-    return [
-      ...(activeProject.explanations || []).map((e) => ({
-        id: e.id,
-        kind: 'explanation' as const,
-        title: e.title,
-        content: e.stepsText || '',
-        attachments: [],
-        lastModified: e.lastModified,
-        changeReason: e.changeReason,
-        source: e.source,
-        aiTouched: e.aiTouched,
-        customMeta: e.customMeta
-      })),
-      ...(activeProject.infos || []).map((i) => ({
-        id: i.id,
-        kind: 'info' as const,
-        title: i.title,
-        content: i.content || '',
-        attachments: i.attachments || [],
-        lastModified: i.lastModified,
-        changeReason: i.changeReason,
-        source: i.source,
-        aiTouched: i.aiTouched,
-        customMeta: i.customMeta
-      }))
-    ];
+    return Array.isArray(activeProject.knowledge) ? activeProject.knowledge : [];
   }, [activeProject]);
 
   const filteredKnowledge = useMemo(() => {
@@ -302,26 +266,12 @@ export const KnowledgeView: React.FC<KnowledgeViewProps> = ({
           onSubmit={(e) => {
             e.preventDefault();
             if (!newKnowledgeTitle.trim()) return;
-            if (onAddKnowledge) {
-              onAddKnowledge(
-                activeProject.id,
-                newKnowledgeKind,
-                newKnowledgeTitle.trim(),
-                newKnowledgeContent.trim()
-              );
-            } else if (newKnowledgeKind === 'explanation') {
-              onAddExplanation(
-                activeProject.id,
-                newKnowledgeTitle.trim(),
-                newKnowledgeContent.trim()
-              );
-            } else {
-              onAddInfo(
-                activeProject.id,
-                newKnowledgeTitle.trim(),
-                newKnowledgeContent.trim()
-              );
-            }
+            onAddKnowledge?.(
+              activeProject.id,
+              newKnowledgeKind,
+              newKnowledgeTitle.trim(),
+              newKnowledgeContent.trim()
+            );
             setNewKnowledgeTitle('');
             setNewKnowledgeContent('');
             setIsAddingKnowledge(false);
@@ -490,23 +440,13 @@ export const KnowledgeView: React.FC<KnowledgeViewProps> = ({
                           type="button"
                           onClick={() => {
                             if (!editKnowledgeTitle.trim()) return;
-                            if (onUpdateKnowledge) {
-                              onUpdateKnowledge(
-                                activeProject.id,
-                                item.id,
-                                editKnowledgeTitle.trim(),
-                                editKnowledgeContent
-                              );
-                              onNotify('Wissenseintrag aktualisiert.');
-                            } else if (item.kind === 'explanation') {
-                              onUpdateExplanation(
-                                activeProject.id,
-                                item.id,
-                                editKnowledgeTitle.trim(),
-                                editKnowledgeContent
-                              );
-                              onNotify('Wissenseintrag aktualisiert.');
-                            }
+                            onUpdateKnowledge?.(
+                              activeProject.id,
+                              item.id,
+                              editKnowledgeTitle.trim(),
+                              editKnowledgeContent
+                            );
+                            onNotify('Wissenseintrag aktualisiert.');
                             setEditingKnowledgeId(null);
                           }}
                           className="min-h-[44px] px-5 rounded-xl text-xs font-bold text-white shadow-md cursor-pointer"
@@ -652,11 +592,7 @@ export const KnowledgeView: React.FC<KnowledgeViewProps> = ({
                             onChange={(e) => {
                               const f = e.target.files?.[0];
                               if (f) {
-                                if (onUploadKnowledgeAttachment) {
-                                  onUploadKnowledgeAttachment(activeProject.id, item.id, f);
-                                } else {
-                                  onUploadInfoAttachment(activeProject.id, item.id, f);
-                                }
+                                onUploadKnowledgeAttachment?.(activeProject.id, item.id, f);
                               }
                               e.target.value = '';
                             }}

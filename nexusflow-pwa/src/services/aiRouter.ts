@@ -427,23 +427,7 @@ function buildWorkspaceContextSummary(projects: Project[]): string {
         .slice(0, 12)
         .map((c) => `- [Einkauf] ${c.title} (${c.quantity})`)
         .join('\n');
-      const knowledgeList = (p.knowledge && p.knowledge.length > 0
-        ? p.knowledge
-        : [
-          ...(p.explanations || []).map((e) => ({
-            id: e.id,
-            kind: 'explanation' as const,
-            title: e.title,
-            content: e.stepsText
-          })),
-          ...(p.infos || []).map((i) => ({
-            id: i.id,
-            kind: 'info' as const,
-            title: i.title,
-            content: i.content
-          }))
-        ]
-      )
+      const knowledgeList = (p.knowledge || [])
         .slice(0, 8)
         .map(
           (k) =>

@@ -499,7 +499,7 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
               {projects.map((proj) => {
                 const currentTabs = proj.enabledTabs || ['tasks', 'cart', 'knowledge', 'extras'];
                 const isExpanded = !!expandedProjectIds[proj.id];
-                const isPrivate = proj.domain === 'privat' || proj.domain === 'private';
+                const isPrivate = proj.domain === 'private';
                 const isPermanent = proj.lifecycle !== 'project';
                 const modules: Array<{ id: 'tasks' | 'cart' | 'knowledge' | 'extras'; label: string }> = [
                   { id: 'tasks', label: 'Tasks' },

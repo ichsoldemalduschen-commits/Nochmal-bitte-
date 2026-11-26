@@ -23,8 +23,6 @@ export interface BrandConfig {
   defaultAccentColor: string;
   defaultHighlightColor: string;
   domainColors: {
-    arbeit: { primary: string; highlight: string; label: string };
-    privat: { primary: string; highlight: string; label: string };
     business: { primary: string; highlight: string; label: string };
     private: { primary: string; highlight: string; label: string };
   };
@@ -46,7 +44,7 @@ export const BRAND_CONFIG: BrandConfig = {
   appName: 'BANDIT.OS',
   defaultProjectId: 'proj-foodtruck',
   defaultWorkspaceId: 'pizza-bandit-main',
-  defaultDomain: 'arbeit',
+  defaultDomain: 'business',
   defaultAccentColor: '#0D9488',
   defaultHighlightColor: '#14B8A6',
   domainColors: {
@@ -56,16 +54,6 @@ export const BRAND_CONFIG: BrandConfig = {
       label: 'ARBEIT / BETRIEB'
     },
     private: {
-      primary: '#8B7EC8',
-      highlight: '#A498DA',
-      label: 'PRIVAT'
-    },
-    arbeit: {
-      primary: '#0D9488',
-      highlight: '#14B8A6',
-      label: 'ARBEIT / BETRIEB'
-    },
-    privat: {
       primary: '#8B7EC8',
       highlight: '#A498DA',
       label: 'PRIVAT'
