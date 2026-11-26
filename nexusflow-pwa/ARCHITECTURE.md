@@ -65,17 +65,23 @@ Atmosphäre & Listenaufbau:
 
 ## 4  Storage & Modularität
 
-### Storage-Hierarchie
-1. **IndexedDB (`idb-keyval`, Key `nexusflow_pwa_v1_state`):** Primärer Speicher für den gesamten `AppStateSnapshot` (Projekte, Tasks, Cart, Infos, Abläufe, Logs, `userApiKey`).
-2. **LocalStorage (Key `nexusflow_pwa_v1_fallback`):** Nur als Fallback bei IDB-Fehler.
-3. **LocalStorage (spezifische Keys):** Ausschließlich für transiente UI-Zustände (Foto-Pins, Prefs, Chat-Historie). Langfristig in IDB migrieren.
+### Storage-Hierarchie & Schema v2 (`schemaVersion: 2`)
+1. **IndexedDB (`idb-keyval`, Key `nexusflow_pwa_v1_state`):** Primärer Speicher für den gesamten `AppStateSnapshot` (Projekte, Tasks, Cart, `knowledge`, `aiLogs`, `userApiKey`, `schemaVersion: 2`).
+2. **Idempotente Migration (`migrateAppState` / `migrateProject` in `src/services/storage.ts`):** Läuft an allen 3 Eingängen (IDB-Start, Voll-Backup-Import, Projekt-JSON-Import). Normalisiert Domänen strikt auf `'business' | 'private'`, Prioritäten auf `'Hoch' | 'Mittel' | 'Niedrig'`, überführt Alt-Arrays (`explanations`/`infos`) verlustfrei in `project.knowledge` (Single Source of Truth) und extrahiert `[Gruppe]`-Titelpräfixe sauber in `task.assemblyGroup`.
+3. **LocalStorage (Key `nexusflow_pwa_v1_fallback`):** Nur als Fallback bei IDB-Fehler.
+4. **LocalStorage / IDB (spezifische Keys):** Transiente UI-Zustände & Zusatz-Stores (Foto-Pins, Prefs, Chat-Historie, Belege, Dossiers, POS-Slots, Pizza-Katalog).
 
 > **Regel:** Neue persistente Nutzerdaten gehören in `AppStateSnapshot` (→ IDB), nicht in neue `localStorage`-Keys.
 
-### Modularität
+### Zentrale Konfigurations-Tokens (`src/config/`)
+- **`src/config/designTokens.ts` (`DESIGN_TOKENS`):** Single Source of Truth für Design-DNA (`canvas: '#111317'`, `surface: '#191C22'`, `accentHoney: '#E5A93C'`, Projekt-Presets, `minTouchPx: 44`, `minFontPx: 12`).
+- **`src/config/runtimeConfig.ts`:** Zentrale Timing- & Schwellenwert-Konstanten für Sprach-KI (`VOICE_START_DEBOUNCE_MS`, `TTS_ECHO_COOLDOWN_MS`, `STT_ABORT_RETRY_DELAY_MS`, `STT_MAX_CONSECUTIVE_ABORTS`, `API_TIMEOUT_MS`) sowie UI-Timer (`CHECK_GLOW_MS`, `UNDO_TOAST_MS`, `REMINDER_POLL_INTERVAL_MS`).
+
+### Modularität & Modal-Konsolidierung
 - **Plugins:** Neue isolierte Werkzeuge ausschließlich in `src/plugins/` anlegen und über `src/plugins/registry.ts` registrieren.
-- **Kern-Code:** Keine projektspezifischen IDs, Namen oder Farben direkt im Kern-Code hardcoden. Branching-Logik für Projekte gehört in eine künftige `brandConfig.ts`.
+- **Kern-Code:** Keine projektspezifischen IDs, Namen oder Farben direkt im Kern-Code hardcoden. Farb-Tokens stammen aus `designTokens.ts` über `brandConfig.ts`.
 - **Feature-Flags:** Neue optionale Funktionen über `Project.enabledPlugins[]` oder `Project.customMeta` steuerbar machen.
+- **Modal-Wrapper (`DeepResearchAndAuditModal.tsx`):** Schlanker Wrapper über `DeepResearchView.tsx`, `ReceiptScanView.tsx` und Cloud/Push ohne duplizierte IDB-Logik.
 
 ---
 
@@ -140,7 +146,6 @@ Die ehemalige Mono-Datei `FrontWorkspace.tsx` (> 2 500 Zeilen) ist in eigenstän
 | `front/ExtrasView.tsx` | Plugin-Rendering |
 | `front/ReceiptScanView.tsx` | Beleg-Scan-Kartenansicht (Kamera/Upload, Erkennung, Abgleich mit Einkaufswagen) |
 | `front/DeepResearchView.tsx` | Deep-Research-Kartenansicht (Recherche-Start, Dossier-Karten, Quellen, To-do-Übernahme) |
-| `front/AiBottomBar.tsx` | Untere KI-Eingabeleiste |
 | `front/HexThumbHub.tsx` | Sechskant-Daumenmodul & Daumen-Fächer (Block D) |
 | `front/SingleFocusOverlay.tsx` | 1-Fokus Lesebrillen-Overlay (Block D) |
 | `front/index.ts` | Barrel-Reexport aller Module |
@@ -173,7 +178,7 @@ Für jede künftige Änderung gilt ein verbindliches E2E-Qualitätsgate auf mobi
 - **Befehl:** `npm run verify` im Verzeichnis `nexusflow-pwa` (führt `npm run build && npm run test:guard` aus).
 - **Pflicht vor jedem Git-Push:**
   1. `npm run build` muss fehlerfrei durchlaufen.
-  2. Playwright Mobile-Guard (`tests/mobile-guard.spec.ts`) muss alle Stationen (Start & Kopfleiste, NavigationDrawer, TasksView, CartView, KnowledgeView, AiBottomBar & VoiceModal, Zentrale mit allen 4 Überbereichen, Deep-Links) zu 100 % grün durchlaufen.
+  2. Playwright Mobile-Guard (`tests/mobile-guard.spec.ts`) muss alle 10 Stationen (Start & Kopfleiste, NavigationDrawer, TasksView, CartView, KnowledgeView, Block D & VoiceModal, Zentrale mit allen 4 Überbereichen, Deep-Links, Werkzeuge/POS, Wissen-Lösch-Undo & konsolidiertes Modal) zu 100 % grün durchlaufen.
   3. Strikte Wächter: 0 ungefangene `pageerror`-Exceptions, 0 unberechtigte `console.error`-Meldungen, 0 horizontale Viewport-Überläufe (`document.documentElement.scrollWidth <= window.innerWidth + 1`).
 
 ---

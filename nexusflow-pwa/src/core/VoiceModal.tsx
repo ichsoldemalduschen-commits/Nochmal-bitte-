@@ -42,6 +42,13 @@ import {
   saveActiveAiMode,
   saveIdbItem
 } from '../services/storage';
+import {
+  API_TIMEOUT_MS,
+  STT_ABORT_RETRY_DELAY_MS,
+  STT_MAX_CONSECUTIVE_ABORTS,
+  TTS_ECHO_COOLDOWN_MS,
+  VOICE_START_DEBOUNCE_MS
+} from '../config/runtimeConfig';
 
 export interface ConversationMessage {
   id: string;
@@ -111,11 +118,10 @@ export interface VoiceModalProps {
 export type VoicePhase = 'IDLE' | 'LISTENING' | 'PROCESSING' | 'SPEAKING' | 'COOLDOWN';
 
 const SILENCE_AUTO_SEND_MS = 5000;
-const API_REQUEST_TIMEOUT_MS = 12000;
-const VOICE_START_DEBOUNCE_MS = 280;
-const ABORT_RETRY_DELAY_MS = 350;
-const MAX_CONSECUTIVE_ABORTS = 3;
-const ECHO_COOLDOWN_MS = 300;
+const API_REQUEST_TIMEOUT_MS = API_TIMEOUT_MS;
+const ABORT_RETRY_DELAY_MS = STT_ABORT_RETRY_DELAY_MS;
+const MAX_CONSECUTIVE_ABORTS = STT_MAX_CONSECUTIVE_ABORTS;
+const ECHO_COOLDOWN_MS = TTS_ECHO_COOLDOWN_MS;
 const BARGE_IN_COOLDOWN_MS = 180;
 const END_DIALOG_REGEX = /\b(danke,?\s*reicht|fertig|stopp|schluss|bis später|pause)\b/i;
 

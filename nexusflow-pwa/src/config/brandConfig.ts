@@ -1,4 +1,5 @@
 import { DomainType, LifecycleType, BusinessDomain } from '../types';
+import { DESIGN_TOKENS } from './designTokens';
 
 export interface BrandProjectConfig {
   id: string;
@@ -45,16 +46,16 @@ export const BRAND_CONFIG: BrandConfig = {
   defaultProjectId: 'proj-foodtruck',
   defaultWorkspaceId: 'pizza-bandit-main',
   defaultDomain: 'business',
-  defaultAccentColor: '#0D9488',
+  defaultAccentColor: DESIGN_TOKENS.projectPresets.pizzaBandit,
   defaultHighlightColor: '#14B8A6',
   domainColors: {
     business: {
-      primary: '#0D9488',
+      primary: DESIGN_TOKENS.projectPresets.pizzaBandit,
       highlight: '#14B8A6',
       label: 'ARBEIT / BETRIEB'
     },
     private: {
-      primary: '#8B7EC8',
+      primary: DESIGN_TOKENS.projectPresets.privat,
       highlight: '#A498DA',
       label: 'PRIVAT'
     }
@@ -67,7 +68,7 @@ export const BRAND_CONFIG: BrandConfig = {
       domain: 'business',
       lifecycle: 'permanent',
       businessDomain: 'business',
-      accentColor: '#0D9488',
+      accentColor: DESIGN_TOKENS.projectPresets.pizzaBandit,
       highlightColor: '#14B8A6',
       domainLabel: 'ARBEIT / BETRIEB',
       customLogoUrl: './raccoon-logo.png',
@@ -83,7 +84,7 @@ export const BRAND_CONFIG: BrandConfig = {
       domain: 'business',
       lifecycle: 'project',
       businessDomain: 'business',
-      accentColor: '#D96B43',
+      accentColor: DESIGN_TOKENS.projectPresets.backstube,
       highlightColor: '#E28562',
       domainLabel: 'ARBEIT / BAUSTELLE',
       routingKeywords:
@@ -98,7 +99,7 @@ export const BRAND_CONFIG: BrandConfig = {
       domain: 'private',
       lifecycle: 'permanent',
       businessDomain: 'private',
-      accentColor: '#8B7EC8',
+      accentColor: DESIGN_TOKENS.projectPresets.privat,
       highlightColor: '#A498DA',
       domainLabel: 'PRIVAT',
       routingKeywords: /(smart\s*home|zigbee|proxmox|home\s*assistant|sensor|vlan)/i,
@@ -111,7 +112,7 @@ export const BRAND_CONFIG: BrandConfig = {
       domain: 'private',
       lifecycle: 'permanent',
       businessDomain: 'private',
-      accentColor: '#8B7EC8',
+      accentColor: DESIGN_TOKENS.projectPresets.privat,
       highlightColor: '#A498DA',
       domainLabel: 'PRIVAT',
       routingKeywords: /(gewohnheit|routine|mobilität|training|sport)/i,
@@ -124,7 +125,7 @@ export const BRAND_CONFIG: BrandConfig = {
       domain: 'private',
       lifecycle: 'permanent',
       businessDomain: 'private',
-      accentColor: '#8B7EC8',
+      accentColor: DESIGN_TOKENS.projectPresets.privat,
       highlightColor: '#A498DA',
       domainLabel: 'PRIVAT',
       routingKeywords: /(privat|alltag|haushalt|steuer|auto|wochenende|familie)/i,

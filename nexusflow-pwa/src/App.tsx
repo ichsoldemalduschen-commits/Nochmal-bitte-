@@ -1720,9 +1720,42 @@ export default function App() {
           activeProject={activeProject}
           userApiKey={state.userApiKey}
           fullState={state}
+          themeColors={{
+            primary: activeVisualTheme.primary,
+            highlight: activeVisualTheme.highlight,
+            label: activeDomain.toUpperCase()
+          }}
           onClose={() => setDeepResearchModalOpen(false)}
           onSaveDossierToProject={handleSaveDossierToProject}
           onReconcileReceiptWithCart={handleReconcileReceiptWithCart}
+          onAddTask={(projId, title, prio = 'Mittel', mins = 25) => {
+            const ts = formatNow();
+            updateProject(projId, (p) => ({
+              ...p,
+              tasks: [
+                {
+                  id: `t-${Date.now()}`,
+                  title,
+                  completed: false,
+                  priority: prio,
+                  estimatedMinutes: mins,
+                  dayBlock: null,
+                  reminderAt: '',
+                  aiTouched: false,
+                  lastModified: ts,
+                  changeReason: 'Aus Deep Research übernommen',
+                  source: 'Deep Research',
+                  customMeta: {}
+                },
+                ...p.tasks
+              ]
+            }));
+          }}
+          onAddKnowledge={handleAddKnowledge}
+          onOpenSettings={(sec) => {
+            setZentraleSection(sec || 'ai');
+            setIsBackoffice(true);
+          }}
           onReplaceFullStateFromCloud={handleReplaceFullStateFromCloud}
           onNotify={notify}
         />
