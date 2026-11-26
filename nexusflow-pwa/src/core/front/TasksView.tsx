@@ -31,13 +31,19 @@ interface TasksViewProps {
   searchQuery: string;
   highlightedItemId: string | null;
   onToggleTask: (projectId: string, taskId: string) => void;
-  onAddTask: (projectId: string, title: string, priority?: PriorityType, estimatedMinutes?: number) => void;
+  onAddTask: (
+    projectId: string,
+    title: string,
+    priority?: PriorityType,
+    estimatedMinutes?: number,
+    assemblyGroup?: string
+  ) => void;
   onDeleteTask: (projectId: string, taskId: string) => void;
   onUpdateTask?: (projectId: string, taskId: string, patch: Partial<TaskItem>) => void;
   onMoveTask?: (fromProjectId: string, toProjectId: string, taskId: string) => void;
   onSendTaskToCart?: (projectId: string, title: string) => void;
   onAddCartItems: (projectId: string, items: Array<{ title: string; quantity: string; price?: string; reason?: string }>) => void;
-  onConfirmRedDot: (projectId: string, section: 'tasks' | 'explanations' | 'infos' | 'cart' | 'knowledge', itemId: string) => void;
+  onConfirmRedDot: (projectId: string, section: 'tasks' | 'cart' | 'knowledge', itemId: string) => void;
   onResetChecklist?: (projectId: string) => void;
   onResetChecklistForDeployment?: (projectId: string) => void;
   onUpdatePrefs: (patch: Partial<BanditUserPreferences>) => void;
@@ -79,7 +85,6 @@ export const TasksView: React.FC<TasksViewProps> = ({
   const [editTaskTitle, setEditTaskTitle] = useState('');
   const [editTaskGroup, setEditTaskGroup] = useState('');
   const [singleFocusActive, setSingleFocusActive] = useState(false);
-  const [selectedAssemblyGroup] = useState<string>('ALL');
   const [expandedActionCards, setExpandedActionCards] = useState<Record<string, boolean>>({});
   const [glowTaskId, setGlowTaskId] = useState<string | null>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -118,11 +123,6 @@ export const TasksView: React.FC<TasksViewProps> = ({
         if (searchQuery.trim() && !t.title.toLowerCase().includes(searchQuery.toLowerCase())) {
           return false;
         }
-        if (selectedAssemblyGroup !== 'ALL') {
-          const matchesProp = t.assemblyGroup === selectedAssemblyGroup;
-          const matchesBracket = t.title.includes(selectedAssemblyGroup);
-          return matchesProp || matchesBracket;
-        }
         return true;
       })
       .sort((a, b) => {
@@ -137,7 +137,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
       return nextOpen ? [nextOpen] : filtered.slice(0, 1);
     }
     return filtered;
-  }, [activeProject, searchQuery, selectedAssemblyGroup, prefs, singleFocusActive, glowTaskId]);
+  }, [activeProject, searchQuery, prefs, singleFocusActive, glowTaskId]);
 
   const handleSoftToggle = (e: React.MouseEvent, task: TaskItem) => {
     e.stopPropagation();
@@ -173,7 +173,13 @@ export const TasksView: React.FC<TasksViewProps> = ({
     onRegisterUndo?.({
       message: 'Aufgabe gelöscht',
       undo: () => {
-        onAddTask(activeProject.id, taskBackup.title, taskBackup.priority, taskBackup.estimatedMinutes);
+        onAddTask(
+          activeProject.id,
+          taskBackup.title,
+          taskBackup.priority,
+          taskBackup.estimatedMinutes,
+          taskBackup.assemblyGroup
+        );
         onNotify('Aufgabe wiederhergestellt.');
       }
     });
@@ -201,11 +207,10 @@ export const TasksView: React.FC<TasksViewProps> = ({
           <button
             type="button"
             onClick={() => setIsAddingTask((v) => !v)}
-            className={`w-11 h-11 min-h-[44px] min-w-[44px] rounded-2xl border flex items-center justify-center transition active:scale-95 cursor-pointer shrink-0 ${
-              isAddingTask
-                ? 'text-white border-white/30'
-                : 'bg-[#191C22] hover:bg-[#22262F] text-white border-white/5'
-            }`}
+            className={`w-11 h-11 min-h-[44px] min-w-[44px] rounded-2xl border flex items-center justify-center transition active:scale-95 cursor-pointer shrink-0 ${isAddingTask
+              ? 'text-white border-white/30'
+              : 'bg-[#191C22] hover:bg-[#22262F] text-white border-white/5'
+              }`}
             style={isAddingTask ? { backgroundColor: themeColors.primary } : {}}
             aria-label="Aufgabe hinzufügen"
             title="Aufgabe hinzufügen"
@@ -216,11 +221,10 @@ export const TasksView: React.FC<TasksViewProps> = ({
           <button
             type="button"
             onClick={() => setIsMenuOpen((v) => !v)}
-            className={`w-11 h-11 min-h-[44px] min-w-[44px] rounded-2xl border flex items-center justify-center transition active:scale-95 cursor-pointer shrink-0 ${
-              isMenuOpen
-                ? 'bg-[#22262F] text-white border-white/20'
-                : 'bg-[#191C22] hover:bg-[#22262F] text-[#94A3B8] hover:text-white border-white/5'
-            }`}
+            className={`w-11 h-11 min-h-[44px] min-w-[44px] rounded-2xl border flex items-center justify-center transition active:scale-95 cursor-pointer shrink-0 ${isMenuOpen
+              ? 'bg-[#22262F] text-white border-white/20'
+              : 'bg-[#191C22] hover:bg-[#22262F] text-[#94A3B8] hover:text-white border-white/5'
+              }`}
             aria-label="Weitere Aufgaben-Aktionen"
             title="Weitere Optionen"
           >
@@ -287,10 +291,13 @@ export const TasksView: React.FC<TasksViewProps> = ({
           onSubmit={(e) => {
             e.preventDefault();
             if (!newTaskTitle.trim()) return;
-            const finalTitle = newTaskGroup.trim()
-              ? `[${newTaskGroup.trim()}] ${newTaskTitle.trim()}`
-              : newTaskTitle.trim();
-            onAddTask(activeProject.id, finalTitle, 'Mittel', 25);
+            onAddTask(
+              activeProject.id,
+              newTaskTitle.trim(),
+              'Mittel',
+              25,
+              newTaskGroup.trim() || undefined
+            );
             setNewTaskTitle('');
             setNewTaskGroup('');
             setIsAddingTask(false);
@@ -354,16 +361,15 @@ export const TasksView: React.FC<TasksViewProps> = ({
             <div
               key={task.id}
               id={`item-card-${task.id}`}
-              className={`rounded-2xl border transition-all duration-300 overflow-hidden shadow-sm ${
-                task.completed && !isGlowing ? 'opacity-65' : ''
-              }`}
+              className={`rounded-2xl border transition-all duration-300 overflow-hidden shadow-sm ${task.completed && !isGlowing ? 'opacity-65' : ''
+                }`}
               style={{
                 backgroundColor: '#191C22',
                 borderColor: isAnchored || highlightedItemId === task.id
                   ? themeColors.highlight
                   : isGlowing
-                  ? `${themeColors.primary}99`
-                  : 'rgba(255,255,255,0.04)',
+                    ? `${themeColors.primary}99`
+                    : 'rgba(255,255,255,0.04)',
                 boxShadow: isGlowing
                   ? `0 0 16px ${themeColors.primary}44`
                   : undefined
@@ -404,11 +410,10 @@ export const TasksView: React.FC<TasksViewProps> = ({
                   className="flex-1 min-w-0 pt-2.5 pb-1 pr-1 cursor-pointer select-none"
                 >
                   <span
-                    className={`text-base font-semibold leading-snug block break-words transition-colors duration-300 ${
-                      task.completed && !isGlowing
-                        ? 'line-through text-[#94A3B8]/60 decoration-[#94A3B8]/40'
-                        : 'text-[#F1F5F9]'
-                    }`}
+                    className={`text-base font-semibold leading-snug block break-words transition-colors duration-300 ${task.completed && !isGlowing
+                      ? 'line-through text-[#94A3B8]/60 decoration-[#94A3B8]/40'
+                      : 'text-[#F1F5F9]'
+                      }`}
                   >
                     {displayTitle}
                   </span>
@@ -432,7 +437,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
                       <span className="text-xs font-mono text-[#94A3B8]">
                         {Math.round(
                           task.estimatedMinutes *
-                            (prefs.adhdMasterEnabled && prefs.adhdTimeBufferAndHaptics ? 1.25 : 1)
+                          (prefs.adhdMasterEnabled && prefs.adhdTimeBufferAndHaptics ? 1.25 : 1)
                         )}{' '}
                         Min.
                       </span>
@@ -473,11 +478,8 @@ export const TasksView: React.FC<TasksViewProps> = ({
                           type="button"
                           onClick={() => {
                             if (!editTaskTitle.trim()) return;
-                            const finalTitle = editTaskGroup.trim()
-                              ? `[${editTaskGroup.trim()}] ${editTaskTitle.trim()}`
-                              : editTaskTitle.trim();
                             onUpdateTask?.(activeProject.id, task.id, {
-                              title: finalTitle,
+                              title: editTaskTitle.trim(),
                               assemblyGroup: editTaskGroup.trim() || undefined
                             });
                             setEditingTaskId(null);
@@ -606,11 +608,10 @@ export const TasksView: React.FC<TasksViewProps> = ({
                           });
                           toggleActionCard(task.id);
                         }}
-                        className={`min-w-0 min-h-[44px] px-3 rounded-xl text-xs font-semibold border flex items-center justify-center gap-1.5 active:scale-95 transition cursor-pointer ${
-                          isAnchored
-                            ? 'text-white border-white/20'
-                            : 'bg-[#191C22] text-[#94A3B8] hover:text-white border-white/5'
-                        }`}
+                        className={`min-w-0 min-h-[44px] px-3 rounded-xl text-xs font-semibold border flex items-center justify-center gap-1.5 active:scale-95 transition cursor-pointer ${isAnchored
+                          ? 'text-white border-white/20'
+                          : 'bg-[#191C22] text-[#94A3B8] hover:text-white border-white/5'
+                          }`}
                         style={isAnchored ? { backgroundColor: themeColors.primary } : {}}
                       >
                         <Crosshair className="w-4 h-4 shrink-0" />

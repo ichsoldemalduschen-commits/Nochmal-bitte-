@@ -1,8 +1,11 @@
 import { get, set } from 'idb-keyval';
 import {
+  AiLogEntry,
   AiVoiceSettings,
   AmbientLightMode,
   AppStateSnapshot,
+  Attachment,
+  DomainType,
   KnowledgeItem,
   Project,
   PizzaCatalogItem,
@@ -76,15 +79,58 @@ export async function requestStoragePersistence(): Promise<boolean> {
   return false;
 }
 
+function normalizeDomainValue(rawDomain: unknown): { domain: DomainType; changed: boolean } {
+  if (rawDomain === 'business' || rawDomain === 'private') {
+    return { domain: rawDomain, changed: false };
+  }
+  if (rawDomain === 'privat') {
+    return { domain: 'private', changed: true };
+  }
+  return { domain: 'business', changed: true };
+}
+
+function normalizePriorityValue(rawPriority: unknown): { priority: PriorityType; changed: boolean } {
+  if (rawPriority === 'Hoch' || rawPriority === 'Mittel' || rawPriority === 'Niedrig') {
+    return { priority: rawPriority, changed: false };
+  }
+  const lower = String(rawPriority || '').trim().toLowerCase();
+  if (lower === 'high' || lower === 'hoch') {
+    return { priority: 'Hoch', changed: true };
+  }
+  if (lower === 'low' || lower === 'niedrig') {
+    return { priority: 'Niedrig', changed: true };
+  }
+  return { priority: 'Mittel', changed: true };
+}
+
+function cleanAttachmentList(rawList: unknown): { attachments: Attachment[]; changed: boolean } {
+  if (!Array.isArray(rawList)) return { attachments: [], changed: false };
+  let changed = false;
+  const attachments: Attachment[] = rawList.map((att: any) => {
+    if (att && typeof att === 'object' && 'summaryText' in att) {
+      changed = true;
+      const { summaryText: _drop, ...rest } = att;
+      return rest as Attachment;
+    }
+    return att as Attachment;
+  });
+  return { attachments, changed };
+}
+
 /**
  * Migriert bestehende `explanations` und `infos` verlustfrei zu einheitlichen `KnowledgeItem`s.
  */
 export function normalizeProjectKnowledge(project: any): KnowledgeItem[] {
-  const existingKnowledge: KnowledgeItem[] = Array.isArray(project.knowledge) ? [...project.knowledge] : [];
+  const existingKnowledge: KnowledgeItem[] = Array.isArray(project?.knowledge)
+    ? project.knowledge.map((k: any) => ({
+        ...k,
+        attachments: cleanAttachmentList(k?.attachments).attachments
+      }))
+    : [];
   const knownIds = new Set(existingKnowledge.map((k) => k.id));
 
   // Migriere alte Explanations
-  if (Array.isArray(project.explanations)) {
+  if (Array.isArray(project?.explanations)) {
     for (const exp of project.explanations) {
       if (!exp || !exp.id || knownIds.has(exp.id)) continue;
       knownIds.add(exp.id);
@@ -93,6 +139,7 @@ export function normalizeProjectKnowledge(project: any): KnowledgeItem[] {
         kind: 'explanation',
         title: exp.title || 'Ablauf',
         content: exp.stepsText || exp.content || '',
+        stepsText: exp.stepsText || exp.content || undefined,
         attachments: [],
         lastModified: exp.lastModified || formatNow(),
         changeReason: exp.changeReason || 'Aus Abläufen migriert',
@@ -104,7 +151,7 @@ export function normalizeProjectKnowledge(project: any): KnowledgeItem[] {
   }
 
   // Migriere alte Infos
-  if (Array.isArray(project.infos)) {
+  if (Array.isArray(project?.infos)) {
     for (const inf of project.infos) {
       if (!inf || !inf.id || knownIds.has(inf.id)) continue;
       knownIds.add(inf.id);
@@ -113,7 +160,7 @@ export function normalizeProjectKnowledge(project: any): KnowledgeItem[] {
         kind: 'info',
         title: inf.title || 'Info / Notiz',
         content: inf.content || '',
-        attachments: Array.isArray(inf.attachments) ? inf.attachments : [],
+        attachments: cleanAttachmentList(inf.attachments).attachments,
         lastModified: inf.lastModified || formatNow(),
         changeReason: inf.changeReason || 'Aus Infos migriert',
         source: inf.source || 'Info',
@@ -126,65 +173,186 @@ export function normalizeProjectKnowledge(project: any): KnowledgeItem[] {
   return existingKnowledge;
 }
 
-/**
- * Normalisiert ein ganzes Projekt (inkl. knowledge & enabledTabs & neue lifecycle/businessDomain-Felder)
- */
-export function normalizeProject(project: Project): Project {
-  const knowledge = normalizeProjectKnowledge(project);
-  const enabledTabs = Array.isArray(project.enabledTabs) && project.enabledTabs.length > 0
-    ? project.enabledTabs
-    : (['tasks', 'cart', 'knowledge', 'extras'] as ('tasks' | 'cart' | 'knowledge' | 'extras')[]);
+function migrateProjectInternal(rawProject: any): { project: Project; migrated: boolean } {
+  const src = rawProject && typeof rawProject === 'object' ? rawProject : {};
+  let migrated = false;
 
-  // Abwärtskompatible Defaults für neue Felder
-  const rawDomain = (project as any).domain;
-  const domain = (rawDomain === 'privat' || rawDomain === 'private') ? 'private' : 'business';
-  const lifecycle = (project as any).lifecycle ?? (project.id === 'proj-baeckerei' ? 'project' : 'permanent');
-  const businessDomain = (project as any).businessDomain ?? (domain === 'private' ? 'private' : 'business');
-  const archived = typeof project.archived === 'boolean' ? project.archived : false;
-  const legalWatchEnabled = typeof (project as any).legalWatchEnabled === 'boolean'
-    ? (project as any).legalWatchEnabled
-    : (domain === 'business');
-  const overviewEnabled = typeof (project as any).overviewEnabled === 'boolean'
-    ? (project as any).overviewEnabled
-    : true;
+  const domainRes = normalizeDomainValue(src.domain);
+  if (domainRes.changed) migrated = true;
 
-  return {
-    ...project,
-    domain,
+  const busDomRaw = src.businessDomain;
+  const businessDomain: DomainType =
+    busDomRaw !== undefined ? normalizeDomainValue(busDomRaw).domain : domainRes.domain;
+  if (busDomRaw !== undefined && busDomRaw !== 'business' && busDomRaw !== 'private') {
+    migrated = true;
+  }
+
+  const hasLegacyKnowledgeArrays =
+    Object.prototype.hasOwnProperty.call(src, 'explanations') ||
+    Object.prototype.hasOwnProperty.call(src, 'infos');
+  if (hasLegacyKnowledgeArrays || !Array.isArray(src.knowledge)) {
+    migrated = true;
+  }
+
+  if (Array.isArray(src.knowledge)) {
+    for (const k of src.knowledge) {
+      if (cleanAttachmentList(k?.attachments).changed) migrated = true;
+    }
+  }
+  const knowledge = normalizeProjectKnowledge(src);
+
+  const rawTasks = Array.isArray(src.tasks) ? src.tasks : [];
+  const tasks: TaskItem[] = rawTasks.map((t: any) => {
+    const prioRes = normalizePriorityValue(t?.priority);
+    if (prioRes.changed) migrated = true;
+
+    const rawTitle = String(t?.title || '');
+    const bracketMatch = rawTitle.match(/^\[([^\]]+)\]\s*(.+)$/);
+    let cleanTitle = rawTitle;
+    let assemblyGroup: string | undefined =
+      typeof t?.assemblyGroup === 'string' && t.assemblyGroup.trim()
+        ? t.assemblyGroup.trim()
+        : undefined;
+
+    if (bracketMatch) {
+      migrated = true;
+      cleanTitle = bracketMatch[2].trim();
+      if (!assemblyGroup) {
+        assemblyGroup = bracketMatch[1].trim();
+      }
+    }
+
+    return {
+      ...t,
+      id: String(t?.id || `task_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`),
+      title: cleanTitle,
+      completed: Boolean(t?.completed),
+      priority: prioRes.priority,
+      estimatedMinutes: Number(t?.estimatedMinutes) || 15,
+      dayBlock: (t?.dayBlock as DayBlockId) || null,
+      reminderAt: String(t?.reminderAt || ''),
+      aiTouched: Boolean(t?.aiTouched),
+      lastModified: t?.lastModified || formatNow(),
+      changeReason: t?.changeReason || '',
+      source: t?.source || 'Manuell',
+      assemblyGroup,
+      customMeta: typeof t?.customMeta === 'object' && t.customMeta ? t.customMeta : {}
+    };
+  });
+
+  const rawCart = Array.isArray(src.cart) ? src.cart : [];
+  const cart: CartItem[] = rawCart.map((c: any) => ({
+    ...c,
+    id: String(c?.id || `cart_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`),
+    title: String(c?.title || ''),
+    quantity: String(c?.quantity || '1x'),
+    price: String(c?.price || ''),
+    completed: Boolean(c?.completed),
+    boughtAt: c?.boughtAt || undefined,
+    aiTouched: Boolean(c?.aiTouched),
+    lastModified: c?.lastModified || formatNow(),
+    changeReason: c?.changeReason || '',
+    source: c?.source || 'Manuell',
+    customMeta: typeof c?.customMeta === 'object' && c.customMeta ? c.customMeta : {}
+  }));
+
+  const enabledTabs =
+    Array.isArray(src.enabledTabs) && src.enabledTabs.length > 0
+      ? src.enabledTabs
+      : (['tasks', 'cart', 'knowledge', 'extras'] as ('tasks' | 'cart' | 'knowledge' | 'extras')[]);
+
+  const lifecycle = src.lifecycle ?? (src.id === 'proj-baeckerei' ? 'project' : 'permanent');
+  const archived = typeof src.archived === 'boolean' ? src.archived : false;
+  const legalWatchEnabled =
+    typeof src.legalWatchEnabled === 'boolean'
+      ? src.legalWatchEnabled
+      : domainRes.domain === 'business';
+  const overviewEnabled = typeof src.overviewEnabled === 'boolean' ? src.overviewEnabled : true;
+
+  const { explanations: _dropExp, infos: _dropInfo, ...cleanRest } = src;
+
+  const project: Project = {
+    ...cleanRest,
+    id: String(src.id || `proj_${Date.now()}`),
+    domain: domainRes.domain,
     lifecycle,
     businessDomain,
+    name: String(src.name || 'Unbenanntes Projekt'),
+    subtitle: String(src.subtitle || ''),
+    icon: String(src.icon || 'FolderKanban'),
+    customLogoUrl: src.customLogoUrl ?? null,
+    accentColor: String(src.accentColor || '#0D9488'),
     archived,
     legalWatchEnabled,
     overviewEnabled,
+    customMeta: typeof src.customMeta === 'object' && src.customMeta ? src.customMeta : {},
+    enabledPlugins: Array.isArray(src.enabledPlugins) ? src.enabledPlugins : [],
     enabledTabs,
+    tasks,
     knowledge,
-    // Alte Arrays für eventuelle Abwärtskompatibilität als gespiegelte Kopien beibehalten
-    explanations: knowledge
-      .filter((k) => k.kind === 'explanation')
-      .map((k) => ({
-        id: k.id,
-        title: k.title,
-        stepsText: k.content,
-        lastModified: k.lastModified,
-        changeReason: k.changeReason,
-        source: k.source,
-        aiTouched: k.aiTouched,
-        customMeta: k.customMeta
-      })),
-    infos: knowledge
-      .filter((k) => k.kind !== 'explanation')
-      .map((k) => ({
-        id: k.id,
-        title: k.title,
-        content: k.content,
-        attachments: k.attachments || [],
-        lastModified: k.lastModified,
-        changeReason: k.changeReason,
-        source: k.source,
-        aiTouched: k.aiTouched,
-        customMeta: k.customMeta
-      }))
+    cart
   };
+
+  return { project, migrated };
+}
+
+/**
+ * Idempotente Einzelprojekt-Migration auf das Ziel-Datenmodell v2
+ */
+export function migrateProject(rawProject: any): Project {
+  return migrateProjectInternal(rawProject).project;
+}
+
+/**
+ * Normalisiert ein ganzes Projekt auf Zielschema v2 (Alias für migrateProject)
+ */
+export function normalizeProject(project: Project): Project {
+  return migrateProject(project);
+}
+
+/**
+ * Reine, idempotente Zustandsmigration auf schemaVersion: 2
+ */
+export function migrateAppState(raw: unknown): { state: AppStateSnapshot; migrated: boolean } {
+  const src = (raw && typeof raw === 'object' ? raw : {}) as Record<string, any>;
+  let migrated = src.schemaVersion !== 2;
+
+  const rawProjects = Array.isArray(src.projects) ? src.projects : [];
+  const projects: Project[] = rawProjects.map((p: any) => {
+    const res = migrateProjectInternal(p);
+    if (res.migrated) migrated = true;
+    return res.project;
+  });
+
+  const rawLogs = Array.isArray(src.aiLogs) ? src.aiLogs : [];
+  const aiLogs: AiLogEntry[] = rawLogs.map((log: any) => {
+    const actions = Array.isArray(log?.actions)
+      ? log.actions.map((act: any) => {
+          if (act?.targetSubTab === 'explanations' || act?.targetSubTab === 'infos') {
+            migrated = true;
+            return { ...act, targetSubTab: 'knowledge' };
+          }
+          return act;
+        })
+      : [];
+    return { ...log, actions };
+  });
+
+  const state: AppStateSnapshot = {
+    ...(src as AppStateSnapshot),
+    schemaVersion: 2,
+    projects,
+    aiLogs,
+    selfChecks: Array.isArray(src.selfChecks) ? src.selfChecks : [],
+    eventSalesLogs: Array.isArray(src.eventSalesLogs) ? src.eventSalesLogs : [],
+    userApiKey: typeof src.userApiKey === 'string' ? src.userApiKey : '',
+    realityCheckEnabled:
+      typeof src.realityCheckEnabled === 'boolean' ? src.realityCheckEnabled : true,
+    haWebhookUrl: typeof src.haWebhookUrl === 'string' ? src.haWebhookUrl : '',
+    haEmbedUrl: typeof src.haEmbedUrl === 'string' ? src.haEmbedUrl : ''
+  };
+
+  return { state, migrated };
 }
 
 /**
@@ -334,7 +502,7 @@ export function getIdbItemSync<T>(key: string, defaultValue: T): T {
 }
 
 /**
- * Lädt den Haupt-Snapshot aus IDB und migriert alle Projekte automatisch
+ * Lädt den Haupt-Snapshot aus IDB und migriert alle Projekte automatisch auf schemaVersion 2
  */
 export async function loadPersistedState(
   defaultSeed: AppStateSnapshot
@@ -342,14 +510,18 @@ export async function loadPersistedState(
   try {
     const stored = await get<AppStateSnapshot>(IDB_STATE_KEY);
     if (stored && Array.isArray(stored.projects) && stored.projects.length > 0) {
-      const normalizedProjects = stored.projects.map(normalizeProject);
-      return {
+      const { state: migratedStored, migrated } = migrateAppState(stored);
+      const finalState: AppStateSnapshot = {
         ...defaultSeed,
-        ...stored,
+        ...migratedStored,
+        schemaVersion: 2,
         thumbHubEnabled: typeof (stored as any).thumbHubEnabled === 'boolean' ? (stored as any).thumbHubEnabled : true,
-        thumbHubPosition: (stored as any).thumbHubPosition || 'center',
-        projects: normalizedProjects
+        thumbHubPosition: (stored as any).thumbHubPosition || 'center'
       };
+      if (migrated || (stored as any).schemaVersion !== 2) {
+        await savePersistedState(finalState);
+      }
+      return finalState;
     }
   } catch {
     try {
@@ -357,14 +529,18 @@ export async function loadPersistedState(
       if (raw) {
         const parsed = JSON.parse(raw) as AppStateSnapshot;
         if (parsed && Array.isArray(parsed.projects)) {
-          const normalizedProjects = parsed.projects.map(normalizeProject);
-          return {
+          const { state: migratedParsed, migrated } = migrateAppState(parsed);
+          const finalState: AppStateSnapshot = {
             ...defaultSeed,
-            ...parsed,
+            ...migratedParsed,
+            schemaVersion: 2,
             thumbHubEnabled: typeof (parsed as any).thumbHubEnabled === 'boolean' ? (parsed as any).thumbHubEnabled : true,
-            thumbHubPosition: (parsed as any).thumbHubPosition || 'center',
-            projects: normalizedProjects
+            thumbHubPosition: (parsed as any).thumbHubPosition || 'center'
           };
+          if (migrated || (parsed as any).schemaVersion !== 2) {
+            await savePersistedState(finalState);
+          }
+          return finalState;
         }
       }
     } catch {
@@ -372,12 +548,12 @@ export async function loadPersistedState(
     }
   }
 
-  const normalizedSeedProjects = defaultSeed.projects.map(normalizeProject);
+  const { state: migratedSeed } = migrateAppState(defaultSeed);
   return {
-    ...defaultSeed,
+    ...migratedSeed,
+    schemaVersion: 2,
     thumbHubEnabled: true,
-    thumbHubPosition: 'center',
-    projects: normalizedSeedProjects
+    thumbHubPosition: 'center'
   };
 }
 
@@ -391,18 +567,6 @@ export async function savePersistedState(snapshot: AppStateSnapshot): Promise<vo
       // Speicherlimit erreicht
     }
   }
-}
-
-export function downloadStateBackupJson(snapshot: AppStateSnapshot): void {
-  const blob = new Blob([JSON.stringify(snapshot, null, 2)], {
-    type: 'application/json;charset=utf-8'
-  });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `nexusflow-backup-${new Date().toISOString().slice(0, 10)}.json`;
-  a.click();
-  URL.revokeObjectURL(url);
 }
 
 export const migrateLocalStorageToIDB = migrateLocalStorageToIndexedDB;
@@ -795,25 +959,28 @@ export async function importFullBackupV2(
   const isV2 = raw?.backupVersion === 2;
 
   // Extract appState
-  const appState: AppStateSnapshot = isV2 ? raw.appState : raw;
+  const rawAppState: AppStateSnapshot = isV2 ? raw.appState : raw;
 
-  if (!appState || !Array.isArray(appState.projects)) {
+  if (!rawAppState || !Array.isArray(rawAppState.projects)) {
     throw new Error('Ungültiges Backup-Format: keine Projekte gefunden.');
   }
+
+  const { state: migratedAppState } = migrateAppState(rawAppState);
 
   // Merge with current state (do not overwrite userApiKey if not present in backup)
   const mergedState: AppStateSnapshot = {
     ...currentSnapshot,
-    ...appState,
-    projects: appState.projects,
-    aiLogs: Array.isArray(appState.aiLogs) ? appState.aiLogs : currentSnapshot.aiLogs,
-    selfChecks: Array.isArray(appState.selfChecks) ? appState.selfChecks : currentSnapshot.selfChecks,
-    eventSalesLogs: Array.isArray(appState.eventSalesLogs) ? appState.eventSalesLogs : currentSnapshot.eventSalesLogs,
-    userApiKey: appState.userApiKey || currentSnapshot.userApiKey,
-    thumbHubEnabled: typeof appState.thumbHubEnabled === 'boolean' ? appState.thumbHubEnabled : currentSnapshot.thumbHubEnabled,
-    thumbHubPosition: appState.thumbHubPosition || currentSnapshot.thumbHubPosition,
-    ambientLightMode: appState.ambientLightMode || currentSnapshot.ambientLightMode,
-    aiVoiceSettings: appState.aiVoiceSettings || currentSnapshot.aiVoiceSettings,
+    ...migratedAppState,
+    schemaVersion: 2,
+    projects: migratedAppState.projects,
+    aiLogs: Array.isArray(migratedAppState.aiLogs) ? migratedAppState.aiLogs : currentSnapshot.aiLogs,
+    selfChecks: Array.isArray(migratedAppState.selfChecks) ? migratedAppState.selfChecks : currentSnapshot.selfChecks,
+    eventSalesLogs: Array.isArray(migratedAppState.eventSalesLogs) ? migratedAppState.eventSalesLogs : currentSnapshot.eventSalesLogs,
+    userApiKey: migratedAppState.userApiKey || currentSnapshot.userApiKey,
+    thumbHubEnabled: typeof migratedAppState.thumbHubEnabled === 'boolean' ? migratedAppState.thumbHubEnabled : currentSnapshot.thumbHubEnabled,
+    thumbHubPosition: migratedAppState.thumbHubPosition || currentSnapshot.thumbHubPosition,
+    ambientLightMode: migratedAppState.ambientLightMode || currentSnapshot.ambientLightMode,
+    aiVoiceSettings: migratedAppState.aiVoiceSettings || currentSnapshot.aiVoiceSettings,
   };
 
   // Restore v2-only stores to IDB
@@ -856,6 +1023,8 @@ export async function importFullBackupV2(
   };
 }
 
+export const importFullBackup = importFullBackupV2;
+
 // ── 1-Klick-Projekt-JSON-Import (an Zielprojekt anhängen) ────────────────────
 
 export function importProjectJsonToTarget(
@@ -866,63 +1035,68 @@ export function importProjectJsonToTarget(
     throw new Error('Ungültiges Projekt-JSON: Kein Objekt.');
   }
 
-  const rawTasks = Array.isArray(raw.tasks) ? raw.tasks : [];
-  const rawCart = Array.isArray(raw.cart) ? raw.cart : [];
-  const rawKnowledge = Array.isArray(raw.knowledge) ? raw.knowledge : [];
+  const migratedIncoming = migrateProject({
+    ...raw,
+    id: raw.id || targetProject.id,
+    name: raw.name || targetProject.name,
+    subtitle: raw.subtitle || targetProject.subtitle,
+    icon: raw.icon || targetProject.icon,
+    accentColor: raw.accentColor || targetProject.accentColor,
+    tasks: Array.isArray(raw.tasks)
+      ? raw.tasks.map((t: any) => ({
+          ...t,
+          title: String(t?.title || 'Importierte Aufgabe'),
+          lastModified: t?.lastModified || new Date().toISOString(),
+          changeReason: t?.changeReason || 'Projekt-JSON-Import',
+          source: t?.source || 'Import'
+        }))
+      : [],
+    cart: Array.isArray(raw.cart)
+      ? raw.cart.map((c: any) => ({
+          ...c,
+          title: String(c?.title || 'Importierter Artikel'),
+          quantity: String(c?.quantity || '1 Stk'),
+          lastModified: c?.lastModified || new Date().toISOString(),
+          changeReason: c?.changeReason || 'Projekt-JSON-Import',
+          source: c?.source || 'Import'
+        }))
+      : [],
+    knowledge: Array.isArray(raw.knowledge)
+      ? raw.knowledge.map((k: any) => ({
+          ...k,
+          title: String(k?.title || 'Importierter Wissens-Eintrag'),
+          lastModified: k?.lastModified || new Date().toISOString(),
+          changeReason: k?.changeReason || 'Projekt-JSON-Import',
+          source: k?.source || 'Import'
+        }))
+      : []
+  });
 
   const existingTaskIds = new Set((targetProject.tasks || []).map((t) => t.id));
   const existingCartIds = new Set((targetProject.cart || []).map((c) => c.id));
   const existingKnowledgeIds = new Set((targetProject.knowledge || []).map((k) => k.id));
 
-  const newTasks: TaskItem[] = rawTasks.map((t: any) => ({
-    id: t.id && !existingTaskIds.has(t.id) ? t.id : `task_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-    title: String(t.title || 'Importierte Aufgabe'),
-    completed: Boolean(t.completed),
-    priority: (t.priority as PriorityType) || 'Mittel',
-    estimatedMinutes: Number(t.estimatedMinutes) || 15,
-    dayBlock: (t.dayBlock as DayBlockId) || null,
-    reminderAt: String(t.reminderAt || ''),
-    aiTouched: Boolean(t.aiTouched),
-    lastModified: t.lastModified || new Date().toISOString(),
-    changeReason: t.changeReason || 'Projekt-JSON-Import',
-    source: t.source || 'Import',
-    customMeta: typeof t.customMeta === 'object' && t.customMeta ? t.customMeta : {}
+  const newTasks: TaskItem[] = migratedIncoming.tasks.map((t) => ({
+    ...t,
+    id: t.id && !existingTaskIds.has(t.id) ? t.id : `task_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
   }));
 
-  const newCart: CartItem[] = rawCart.map((c: any) => ({
-    id: c.id && !existingCartIds.has(c.id) ? c.id : `cart_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-    title: String(c.title || 'Importierter Artikel'),
-    quantity: String(c.quantity || '1 Stk'),
-    price: String(c.price || ''),
-    completed: Boolean(c.completed),
-    boughtAt: c.boughtAt || undefined,
-    aiTouched: Boolean(c.aiTouched),
-    lastModified: c.lastModified || new Date().toISOString(),
-    changeReason: c.changeReason || 'Projekt-JSON-Import',
-    source: c.source || 'Import',
-    customMeta: typeof c.customMeta === 'object' && c.customMeta ? c.customMeta : {}
+  const newCart: CartItem[] = migratedIncoming.cart.map((c) => ({
+    ...c,
+    id: c.id && !existingCartIds.has(c.id) ? c.id : `cart_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
   }));
 
-  const newKnowledge: KnowledgeItem[] = rawKnowledge.map((k: any) => ({
-    id: k.id && !existingKnowledgeIds.has(k.id) ? k.id : `know_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-    kind: (k.kind as KnowledgeKind) || 'info',
-    title: String(k.title || 'Importierter Wissens-Eintrag'),
-    content: String(k.content || ''),
-    stepsText: k.stepsText || undefined,
-    attachments: Array.isArray(k.attachments) ? k.attachments : [],
-    lastModified: k.lastModified || new Date().toISOString(),
-    changeReason: k.changeReason || 'Projekt-JSON-Import',
-    source: k.source || 'Import',
-    aiTouched: Boolean(k.aiTouched),
-    customMeta: typeof k.customMeta === 'object' && k.customMeta ? k.customMeta : {}
+  const newKnowledge: KnowledgeItem[] = migratedIncoming.knowledge.map((k) => ({
+    ...k,
+    id: k.id && !existingKnowledgeIds.has(k.id) ? k.id : `know_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
   }));
 
-  const updatedProject: Project = {
+  const updatedProject = migrateProject({
     ...targetProject,
     tasks: [...(targetProject.tasks || []), ...newTasks],
     cart: [...(targetProject.cart || []), ...newCart],
-    knowledge: [...(targetProject.knowledge || []), ...newKnowledge],
-  };
+    knowledge: [...(targetProject.knowledge || []), ...newKnowledge]
+  });
 
   return {
     updatedProject,

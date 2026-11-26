@@ -83,8 +83,7 @@ export const SingleFocusOverlay: React.FC<SingleFocusOverlayProps> = ({
   const handleComplete = () => {
     if (!currentTask) return;
     const completedTaskId = currentTask.id;
-    const bracketMatch = currentTask.title.match(/^\[(.*?)\]\s*(.*)$/);
-    const titleToDisplay = bracketMatch ? bracketMatch[2] : currentTask.title;
+    const titleToDisplay = currentTask.title;
 
     onToggleTask(activeProject.id, completedTaskId);
 
@@ -108,9 +107,8 @@ export const SingleFocusOverlay: React.FC<SingleFocusOverlayProps> = ({
     }
   };
 
-  const bracketMatch = currentTask?.title.match(/^\[(.*?)\]\s*(.*)$/);
-  const displayTitle = bracketMatch ? bracketMatch[2] : currentTask?.title;
-  const displayGroup = currentTask?.assemblyGroup || (bracketMatch ? bracketMatch[1] : null);
+  const displayTitle = currentTask?.title;
+  const displayGroup = currentTask?.assemblyGroup || null;
 
   return (
     <div

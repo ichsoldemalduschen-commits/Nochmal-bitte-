@@ -52,7 +52,7 @@ export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({
   onOpenFloatingCart,
   isTabEnabled
 }) => {
-  const renderProjectList = (projects: Project[], domainColorKey: 'arbeit' | 'privat') => {
+  const renderProjectList = (projects: Project[], domainColorKey: 'business' | 'private') => {
     const getFirstActiveTab = (p: Project): ProjectTabId => {
       const tabs = p.enabledTabs || ['tasks', 'cart', 'knowledge', 'extras'];
       if (tabs.includes('tasks')) return 'tasks';
@@ -139,17 +139,12 @@ export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({
                   type="button"
                   onClick={() => onSelectProjectAndSection(proj, 'knowledge')}
                   className={`min-h-[44px] px-3 py-2 rounded-xl text-xs font-semibold text-left flex items-center justify-between ${!viewAllSections &&
-                    (activeTab === 'knowledge' ||
-                      activeTab === 'explanations' ||
-                      activeTab === 'infos')
+                    activeTab === 'knowledge'
                     ? 'text-white'
                     : 'bg-[#242930] text-[#9CA3AF] hover:text-white'
                     }`}
                   style={
-                    !viewAllSections &&
-                      (activeTab === 'knowledge' ||
-                        activeTab === 'explanations' ||
-                        activeTab === 'infos')
+                    !viewAllSections && activeTab === 'knowledge'
                       ? { backgroundColor: pColor }
                       : {}
                   }
@@ -295,7 +290,7 @@ export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({
             <div className="text-xs font-bold uppercase tracking-widest text-[#9CA3AF] px-1">
               ARBEIT
             </div>
-            {renderProjectList(workProjects, 'arbeit')}
+            {renderProjectList(workProjects, 'business')}
           </div>
 
           {/* PRIVAT */}
@@ -303,7 +298,7 @@ export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({
             <div className="text-xs font-bold uppercase tracking-widest text-[#9CA3AF] px-1">
               PRIVAT
             </div>
-            {renderProjectList(privateProjects, 'privat')}
+            {renderProjectList(privateProjects, 'private')}
           </div>
         </div>
 

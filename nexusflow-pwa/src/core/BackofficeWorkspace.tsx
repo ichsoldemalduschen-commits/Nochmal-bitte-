@@ -32,12 +32,9 @@ import {
   X
 } from 'lucide-react';
 import {
-  AiExecutedAction,
-  AiLogEntry,
   AiVoiceSettings,
   AmbientLightMode,
   AppStateSnapshot,
-  BackofficeTabId,
   DayBlockId,
   EventSalesLog,
   Project,
@@ -101,9 +98,7 @@ const BLUEPRINT_STORAGE_KEY = 'banditos_blueprints_v3';
 export type ZentraleSectionId = 'projects' | 'focus' | 'ai' | 'system';
 
 interface BackofficeWorkspaceProps {
-  activeTab: BackofficeTabId;
   projects: Project[];
-  aiLogs: AiLogEntry[];
   selfChecks: SelfCheckEntry[];
   eventSalesLogs: EventSalesLog[];
   userApiKey: string;
@@ -111,11 +106,7 @@ interface BackofficeWorkspaceProps {
   haWebhookUrl: string;
   haEmbedUrl: string;
   initialSection?: ZentraleSectionId | null;
-  onChangeTab: (tab: BackofficeTabId) => void;
   onCloseBackoffice: () => void;
-  onJumpToAction: (act: AiExecutedAction) => void;
-  onUndoAiAction: (logId: string, actionId: string) => void;
-  onMoveAiAction: (logId: string, actionId: string, newProjectId: string) => void;
   onToggleArchiveProject: (projectId: string) => void;
   onUpdateProject?: (projectId: string, patch: Partial<Project>) => void;
   onAssignDayBlock: (projectId: string, taskId: string, block: DayBlockId | null) => void;
@@ -508,7 +499,7 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
               {projects.map((proj) => {
                 const currentTabs = proj.enabledTabs || ['tasks', 'cart', 'knowledge', 'extras'];
                 const isExpanded = !!expandedProjectIds[proj.id];
-                const isPrivate = proj.domain === 'privat' || proj.domain === 'private';
+                const isPrivate = proj.domain === 'private';
                 const isPermanent = proj.lifecycle !== 'project';
                 const modules: Array<{ id: 'tasks' | 'cart' | 'knowledge' | 'extras'; label: string }> = [
                   { id: 'tasks', label: 'Tasks' },

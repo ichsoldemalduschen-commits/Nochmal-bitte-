@@ -7,7 +7,6 @@ import {
   AmbientLightMode,
   AppStateSnapshot,
   Attachment,
-  BackofficeTabId,
   CartItem,
   DomainType,
   KnowledgeItem,
@@ -21,7 +20,6 @@ import { BRAND_CONFIG } from './config/brandConfig';
 import { INITIAL_APP_SNAPSHOT } from './data/pizzaBanditTsaSeed';
 import {
   DEFAULT_AI_VOICE_SETTINGS,
-  downloadStateBackupJson,
   downloadFullBackupV2,
   formatNow,
   loadAiVoiceSettings,
@@ -36,7 +34,6 @@ import {
   saveThumbHubPosition,
   loadAmbientLightMode,
   saveAmbientLightMode,
-  normalizeProjectKnowledge,
   STORAGE_KEYS
 } from './services/storage';
 import {
@@ -94,11 +91,10 @@ export default function App() {
   const [hydrated, setHydrated] = useState(false);
 
   const [isBackoffice, setIsBackoffice] = useState(false);
-  const [backofficeTab, setBackofficeTab] = useState<BackofficeTabId>('analytics');
   const [zentraleSection, setZentraleSection] = useState<ZentraleSectionId | null>(null);
   const [flip7CoverMode, setFlip7CoverMode] = useState<boolean>(isCoverScreenEnvironment);
 
-  const [activeDomain, setActiveDomain] = useState<DomainType>('arbeit');
+  const [activeDomain, setActiveDomain] = useState<DomainType>('business');
   const [selectedProjectId, setSelectedProjectId] = useState<string>(BRAND_CONFIG.defaultProjectId);
   const [activeProjectTab, setActiveProjectTab] = useState<ProjectTabId>('tasks');
   const [highlightedItemId, setHighlightedItemId] = useState<string | null>(null);
@@ -225,8 +221,7 @@ export default function App() {
           enabledTabs: (Array.isArray(p.enabledTabs) && p.enabledTabs.length > 0
             ? (p.enabledTabs as ('tasks' | 'cart' | 'knowledge' | 'extras')[])
             : ['tasks', 'cart', 'knowledge', 'extras']) as ('tasks' | 'cart' | 'knowledge' | 'extras')[],
-          explanations: p.explanations || [],
-          infos: p.infos || []
+          knowledge: Array.isArray(p.knowledge) ? p.knowledge : []
         };
       });
 
@@ -234,6 +229,7 @@ export default function App() {
       setState({
         ...INITIAL_APP_SNAPSHOT,
         ...loaded,
+        schemaVersion: 2,
         ambientLightMode: savedAmbientMode || (loaded as any).ambientLightMode || 'shimmer',
         thumbHubEnabled: typeof (loaded as any).thumbHubEnabled === 'boolean' ? (loaded as any).thumbHubEnabled : true,
         thumbHubPosition: (loaded as any).thumbHubPosition || 'center',
@@ -267,7 +263,7 @@ export default function App() {
     }
   };
 
-  const isPrivateDomain = (d?: string) => d === 'privat' || d === 'private';
+  const isPrivateDomain = (d?: DomainType) => d === 'private';
 
   const domainProjects = useMemo(
     () => state.projects.filter((p) => !p.archived && isPrivateDomain(p.domain) === isPrivateDomain(activeDomain)),
@@ -299,7 +295,7 @@ export default function App() {
       };
     }
     return {
-      primary: BRAND_CONFIG.domainColors.arbeit,
+      primary: BRAND_CONFIG.domainColors.business.primary,
       highlight: '#14B8A6',
       glow: 'rgba(10, 147, 150, 0.4)'
     };
@@ -398,7 +394,14 @@ export default function App() {
     updateProject(projId, (p) => ({
       ...p,
       cart: p.cart.map((c) =>
-        c.id === cartId ? { ...c, completed: !c.completed, lastModified: ts } : c
+        c.id === cartId
+          ? {
+              ...c,
+              completed: !c.completed,
+              boughtAt: !c.completed ? new Date().toISOString() : undefined,
+              lastModified: ts
+            }
+          : c
       )
     }));
   };
@@ -438,7 +441,7 @@ export default function App() {
 
   const handleConfirmRedDot = (
     projId: string,
-    section: 'tasks' | 'explanations' | 'infos' | 'cart' | 'knowledge',
+    section: 'tasks' | 'cart' | 'knowledge',
     itemId: string
   ) => {
     const ts = formatNow();
@@ -491,37 +494,14 @@ export default function App() {
           const nextK = (p.knowledge || []).filter((k) => k.id !== itemId);
           return {
             ...p,
-            knowledge: nextK,
-            explanations: (p.explanations || []).filter((e) => e.id !== itemId),
-            infos: (p.infos || []).filter((i) => i.id !== itemId)
+            knowledge: nextK
           };
         }
         if (p.id === toProjId) {
           const nextK = [{ ...itemToMove, lastModified: ts, changeReason: 'Verschoben' }, ...(p.knowledge || [])];
           return {
             ...p,
-            knowledge: nextK,
-            explanations: nextK.filter((k) => k.kind === 'explanation').map((k) => ({
-              id: k.id,
-              title: k.title,
-              stepsText: k.content,
-              lastModified: k.lastModified,
-              changeReason: k.changeReason,
-              source: k.source,
-              aiTouched: k.aiTouched,
-              customMeta: k.customMeta
-            })),
-            infos: nextK.filter((k) => k.kind !== 'explanation').map((k) => ({
-              id: k.id,
-              title: k.title,
-              content: k.content,
-              attachments: k.attachments || [],
-              lastModified: k.lastModified,
-              changeReason: k.changeReason,
-              source: k.source,
-              aiTouched: k.aiTouched,
-              customMeta: k.customMeta
-            }))
+            knowledge: nextK
           };
         }
         return p;
@@ -557,17 +537,6 @@ export default function App() {
         aiTouched: true,
         customMeta: {}
       };
-      const newInfo = {
-        id: newK.id,
-        title: newK.title,
-        content: markdownContent,
-        attachments: [],
-        lastModified: formatNow(),
-        changeReason: 'Deep Research Beleg',
-        source: 'KI-Recherche',
-        aiTouched: true,
-        customMeta: {}
-      };
       const newTasks: TaskItem[] = (followUpTasks || []).map((tText, idx) => ({
         id: `task-dossier-${Date.now()}-${idx}`,
         title: enforceMaxSixWords(tText, 'Recherche To-do'),
@@ -586,7 +555,6 @@ export default function App() {
       return {
         ...p,
         knowledge: [newK, ...(p.knowledge || [])],
-        infos: [newInfo, ...p.infos],
         tasks: [...newTasks, ...p.tasks]
       };
     });
@@ -616,6 +584,7 @@ export default function App() {
           updatedCart[foundIdx] = {
             ...updatedCart[foundIdx],
             completed: true,
+            boughtAt: updatedCart[foundIdx].boughtAt || new Date().toISOString(),
             price: item.price ? `${item.price} €` : updatedCart[foundIdx].price,
             lastModified: formatNow(),
             changeReason: `Kassenbon ${storeName} (${purchaseDate})`
@@ -631,6 +600,7 @@ export default function App() {
         quantity: item.quantity || '1x',
         price: item.price ? `${item.price} €` : '',
         completed: true,
+        boughtAt: new Date().toISOString(),
         lastModified: formatNow(),
         changeReason: `Aus Kassenbon ${storeName}`,
         source: 'Beleg-Scanner',
@@ -655,23 +625,10 @@ export default function App() {
         customMeta: { totalAmount, storeName, purchaseDate }
       };
 
-      const receiptInfo = {
-        id: receiptK.id,
-        title: receiptK.title,
-        content: receiptContent,
-        attachments: [],
-        lastModified: formatNow(),
-        changeReason: 'Kassenbon gescannt & abgeglichen',
-        source: 'Beleg-Scanner',
-        aiTouched: true,
-        customMeta: { totalAmount, storeName, purchaseDate }
-      };
-
       return {
         ...p,
         knowledge: [receiptK, ...(p.knowledge || [])],
-        cart: [...newCartItems, ...updatedCart],
-        infos: [receiptInfo, ...p.infos]
+        cart: [...newCartItems, ...updatedCart]
       };
     });
     notify(`Kassenbon (${totalAmount} €) verbucht & Einkaufswagen abgeglichen!`);
@@ -705,37 +662,10 @@ export default function App() {
         customMeta: {}
       };
       const nextKnowledge = [newItem, ...(p.knowledge || [])];
-      const nextExplanations = kind === 'explanation'
-        ? [{
-          id: newItem.id,
-          title,
-          stepsText: content,
-          lastModified: ts,
-          changeReason: 'Manuell erstellt',
-          source: 'Manuell' as const,
-          aiTouched: false,
-          customMeta: {}
-        }, ...p.explanations]
-        : p.explanations;
-      const nextInfos = kind !== 'explanation'
-        ? [{
-          id: newItem.id,
-          title,
-          content,
-          attachments: attachments || [],
-          lastModified: ts,
-          changeReason: 'Manuell erstellt',
-          source: 'Manuell' as const,
-          aiTouched: false,
-          customMeta: {}
-        }, ...p.infos]
-        : p.infos;
 
       return {
         ...p,
-        knowledge: nextKnowledge,
-        explanations: nextExplanations,
-        infos: nextInfos
+        knowledge: nextKnowledge
       };
     });
     notify(kind === 'explanation' ? 'Ablauf angelegt.' : 'Wissen/Info angelegt.');
@@ -761,17 +691,9 @@ export default function App() {
           }
           : k
       );
-      const nextExplanations = p.explanations.map((e) =>
-        e.id === itemId ? { ...e, title, stepsText: content, lastModified: ts, changeReason: 'Bearbeitet' } : e
-      );
-      const nextInfos = p.infos.map((i) =>
-        i.id === itemId ? { ...i, title, content, lastModified: ts, changeReason: 'Bearbeitet' } : i
-      );
       return {
         ...p,
-        knowledge: nextKnowledge,
-        explanations: nextExplanations,
-        infos: nextInfos
+        knowledge: nextKnowledge
       };
     });
     notify('Eintrag aktualisiert.');
@@ -780,9 +702,7 @@ export default function App() {
   const handleDeleteKnowledge = (projectId: string, knowledgeId: string) => {
     updateProject(projectId, (p) => ({
       ...p,
-      knowledge: (p.knowledge || []).filter((k) => k.id !== knowledgeId),
-      explanations: (p.explanations || []).filter((e) => e.id !== knowledgeId),
-      infos: (p.infos || []).filter((i) => i.id !== knowledgeId)
+      knowledge: (p.knowledge || []).filter((k) => k.id !== knowledgeId)
     }));
   };
 
@@ -792,10 +712,7 @@ export default function App() {
     insertIndex?: number
   ) => {
     updateProject(projectId, (p) => {
-      const baseKnowledge =
-        Array.isArray(p.knowledge) && p.knowledge.length > 0
-          ? p.knowledge
-          : normalizeProjectKnowledge(p);
+      const baseKnowledge = Array.isArray(p.knowledge) ? p.knowledge : [];
       const currentKnowledge = baseKnowledge.filter((k) => k.id !== item.id);
       const idx =
         typeof insertIndex === 'number' && insertIndex >= 0 && insertIndex <= currentKnowledge.length
@@ -806,44 +723,9 @@ export default function App() {
         item,
         ...currentKnowledge.slice(idx)
       ];
-      const nextExplanations =
-        item.kind === 'explanation'
-          ? [
-            {
-              id: item.id,
-              title: item.title,
-              stepsText: item.stepsText ?? item.content,
-              lastModified: item.lastModified,
-              changeReason: item.changeReason,
-              source: item.source,
-              aiTouched: item.aiTouched,
-              customMeta: item.customMeta || {}
-            },
-            ...(p.explanations || []).filter((e) => e.id !== item.id)
-          ]
-          : p.explanations || [];
-      const nextInfos =
-        item.kind !== 'explanation'
-          ? [
-            {
-              id: item.id,
-              title: item.title,
-              content: item.content,
-              attachments: item.attachments || [],
-              lastModified: item.lastModified,
-              changeReason: item.changeReason,
-              source: item.source,
-              aiTouched: item.aiTouched,
-              customMeta: item.customMeta || {}
-            },
-            ...(p.infos || []).filter((i) => i.id !== item.id)
-          ]
-          : p.infos || [];
       return {
         ...p,
-        knowledge: nextKnowledge,
-        explanations: nextExplanations,
-        infos: nextInfos
+        knowledge: nextKnowledge
       };
     });
   };
@@ -875,16 +757,6 @@ export default function App() {
               changeReason: `Foto ${file.name} komprimiert gespeichert`
             }
             : k
-        ),
-        infos: p.infos.map((inf) =>
-          inf.id === itemId
-            ? {
-              ...inf,
-              attachments: [...inf.attachments, newAtt],
-              lastModified: formatNow(),
-              changeReason: `Foto ${file.name} komprimiert gespeichert`
-            }
-            : inf
         )
       }));
       notify(`Foto "${file.name}" (${sizeKB}) gespeichert.`);
@@ -915,16 +787,6 @@ export default function App() {
               changeReason: `Anhang ${file.name}`
             }
             : k
-        ),
-        infos: p.infos.map((inf) =>
-          inf.id === itemId
-            ? {
-              ...inf,
-              attachments: [...inf.attachments, newAtt],
-              lastModified: formatNow(),
-              changeReason: `Anhang ${file.name}`
-            }
-            : inf
         )
       }));
       notify(`Datei "${file.name}" gespeichert.`);
@@ -958,8 +820,6 @@ export default function App() {
         const nextProjects = prev.projects.map((p) => ({
           ...p,
           tasks: [...p.tasks],
-          explanations: [...p.explanations],
-          infos: [...p.infos],
           knowledge: [...(p.knowledge || [])],
           cart: [...p.cart]
         }));
@@ -997,30 +857,6 @@ export default function App() {
               customMeta: {}
             };
             target.knowledge.unshift(kItem);
-            if (kKind === 'explanation') {
-              target.explanations.unshift({
-                id: itemId,
-                title: safeTitle,
-                stepsText: act.detailedExplanation || rawText,
-                lastModified: timestamp,
-                changeReason: safeNote,
-                source: 'KI-Zuordnung',
-                aiTouched: true,
-                customMeta: {}
-              });
-            } else {
-              target.infos.unshift({
-                id: itemId,
-                title: safeTitle,
-                content: act.detailedExplanation || rawText,
-                attachments: attachment ? [attachment] : [],
-                lastModified: timestamp,
-                changeReason: safeNote,
-                source: 'KI-Zuordnung',
-                aiTouched: true,
-                customMeta: {}
-              });
-            }
             executedActions.push({
               actionId: `act-${itemId}`,
               actionType: act.actionType,
@@ -1062,21 +898,18 @@ export default function App() {
             } as any);
           } else if (act.actionType === 'UPDATE_EXPLANATION') {
             if (idx === 0) firstTab = 'knowledge';
-            const expItem = {
+            target.knowledge.unshift({
               id: itemId,
               title: safeTitle,
+              kind: 'explanation',
+              content: act.detailedExplanation || rawText,
               stepsText: act.detailedExplanation || rawText,
+              attachments: [],
               lastModified: timestamp,
               changeReason: safeNote,
-              source: 'KI-Zuordnung' as const,
+              source: 'KI-Zuordnung',
               aiTouched: true,
               customMeta: {}
-            };
-            target.explanations.unshift(expItem);
-            target.knowledge.unshift({
-              ...expItem,
-              kind: 'explanation',
-              content: expItem.stepsText
             });
             executedActions.push({
               actionId: `act-${itemId}`,
@@ -1092,21 +925,17 @@ export default function App() {
             } as any);
           } else if (act.actionType === 'ADD_INFO') {
             if (idx === 0) firstTab = 'knowledge';
-            const infItem = {
+            target.knowledge.unshift({
               id: itemId,
               title: safeTitle,
+              kind: 'info',
               content: act.detailedExplanation || rawText,
               attachments: attachment ? [attachment] : [],
               lastModified: timestamp,
               changeReason: safeNote,
-              source: 'KI-Zuordnung' as const,
+              source: 'KI-Zuordnung',
               aiTouched: true,
               customMeta: {}
-            };
-            target.infos.unshift(infItem);
-            target.knowledge.unshift({
-              ...infItem,
-              kind: 'info'
             });
             executedActions.push({
               actionId: `act-${itemId}`,
@@ -1124,7 +953,7 @@ export default function App() {
             if (idx === 0) firstTab = 'tasks';
             target.tasks.unshift({
               id: itemId,
-              title: act.assemblyGroup ? `[${act.assemblyGroup}] ${safeTitle}` : safeTitle,
+              title: safeTitle,
               completed: act.actionType === 'CHECK_OFF_TASK',
               priority: act.priority || 'Mittel',
               estimatedMinutes: act.estimatedMinutes || 25,
@@ -1244,6 +1073,11 @@ export default function App() {
       const log = prev.aiLogs.find((l) => l.id === logId);
       const act = log?.actions.find((a) => a.actionId === actionId);
       if (!act || act.undone) return prev;
+      const subTab = (
+        act.targetSubTab === 'explanations' || act.targetSubTab === 'infos'
+          ? 'knowledge'
+          : act.targetSubTab
+      ) as 'tasks' | 'cart' | 'knowledge';
       return {
         ...prev,
         projects: prev.projects.map((p) =>
@@ -1251,7 +1085,7 @@ export default function App() {
             ? p
             : {
               ...p,
-              [act.targetSubTab]: (p[act.targetSubTab] as any[]).filter(
+              [subTab]: ((p[subTab] as any[]) || []).filter(
                 (it) => it.id !== act.targetItemId
               )
             }
@@ -1276,21 +1110,26 @@ export default function App() {
       const log = prev.aiLogs.find((l) => l.id === logId);
       const act = log?.actions.find((a) => a.actionId === actionId);
       if (!act || act.targetProjectId === newProjId) return prev;
+      const subTab = (
+        act.targetSubTab === 'explanations' || act.targetSubTab === 'infos'
+          ? 'knowledge'
+          : act.targetSubTab
+      ) as 'tasks' | 'cart' | 'knowledge';
       let movedItem: any = null;
       const removed = prev.projects.map((p) => {
         if (p.id !== act.targetProjectId) return p;
-        const list = p[act.targetSubTab] as any[];
+        const list = (p[subTab] as any[]) || [];
         movedItem = list.find((it) => it.id === act.targetItemId);
         return {
           ...p,
-          [act.targetSubTab]: list.filter((it) => it.id !== act.targetItemId)
+          [subTab]: list.filter((it) => it.id !== act.targetItemId)
         };
       });
       const added = removed.map((p) => {
         if (p.id !== newProjId || !movedItem) return p;
         return {
           ...p,
-          [act.targetSubTab]: [movedItem, ...(p[act.targetSubTab] as any[])]
+          [subTab]: [movedItem, ...((p[subTab] as any[]) || [])]
         };
       });
       return {
@@ -1329,7 +1168,11 @@ export default function App() {
     setIsBackoffice(false);
     setActiveDomain(targetProj.domain);
     setSelectedProjectId(targetProj.id);
-    setActiveProjectTab(act.targetSubTab);
+    setActiveProjectTab(
+      act.targetSubTab === 'explanations' || act.targetSubTab === 'infos'
+        ? 'knowledge'
+        : act.targetSubTab
+    );
     setHighlightedItemId(act.targetItemId);
     setTimeout(() => setHighlightedItemId(null), 2400);
   };
@@ -1380,7 +1223,6 @@ export default function App() {
           autoStartMic={autoStartMicOnOpen}
           activeProjectName={activeProject?.name || BRAND_CONFIG.projects['proj-foodtruck']?.name || 'Pizza Bandit'}
           projects={state.projects}
-          aiLogs={state.aiLogs}
           aiVoiceSettings={aiVoiceSettings}
           onUpdateAiVoiceSettings={handleUpdateAiVoiceSettings}
           onClose={() => setVoiceModalOpen(false)}
@@ -1411,21 +1253,7 @@ export default function App() {
             };
             updateProject(activeProject.id, (p) => ({
               ...p,
-              knowledge: [newK, ...(p.knowledge || [])],
-              infos: [
-                {
-                  id: newK.id,
-                  title: newK.title,
-                  content: ans,
-                  attachments: newAtts,
-                  lastModified: formatNow(),
-                  changeReason: 'Aus KI-Verlauf gespeichert',
-                  source: 'KI-Zuordnung',
-                  aiTouched: true,
-                  customMeta: {}
-                },
-                ...p.infos
-              ]
+              knowledge: [newK, ...(p.knowledge || [])]
             }));
             notify('Unter Wissen & Infos gespeichert.');
           }}
@@ -1482,7 +1310,7 @@ export default function App() {
                 notify('Standard-Logo gesetzt.');
               }}
               onConfirmRedDot={handleConfirmRedDot}
-              onAddTask={(projId, title, prio = 'Mittel', mins = 25) => {
+              onAddTask={(projId, title, prio = 'Mittel', mins = 25, assemblyGroup) => {
                 const ts = formatNow();
                 updateProject(projId, (p) => ({
                   ...p,
@@ -1499,6 +1327,7 @@ export default function App() {
                       lastModified: ts,
                       changeReason: 'Manuell angelegt',
                       source: 'Manuell',
+                      assemblyGroup: assemblyGroup || undefined,
                       customMeta: {}
                     },
                     ...p.tasks
@@ -1531,16 +1360,6 @@ export default function App() {
               onDeleteKnowledge={handleDeleteKnowledge}
               onRestoreKnowledge={handleRestoreKnowledge}
               onUploadKnowledgeAttachment={handleUploadKnowledgeAttachment}
-              onAddExplanation={(projId, title, stepsText) => {
-                handleAddKnowledge(projId, 'explanation', title, stepsText);
-              }}
-              onUpdateExplanation={(projId, expId, title, stepsText) => {
-                handleUpdateKnowledge(projId, expId, title, stepsText);
-              }}
-              onAddInfo={(projId, title, content) => {
-                handleAddKnowledge(projId, 'info', title, content);
-              }}
-              onUploadInfoAttachment={handleUploadKnowledgeAttachment}
               onPreviewAttachment={(att) => setPreviewAttachment(att)}
               onAddCartItems={handleAddCartItems}
               onToggleCartItem={handleToggleCartItem}
@@ -1563,7 +1382,6 @@ export default function App() {
               onOpenAddonsBackoffice={(section?: ZentraleSectionId) => {
                 setZentraleSection(section || null);
                 setIsBackoffice(true);
-                setBackofficeTab('addons');
               }}
               onOpenFloatingCart={() => setFloatingCartOpen(true)}
               isFloatingCartOpen={floatingCartOpen}
@@ -1574,9 +1392,7 @@ export default function App() {
             />
           ) : (
             <BackofficeWorkspace
-              activeTab={backofficeTab}
               projects={state.projects}
-              aiLogs={state.aiLogs}
               selfChecks={state.selfChecks}
               eventSalesLogs={state.eventSalesLogs}
               userApiKey={state.userApiKey}
@@ -1588,11 +1404,7 @@ export default function App() {
               onChangeAmbientLightMode={handleChangeAmbientLightMode}
               fullState={state}
               onReplaceFullStateFromCloud={handleReplaceFullStateFromCloud}
-              onChangeTab={setBackofficeTab}
               onCloseBackoffice={() => { setIsBackoffice(false); setZentraleSection(null); }}
-              onJumpToAction={handleJumpToAction}
-              onUndoAiAction={handleUndoAiAction}
-              onMoveAiAction={handleMoveAiAction}
               onToggleArchiveProject={(projId) => {
                 const ts = formatNow();
                 updateProject(projId, (p) => ({
@@ -1713,7 +1525,6 @@ export default function App() {
               }}
               onOpenZentrale={() => {
                 setIsBackoffice(true);
-                setBackofficeTab('addons');
               }}
               onOpenFloatingCart={() => setFloatingCartOpen(true)}
               isCompanionActive={voiceModalOpen}
@@ -1832,7 +1643,6 @@ export default function App() {
           onConfirmRedDot={handleConfirmRedDot}
           onOpenSettings={() => {
             setIsBackoffice(true);
-            setBackofficeTab('addons');
           }}
           onNotify={notify}
           onRegisterUndo={(action) => notify(action.message)}
@@ -1862,7 +1672,6 @@ export default function App() {
         autoStartMic={autoStartMicOnOpen}
         activeProjectName={activeProject?.name || BRAND_CONFIG.projects['proj-foodtruck']?.name || 'Pizza Bandit'}
         projects={state.projects}
-        aiLogs={state.aiLogs}
         aiVoiceSettings={aiVoiceSettings}
         onUpdateAiVoiceSettings={handleUpdateAiVoiceSettings}
         onClose={() => setVoiceModalOpen(false)}
@@ -1893,21 +1702,7 @@ export default function App() {
           };
           updateProject(activeProject.id, (p) => ({
             ...p,
-            knowledge: [newK, ...(p.knowledge || [])],
-            infos: [
-              {
-                id: newK.id,
-                title: newK.title,
-                content: ans,
-                attachments: newAtts,
-                lastModified: formatNow(),
-                changeReason: 'Aus KI-Verlauf gespeichert',
-                source: 'KI-Zuordnung',
-                aiTouched: true,
-                customMeta: {}
-              },
-              ...p.infos
-            ]
+            knowledge: [newK, ...(p.knowledge || [])]
           }));
           notify('Unter Wissen & Infos gespeichert.');
         }}
@@ -1925,9 +1720,42 @@ export default function App() {
           activeProject={activeProject}
           userApiKey={state.userApiKey}
           fullState={state}
+          themeColors={{
+            primary: activeVisualTheme.primary,
+            highlight: activeVisualTheme.highlight,
+            label: activeDomain.toUpperCase()
+          }}
           onClose={() => setDeepResearchModalOpen(false)}
           onSaveDossierToProject={handleSaveDossierToProject}
           onReconcileReceiptWithCart={handleReconcileReceiptWithCart}
+          onAddTask={(projId, title, prio = 'Mittel', mins = 25) => {
+            const ts = formatNow();
+            updateProject(projId, (p) => ({
+              ...p,
+              tasks: [
+                {
+                  id: `t-${Date.now()}`,
+                  title,
+                  completed: false,
+                  priority: prio,
+                  estimatedMinutes: mins,
+                  dayBlock: null,
+                  reminderAt: '',
+                  aiTouched: false,
+                  lastModified: ts,
+                  changeReason: 'Aus Deep Research übernommen',
+                  source: 'Deep Research',
+                  customMeta: {}
+                },
+                ...p.tasks
+              ]
+            }));
+          }}
+          onAddKnowledge={handleAddKnowledge}
+          onOpenSettings={(sec) => {
+            setZentraleSection(sec || 'ai');
+            setIsBackoffice(true);
+          }}
           onReplaceFullStateFromCloud={handleReplaceFullStateFromCloud}
           onNotify={notify}
         />
@@ -1994,8 +1822,6 @@ export default function App() {
                           enabledPlugins: [],
                           enabledTabs: ['tasks', 'cart', 'knowledge', 'extras'],
                           tasks: [],
-                          explanations: [],
-                          infos: [],
                           knowledge: [],
                           cart: []
                         }

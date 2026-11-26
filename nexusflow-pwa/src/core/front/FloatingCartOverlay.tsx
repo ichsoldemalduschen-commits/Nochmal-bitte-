@@ -22,7 +22,7 @@ export interface FloatingCartOverlayProps {
   onMoveCartItem?: (fromProjectId: string, toProjectId: string, cartId: string) => void;
   onConfirmRedDot: (
     projectId: string,
-    section: 'tasks' | 'explanations' | 'infos' | 'cart' | 'knowledge',
+    section: 'tasks' | 'cart' | 'knowledge',
     itemId: string
   ) => void;
   onOpenSettings?: () => void;
@@ -51,7 +51,6 @@ export const FloatingCartOverlay: React.FC<FloatingCartOverlayProps> = ({
   onConfigMissing
 }) => {
   const [isParkedAsPill, setIsParkedAsPill] = useState(false);
-  const [localSearch] = useState('');
 
   if (!open) return null;
 
@@ -172,7 +171,7 @@ export const FloatingCartOverlay: React.FC<FloatingCartOverlayProps> = ({
             activeProject={activeProject}
             allProjects={allProjects}
             themeColors={themeColors}
-            searchQuery={localSearch}
+            searchQuery=""
             highlightedItemId={highlightedItemId || null}
             onToggleCartItem={onToggleCartItem}
             onDeleteCartItem={onDeleteCartItem}

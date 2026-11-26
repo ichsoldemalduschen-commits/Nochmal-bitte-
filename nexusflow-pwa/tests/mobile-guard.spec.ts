@@ -794,4 +794,73 @@ test.describe('Block C: Mobile-Guard 390×844 px Gesamt-Schutznetz', () => {
     await expect(doughSettingsPanel).toBeHidden({ timeout: 3000 });
     await assertNoHorizontalOverflow(page, 'Station 9 – Teigrechner-Einstellungen geschlossen');
   });
+
+  test('Station 10 – Wissen-Löschen mit 4s-Rückgängig & konsolidiertes DeepResearch/Beleg-Scanner-Modal (390px-Schutz)', async ({ page }) => {
+    await page.goto('./');
+    await page.waitForLoadState('domcontentloaded');
+
+    // 1. Wissen-Ansicht über Drawer öffnen
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    await page.locator('button:has-text("Wissen")').first().click();
+
+    const knowledgeSection = page.locator('section:has(h3:has-text("Wissen"))');
+    await expect(knowledgeSection).toBeVisible();
+
+    const knowledgeCards = knowledgeSection.locator('div[id^="item-card-"]');
+    const initialCount = await knowledgeCards.count();
+    expect(initialCount).toBeGreaterThan(0);
+
+    const firstCard = knowledgeCards.first();
+    const firstTitle = ((await firstCard.locator('h4').textContent()) || '').trim();
+    expect(firstTitle.length).toBeGreaterThan(0);
+
+    // Wissenseintrag aufklappen
+    await firstCard.locator('> div.cursor-pointer').click();
+
+    // Touch-sicheren Löschen-Button (>= 44px) prüfen und klicken
+    const deleteBtn = firstCard.locator('button:has-text("Löschen")');
+    await expect(deleteBtn).toBeVisible();
+    const deleteBox = await deleteBtn.boundingBox();
+    expect(deleteBox?.height ?? 0).toBeGreaterThanOrEqual(44);
+    await deleteBtn.click();
+
+    await expect(knowledgeCards).toHaveCount(initialCount - 1);
+
+    // 4-Sekunden-Rückgängig-Leiste prüfen & antippen
+    const undoStatus = page.locator('div[role="status"]');
+    await expect(undoStatus).toBeVisible({ timeout: 3000 });
+    const undoBtn = undoStatus.locator('button:has-text("Rückgängig")');
+    await expect(undoBtn).toBeVisible();
+    await undoBtn.click();
+    await expect(undoStatus).toBeHidden();
+
+    // Eintrag ist wiederhergestellt
+    await expect(knowledgeCards).toHaveCount(initialCount);
+    await expect(knowledgeSection.locator(`h4:has-text("${firstTitle}")`)).toBeVisible();
+    await assertNoHorizontalOverflow(page, 'Station 10 – Wissen Löschen & Rückgängig');
+
+    // 2. Konsolidiertes Modal (Deep Research & Beleg-Scanner) über Hex-Button -> Schnellauswahl -> Wächter ⚖️ öffnen
+    await page.locator('button[aria-label="Daumen-Steuerung"]').click();
+    const stage1Region = page.locator('div[role="region"][aria-label="KI-Begleiter Kompakt"]');
+    await expect(stage1Region).toBeVisible();
+    await stage1Region.locator('button[aria-label="Schnellauswahl öffnen"]').click();
+
+    const fanRegion = page.locator('div[role="region"][aria-label="Daumen-Fächer"]');
+    await expect(fanRegion).toBeVisible();
+    await fanRegion.locator('button:has-text("Wächter ⚖️")').click();
+
+    const researchDialog = page.locator('div[role="dialog"][aria-label="Deep Research, Beleg-Scanner & Cloud"]');
+    await expect(researchDialog).toBeVisible();
+    await expect(researchDialog.locator('h3:has-text("Deep Research")')).toBeVisible();
+    await assertNoHorizontalOverflow(page, 'Station 10 – Modal Deep Research');
+
+    // Auf Beleg-Scanner umschalten & prüfen
+    await researchDialog.locator('button:has-text("Beleg-Scanner")').click();
+    await expect(researchDialog.locator('h3:has-text("Beleg-Scan")')).toBeVisible();
+    await assertNoHorizontalOverflow(page, 'Station 10 – Modal Beleg-Scanner');
+
+    // Modal sauber schließen
+    await researchDialog.locator('button[aria-label="Schließen"]').click();
+    await expect(researchDialog).toBeHidden();
+  });
 });

@@ -27,7 +27,7 @@ const REALITY_CHECK_POOL = [
     category: 'Qualität & Energie',
     questions: [
       'Sind geänderte Mengen oder Rezepturen in den Arbeitserklärungen vermerkt?',
-      'Gibt es rote 6px KI-Punkte, die ich kurz prüfen und antippen möchte?',
+      'Gibt es honig-goldene KI-Hinweispunkte, die ich kurz prüfen und antippen möchte?',
       'Wie ist mein eigener Energie-Stand – brauche ich 2 Minuten Pause oder Wasser?'
     ]
   }

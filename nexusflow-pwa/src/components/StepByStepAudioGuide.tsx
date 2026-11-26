@@ -8,12 +8,12 @@ import {
   Volume2,
   X
 } from 'lucide-react';
-import { ExplanationItem, KnowledgeItem, THEME } from '../types';
+import { KnowledgeItem, THEME } from '../types';
 import { speakText, stopSpeaking, triggerHapticFeedback } from '../services/aiRouter';
 
 interface StepByStepAudioGuideProps {
-  item?: KnowledgeItem | ExplanationItem | null;
-  explanation?: KnowledgeItem | ExplanationItem | null;
+  item?: KnowledgeItem | null;
+  explanation?: KnowledgeItem | null;
   accentColor: string;
   onClose: () => void;
 }
@@ -37,7 +37,7 @@ export const StepByStepAudioGuide: React.FC<StepByStepAudioGuideProps> = ({
 
   const steps = React.useMemo(() => {
     if (!actualItem) return [];
-    const text = (actualItem as any).content || (actualItem as any).stepsText || '';
+    const text = actualItem.content || actualItem.stepsText || '';
     const lines = text
       .split(/\n+/)
       .map((l: string) => l.trim())
