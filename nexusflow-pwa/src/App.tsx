@@ -625,6 +625,48 @@ export default function App() {
     notify('Wissenseintrag in anderes Projekt verschoben.');
   };
 
+  const handleCreateProject = (input: {
+    name: string;
+    subtitle?: string;
+    domain: DomainType;
+  }) => {
+    const cleanName = input.name.trim();
+    if (!cleanName) return;
+    const id = `proj-${Date.now()}`;
+    const defaultColor =
+      input.domain === 'private'
+        ? DESIGN_TOKENS.projectPresets.privat
+        : DESIGN_TOKENS.projectPresets.pizzaBandit;
+    setState((prev) => ({
+      ...prev,
+      projects: [
+        ...prev.projects,
+        {
+          id,
+          domain: input.domain,
+          businessDomain: input.domain,
+          lifecycle: 'project',
+          name: cleanName,
+          subtitle: input.subtitle?.trim() || 'Eigenes Projekt',
+          icon: 'FolderKanban',
+          customLogoUrl: null,
+          accentColor: defaultColor,
+          archived: false,
+          overviewEnabled: true,
+          legalWatchEnabled: true,
+          customMeta: {},
+          enabledPlugins: [],
+          enabledTabs: ['tasks', 'cart', 'knowledge', 'extras'],
+          tasks: [],
+          knowledge: [],
+          cart: []
+        }
+      ]
+    }));
+    setSelectedProjectId(id);
+    notify(`Projekt "${cleanName}" angelegt.`);
+  };
+
   const handleUpdateProject = (projId: string, patch: Partial<Project>) => {
     updateProject(projId, (p) => ({
       ...p,
@@ -1611,6 +1653,7 @@ export default function App() {
               onOpenFlip7Cover={() => toggleCoverMode(true)}
               onOpenRealityModal={() => setRealityModalOpen(true)}
               onOpenSelfCheckModal={() => setSelfCheckModalOpen(true)}
+              onCreateProject={handleCreateProject}
               onResetProjectStructure={() => {
                 setState((prev) => ({
                   ...INITIAL_APP_SNAPSHOT,
@@ -1673,6 +1716,7 @@ export default function App() {
                 setSingleFocusOpen(true);
               }}
               onOpenZentrale={() => {
+                setZentraleSection(null);
                 setIsBackoffice(true);
               }}
               onOpenFloatingCart={() => setFloatingCartOpen(true)}
@@ -1792,6 +1836,7 @@ export default function App() {
           onMoveCartItem={handleMoveCartItem}
           onConfirmRedDot={handleConfirmRedDot}
           onOpenSettings={() => {
+            setZentraleSection('projects');
             setIsBackoffice(true);
           }}
           onNotify={notify}

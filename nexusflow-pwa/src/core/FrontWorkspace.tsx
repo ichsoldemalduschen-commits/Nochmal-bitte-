@@ -646,7 +646,7 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
               onConfirmRedDot={onConfirmRedDot}
               onMoveKnowledge={onMoveKnowledge}
               onSetActiveAudioGuideExp={setActiveAudioGuideExp}
-              onOpenSettings={() => onOpenAddonsBackoffice('projects')}
+              onOpenSettings={() => onOpenAddonsBackoffice('ai')}
               onAskAi={(prompt) => {
                 navigator.clipboard?.writeText(prompt);
                 onNotify('In Zwischenablage kopiert & Deep Research geöffnet.');

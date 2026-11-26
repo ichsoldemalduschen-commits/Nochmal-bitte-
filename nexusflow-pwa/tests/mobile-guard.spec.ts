@@ -425,7 +425,7 @@ test.describe('Block C: Mobile-Guard 390×844 px Gesamt-Schutznetz', () => {
     await page.locator('button[aria-label="Navigation öffnen"]').click();
     await page.getByRole('button', { name: 'Zentrale', exact: true }).click();
 
-    const section2Btn = page.locator('button:has-text("Fokus, Bedienung & Optik")');
+    const section2Btn = page.locator('button:has-text("Fokus, Bedienung & Smartphone")');
     await section2Btn.click();
 
     // Umschalter für Sechskant-Daumenmodul betätigen -> ausschalten
@@ -475,7 +475,7 @@ test.describe('Block C: Mobile-Guard 390×844 px Gesamt-Schutznetz', () => {
     await expect(hexBtn).toBeVisible();
   });
 
-  test('Station 7 – Die „Zentrale“ (BackofficeWorkspace): Komplettes Inventar, 4 Bereiche zugeklappt, Fußzeile, alle Bereiche funktionstüchtig', async ({ page }) => {
+  test('Station 7 – Die „Zentrale“ (BackofficeWorkspace): Komplettes Inventar, 5 Bereiche zugeklappt, Fußzeile, alle Bereiche funktionstüchtig', async ({ page }) => {
     await page.goto('./');
     await page.waitForLoadState('domcontentloaded');
 
@@ -487,21 +487,24 @@ test.describe('Block C: Mobile-Guard 390×844 px Gesamt-Schutznetz', () => {
     const zentraleTitle = page.locator('text=BANDIT.OS Zentrale');
     await expect(zentraleTitle).toBeVisible();
 
-    // 4 Überbereiche prüfen
+    // 5 Überbereiche prüfen
     const section1Btn = page.locator('button:has-text("Projekte & Werkzeuge")');
-    const section2Btn = page.locator('button:has-text("Fokus, Bedienung & Optik")');
+    const section2Btn = page.locator('button:has-text("Fokus, Bedienung & Smartphone")');
     const section3Btn = page.locator('button:has-text("KI & Stimme")');
-    const section4Btn = page.locator('button:has-text("Daten, Backup & System")');
+    const section4Btn = page.locator('button:has-text("Erinnerungen, Vorarbeiter & Smart Home")');
+    const section5Btn = page.locator('button:has-text("Daten, Backup & System")');
 
     await expect(section1Btn).toBeVisible();
     await expect(section2Btn).toBeVisible();
     await expect(section3Btn).toBeVisible();
     await expect(section4Btn).toBeVisible();
+    await expect(section5Btn).toBeVisible();
 
-    // Standardmäßig alle 4 ZUGEKLAPPT (Inhalte verborgen)
+    // Standardmäßig alle 5 ZUGEKLAPPT (Inhalte verborgen)
     await expect(page.locator('text=Aktive Modul-Bereiche')).toBeHidden();
     await expect(page.locator('text=ADHS- & Fokus-Unterstützung')).toBeHidden();
     await expect(page.locator('input[placeholder*="Gemini API-Key"]')).toBeHidden();
+    await expect(page.locator('text=Proaktive Erinnerungen (Banner & Desktop)')).toBeHidden();
     await expect(page.locator('text=Vorlagen-Tresor (Blueprints)')).toBeHidden();
 
     // Fußzeile: Build-Stempel und „Neu laden“-Button sichtbar
@@ -586,9 +589,15 @@ test.describe('Block C: Mobile-Guard 390×844 px Gesamt-Schutznetz', () => {
     await expect(page.locator('input[placeholder*="Azure Region"]')).toBeVisible();
     await expect(page.locator('button:has-text("Stimme Gisela testen")')).toBeVisible();
 
-    // ── Bereich 4 aufklappen: Daten, Backup & System ──
+    // ── Bereich 4 aufklappen: Erinnerungen, Vorarbeiter & Smart Home ──
     await section4Btn.click();
     await assertNoHorizontalOverflow(page, 'Station 7 – Bereich 4 geöffnet');
+    await expect(page.locator('text=Proaktive Erinnerungen (Banner & Desktop)')).toBeVisible();
+    await expect(page.locator('[data-testid="toggle-reminders-enabled"]')).toBeVisible();
+
+    // ── Bereich 5 aufklappen: Daten, Backup & System ──
+    await section5Btn.click();
+    await assertNoHorizontalOverflow(page, 'Station 7 – Bereich 5 geöffnet');
 
     // Cloud-Sync & Push-Konfiguration
     await expect(page.locator('text=Cloud-Synchronisation & Push-Zentrale')).toBeVisible();
@@ -1141,5 +1150,76 @@ test.describe('Block C: Mobile-Guard 390×844 px Gesamt-Schutznetz', () => {
     await expect(stage1Region).toBeHidden();
     await expect(hexBtn).toBeVisible();
     await assertNoHorizontalOverflow(page, 'Station 14 – Sauber geschlossen zurück auf Stufe 0');
+  });
+
+  test('Station 15 – Zentrale v2: 5 Bereiche standardmäßig zugeklappt, 390-px-Hygiene in allen 5 Bereichen, 2-Stufen-Reset-Schutz & Knowledge-Deep-Link auf KI', async ({ page }) => {
+    await page.goto('./');
+    await page.waitForLoadState('domcontentloaded');
+
+    // 1. Zentrale normal öffnen -> alle 5 Überbereiche sind standardmäßig ZUGEKLAPPT, Build-Stempel sichtbar
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    await page.getByRole('button', { name: 'Zentrale', exact: true }).click();
+
+    await expect(page.locator('text=BANDIT.OS Zentrale')).toBeVisible();
+    await expect(page.locator('text=/Build .+/')).toBeVisible();
+
+    const sections = [
+      { label: 'Projekte & Werkzeuge', name: 'Bereich 1' },
+      { label: 'Fokus, Bedienung & Smartphone', name: 'Bereich 2' },
+      { label: 'KI & Stimme', name: 'Bereich 3' },
+      { label: 'Erinnerungen, Vorarbeiter & Smart Home', name: 'Bereich 4' },
+      { label: 'Daten, Backup & System', name: 'Bereich 5' }
+    ];
+
+    for (const sec of sections) {
+      const btn = page.locator(`button:has-text("${sec.label}")`);
+      await expect(btn).toBeVisible();
+      await expect(btn).toHaveAttribute('aria-expanded', 'false');
+    }
+    await assertNoHorizontalOverflow(page, 'Station 15 – Zentrale Start (alle 5 zugeklappt)');
+
+    // 2. Alle 5 Bereiche nacheinander aufklappen & 390px-Überlauf + 2-Stufen-Schutz in Bereich 1 prüfen
+    for (const sec of sections) {
+      const btn = page.locator(`button:has-text("${sec.label}")`);
+      await btn.click();
+      await expect(btn).toHaveAttribute('aria-expanded', 'true');
+      await assertNoHorizontalOverflow(page, `Station 15 – ${sec.name} aufgeklappt`);
+
+      if (sec.name === 'Bereich 1') {
+        const resetBtn = page.locator('button:has-text("Projekt-Stammdaten aktualisieren")');
+        await expect(resetBtn).toBeVisible();
+        await resetBtn.click();
+
+        const warnText = page.locator('text=Setzt alle Projekte auf Werkszustand zurück');
+        const cancelResetBtn = page.locator('button:has-text("Abbrechen")');
+        const confirmResetBtn = page.locator('button:has-text("Ja, zurücksetzen")');
+        await expect(warnText).toBeVisible();
+        await expect(cancelResetBtn).toBeVisible();
+        await expect(confirmResetBtn).toBeVisible();
+        await assertNoHorizontalOverflow(page, 'Station 15 – 2-Stufen-Reset-Schutz sichtbar');
+
+        await cancelResetBtn.click();
+        await expect(warnText).toBeHidden();
+        await expect(page.locator('button:has-text("Pizza Bandit")').first()).toBeVisible();
+      }
+    }
+
+    // Zentrale schließen
+    await page.locator('button:has-text("Zurück")').click();
+
+    // 3. Deep-Link aus KnowledgeView -> landet direkt in Bereich 3 (KI & Stimme „Gisela“)
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    await page.locator('button:has-text("Wissen")').first().click();
+
+    const knowledgeSettingsBtn = page.locator('button:has-text("Wissen-Einstellungen & Sprachausgabe")');
+    await expect(knowledgeSettingsBtn).toBeVisible();
+    await knowledgeSettingsBtn.click();
+
+    await expect(page.locator('text=BANDIT.OS Zentrale')).toBeVisible();
+    const section3Btn = page.locator('button:has-text("KI & Stimme")');
+    await expect(section3Btn).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.locator('input[placeholder*="Gemini API-Key"]')).toBeVisible();
+    await expect(page.locator('button:has-text("Stimme Gisela testen")')).toBeVisible();
+    await assertNoHorizontalOverflow(page, 'Station 15 – Knowledge-Deep-Link in Bereich 3');
   });
 });

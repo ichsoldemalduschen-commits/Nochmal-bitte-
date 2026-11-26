@@ -6,14 +6,8 @@ import { DeepResearchView } from '../core/front/DeepResearchView';
 import { ReceiptScanView } from '../core/front/ReceiptScanView';
 import { ThemeColors } from '../core/front/FrontHeader';
 import { ZentraleSectionId } from '../core/BackofficeWorkspace';
-import {
-  CloudSyncConfig,
-  loadCloudConfig,
-  pullStateFromCloud,
-  pushStateToCloud,
-  requestPushNotificationPermission,
-  saveCloudConfig
-} from '../services/cloudSyncAndPush';
+import { CloudSyncPanel } from '../core/backoffice/CloudSyncPanel';
+import { requestPushNotificationPermission } from '../services/cloudSyncAndPush';
 
 interface DeepResearchAndAuditModalProps {
   open: boolean;
@@ -64,8 +58,6 @@ export const DeepResearchAndAuditModal: React.FC<DeepResearchAndAuditModalProps>
   onNotify
 }) => {
   const [activeSection, setActiveSection] = useState<'research' | 'receipt' | 'cloud_push'>('research');
-  const [cloudCfg, setCloudCfg] = useState<CloudSyncConfig>(loadCloudConfig);
-  const [isSyncingCloud, setIsSyncingCloud] = useState(false);
   const [pushGranted, setPushGranted] = useState<boolean>(
     typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted'
   );
@@ -164,92 +156,12 @@ export const DeepResearchAndAuditModal: React.FC<DeepResearchAndAuditModalProps>
 
           {activeSection === 'cloud_push' && (
             <div className="space-y-3">
-              <div className="p-3.5 rounded-2xl border border-white/10 space-y-3 bg-[#191C22]">
-                <div className="text-xs font-bold text-[#F1F5F9] flex items-center gap-2">
-                  <Cloud className="w-4 h-4 text-[#14B8A6] shrink-0" />
-                  <span>Echtzeit-Cloud-Sync (Handy &lt;-&gt; PC Backoffice)</span>
-                </div>
-                <input
-                  type="text"
-                  value={cloudCfg.endpointUrl}
-                  onChange={(e) => {
-                    const next = { ...cloudCfg, endpointUrl: e.target.value };
-                    setCloudCfg(next);
-                    saveCloudConfig(next);
-                  }}
-                  placeholder="Cloud-REST-URL (z. B. Firebase Realtime DB .json oder Supabase URL)..."
-                  className="w-full min-h-[44px] px-3 py-2 rounded-xl text-xs font-mono bg-[#111317] text-[#F1F5F9] border border-white/15"
-                />
-                <input
-                  type="password"
-                  value={cloudCfg.apiKeyOrToken}
-                  onChange={(e) => {
-                    const next = { ...cloudCfg, apiKeyOrToken: e.target.value };
-                    setCloudCfg(next);
-                    saveCloudConfig(next);
-                  }}
-                  placeholder="Optionaler Cloud-API-Key / Bearer-Token..."
-                  className="w-full min-h-[44px] px-3 py-2 rounded-xl text-xs font-mono bg-[#111317] text-[#F1F5F9] border border-white/15"
-                />
-                <div className="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-[#111317]">
-                  <span className="text-xs text-[#F1F5F9] min-w-0">
-                    Automatisch bei jeder Änderung synchronisieren
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const next = {
-                        ...cloudCfg,
-                        enabled: !cloudCfg.enabled,
-                        autoSyncOnChange: !cloudCfg.enabled
-                      };
-                      setCloudCfg(next);
-                      saveCloudConfig(next);
-                    }}
-                    className="min-h-[44px] px-3.5 py-1.5 rounded-lg text-xs font-bold text-white shrink-0"
-                    style={{ backgroundColor: cloudCfg.enabled ? themeColors.primary : '#374151' }}
-                  >
-                    {cloudCfg.enabled ? 'Aktiv' : 'Aus'}
-                  </button>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    disabled={isSyncingCloud}
-                    onClick={async () => {
-                      setIsSyncingCloud(true);
-                      const res = await pushStateToCloud(fullState);
-                      setIsSyncingCloud(false);
-                      setCloudCfg(loadCloudConfig());
-                      onNotify(res.message);
-                    }}
-                    className="min-h-[44px] py-2.5 px-2 rounded-xl text-xs font-bold text-white"
-                    style={{ backgroundColor: themeColors.primary }}
-                  >
-                    Stand in Cloud senden
-                  </button>
-                  <button
-                    type="button"
-                    disabled={isSyncingCloud}
-                    onClick={async () => {
-                      setIsSyncingCloud(true);
-                      const res = await pullStateFromCloud();
-                      setIsSyncingCloud(false);
-                      setCloudCfg(loadCloudConfig());
-                      if (res.ok && res.snapshot) onReplaceFullStateFromCloud(res.snapshot);
-                      onNotify(res.message);
-                    }}
-                    className="min-h-[44px] py-2.5 px-2 rounded-xl text-xs font-bold bg-[#111317] text-[#14B8A6] border border-[#14B8A6]/40"
-                  >
-                    Stand aus Cloud laden
-                  </button>
-                </div>
-                {cloudCfg.lastSyncedAt && (
-                  <div className="text-xs text-[#94A3B8] text-center">
-                    Zuletzt synchronisiert: {cloudCfg.lastSyncedAt}
-                  </div>
-                )}
-              </div>
+              <CloudSyncPanel
+                fullState={fullState}
+                onReplaceFullStateFromCloud={onReplaceFullStateFromCloud}
+                onNotify={onNotify}
+                accentColor={themeColors.primary}
+              />
 
               <div className="p-3.5 rounded-2xl border border-white/10 flex items-center justify-between gap-2 bg-[#191C22]">
                 <div className="flex items-center gap-2.5 min-w-0">
