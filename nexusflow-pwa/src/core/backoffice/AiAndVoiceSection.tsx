@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Brain, CheckCircle2, Key, Loader2, Plus, Trash2, Volume2, Zap } from 'lucide-react';
+import { Brain, CheckCircle2, Key, Loader2, Plus, Trash2, Volume2, WifiOff, Zap } from 'lucide-react';
 import { AiVoiceSettings, BanditUserPreferences, THEME, VoiceProvider } from '../../types';
 import {
   getPreferredModelMode,
@@ -471,6 +471,31 @@ export const AiAndVoiceSection: React.FC<AiAndVoiceSectionProps> = ({
             offLabel="Aus"
             ariaLabel="Automatische Gesprächsmodus-Erkennung umschalten"
             testId="toggle-auto-mode-detection"
+            containerClassName="py-1"
+          />
+        </div>
+
+        {/* Offline-Audio-Puffer (Funkloch-Memo) */}
+        <div className="pt-2 border-t border-white/5">
+          <ZentraleToggleRow
+            title="Offline-Audio-Puffer (Funkloch-Memo)"
+            description="Speichert Sprachmemos bei fehlendem Netz lokal in IndexedDB zur späteren Auswertung."
+            checked={prefs.offlineAudioBufferEnabled !== false}
+            onToggle={() => {
+              const next = !(prefs.offlineAudioBufferEnabled !== false);
+              onUpdatePrefs({ offlineAudioBufferEnabled: next });
+              onNotify(
+                next
+                  ? 'Offline-Audio-Puffer (Funkloch-Memo) aktiviert.'
+                  : 'Offline-Audio-Puffer ausgeblendet.'
+              );
+            }}
+            onLabel="An"
+            offLabel="Aus"
+            tone="honey"
+            icon={<WifiOff className="w-4 h-4 text-[#E5A93C] shrink-0" />}
+            ariaLabel="Offline-Audio-Puffer umschalten"
+            testId="toggle-offline-audio-buffer"
             containerClassName="py-1"
           />
         </div>

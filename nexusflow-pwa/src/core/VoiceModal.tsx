@@ -19,7 +19,15 @@ import {
   X,
   Zap
 } from 'lucide-react';
-import { AiExecutedAction, AiVoiceSettings, Attachment, Project, THEME, VoiceInteractionMode } from '../types';
+import {
+  AiExecutedAction,
+  AiVoiceSettings,
+  Attachment,
+  OfflineAudioMemo,
+  Project,
+  THEME,
+  VoiceInteractionMode
+} from '../types';
 import {
   buildLocalFallbackPlan,
   compressImageFile,
@@ -42,8 +50,10 @@ import {
   getContinuousListening,
   getIdbItemSync,
   getVoiceProvider,
+  loadOfflineAudioMemos,
   saveActiveAiMode,
-  saveIdbItem
+  saveIdbItem,
+  saveOfflineAudioMemos
 } from '../services/storage';
 import {
   API_TIMEOUT_FLASH_MS,
@@ -56,6 +66,8 @@ import {
   VOICE_START_DEBOUNCE_MS
 } from '../config/runtimeConfig';
 import { classifyLiveSpeechIntent } from '../services/voiceModeClassifier';
+import { useWakeLock } from '../hooks/useWakeLock';
+import { OfflineAudioBufferBar } from './front/OfflineAudioBufferBar';
 
 export interface ConversationMessage {
   id: string;
@@ -72,6 +84,13 @@ export interface VoiceModalProps {
   open: boolean;
   stage?: 1 | 2;
   autoStartMic?: boolean;
+  wakeLockEnabled?: boolean;
+  offlineAudioBufferEnabled?: boolean;
+  activeProjectId?: string;
+  userApiKey?: string;
+  offlineAudioMemos?: OfflineAudioMemo[];
+  onUpdateOfflineAudioMemos?: (memos: OfflineAudioMemo[]) => void;
+  initialPrefillText?: string;
   activeProjectName: string;
   projects?: Project[];
   aiVoiceSettings?: AiVoiceSettings;
@@ -229,6 +248,13 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
   open,
   stage = 1,
   autoStartMic = true,
+  wakeLockEnabled = true,
+  offlineAudioBufferEnabled = true,
+  activeProjectId,
+  userApiKey = '',
+  offlineAudioMemos: offlineAudioMemosProp,
+  onUpdateOfflineAudioMemos,
+  initialPrefillText,
   activeProjectName,
   projects = [],
   aiVoiceSettings,
@@ -260,12 +286,33 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
 
   const [speechNotice, setSpeechNotice] = useState('');
   const [voiceStatusNotice, setVoiceStatusNotice] = useState<string | null>(null);
+  const [shareIntakeNotice, setShareIntakeNotice] = useState<string | null>(null);
+  const { isActive: wakeLockActive } = useWakeLock(
+    open && wakeLockEnabled && voicePhase !== 'IDLE'
+  );
   const [attachment, setAttachment] = useState<Attachment | null>(null);
   const [silenceLimitMs, setSilenceLimitMs] = useState<number>(SILENCE_COLLECT_MS);
   const [remainingMs, setRemainingMs] = useState<number>(SILENCE_COLLECT_MS);
   const [localTtsActive, setLocalTtsActive] = useState<boolean>(getTtsEnabled);
   const [localAiMode, setLocalAiMode] = useState<'flash' | 'research'>(() => getActiveAiMode());
   const [upscaleNotice, setUpscaleNotice] = useState<string | null>(null);
+  const [localOfflineMemos, setLocalOfflineMemos] = useState<OfflineAudioMemo[]>(() =>
+    loadOfflineAudioMemos()
+  );
+  const effectiveOfflineMemos = offlineAudioMemosProp ?? localOfflineMemos;
+  const handleSaveOfflineMemos = (next: OfflineAudioMemo[]) => {
+    if (onUpdateOfflineAudioMemos) {
+      onUpdateOfflineAudioMemos(next);
+    } else {
+      setLocalOfflineMemos(next);
+      void saveOfflineAudioMemos(next);
+    }
+  };
+  const resolvedProjectId =
+    activeProjectId ||
+    projects.find((p) => p.name === activeProjectName && !p.archived)?.id ||
+    projects[0]?.id ||
+    'proj-foodtruck';
 
   const effectiveSettings: AiVoiceSettings = aiVoiceSettings || {
     ttsEnabled: localTtsActive,
@@ -793,12 +840,26 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
       accumulatedPrefixRef.current = '';
       isTypingPausedRef.current = false;
       micLockedRef.current = false;
-      sessionActiveRef.current = Boolean(autoStartMic);
 
-      if (autoStartMic) {
-        startMicrophoneImmediately({ bypassDebounce: true });
+      const cleanPrefill = initialPrefillText?.trim() || '';
+      if (cleanPrefill) {
+        setTranscript(cleanPrefill);
+        transcriptRef.current = cleanPrefill;
+        accumulatedPrefixRef.current = cleanPrefill;
+        isTypingPausedRef.current = true;
+        setShowStage1TextInput(true);
+        setShareIntakeNotice('Geteilter Inhalt übernommen – kurz prüfen & absenden');
+        sessionActiveRef.current = false;
+      } else {
+        setShareIntakeNotice(null);
+        sessionActiveRef.current = Boolean(autoStartMic);
+
+        if (autoStartMic) {
+          startMicrophoneImmediately({ bypassDebounce: true });
+        }
       }
     } else {
+      setShareIntakeNotice(null);
       sessionActiveRef.current = false;
       lastDetectedModeRef.current = null;
       accumulatedPrefixRef.current = '';
@@ -811,7 +872,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
       lastMicToggleRef.current = 0;
       setPhase('IDLE');
     }
-  }, [open, autoStartMic]);
+  }, [open, autoStartMic, initialPrefillText]);
 
   useEffect(() => {
     return () => {
@@ -1019,6 +1080,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
     transcriptRef.current = '';
     setAttachment(null);
     setShowStage1TextInput(false);
+    setShareIntakeNotice(null);
 
     const userMsg: ConversationMessage = {
       id: `msg-u-${Date.now()}`,
@@ -1468,12 +1530,44 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
             </div>
           </div>
 
+          {/* Ruhiger Display-Wach-Label (Screen Wake Lock aktiv) */}
+          {wakeLockActive && (
+            <div className="px-1 text-xs text-[#94A3B8]">
+              Display wach
+            </div>
+          )}
+
+          {/* Ruhiger Honig-Gold-Hinweis bei geteilten Inhalten */}
+          {shareIntakeNotice && (
+            <div
+              data-testid="share-intake-notice"
+              className="px-3 py-1.5 rounded-xl bg-[#E5A93C]/10 border border-[#E5A93C]/30 text-[#E5A93C] text-xs leading-snug"
+            >
+              {shareIntakeNotice}
+            </div>
+          )}
+
           {/* Ruhiger Honig-Gold-Statushinweis (Fallback / API-Timeout) */}
           {voiceStatusNotice && (
             <div className="px-3 py-1.5 rounded-xl bg-[#E5A93C]/10 border border-[#E5A93C]/30 text-[#E5A93C] text-xs leading-snug">
               {voiceStatusNotice}
             </div>
           )}
+
+          {/* Isolierter Offline-Audio-Puffer fürs Funkloch */}
+          <OfflineAudioBufferBar
+            enabled={offlineAudioBufferEnabled !== false}
+            activeProjectId={resolvedProjectId}
+            userApiKey={userApiKey}
+            memos={effectiveOfflineMemos}
+            onSaveMemos={handleSaveOfflineMemos}
+            onSubmitTranscript={(text) => {
+              unlockAudioPlayback();
+              autoSendTriggeredRef.current = true;
+              void triggerProcess(text);
+            }}
+            compact
+          />
 
           {/* Ausklappbare schmale Texteingabezeile in Stufe 1 */}
           {showStage1TextInput && (
@@ -1585,6 +1679,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                 </div>
                 <div className="text-xs text-[#9CA3AF] truncate">
                   Fokus: {activeProjectName}
+                  {wakeLockActive ? ' · Display wach' : ''}
                 </div>
               </div>
             </div>
@@ -1711,6 +1806,16 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
             <div className="mt-2 px-3 py-1.5 rounded-xl bg-purple-950/70 border border-purple-500/40 text-purple-200 text-xs flex items-center gap-2 animate-fadeIn">
               <Brain className="w-3.5 h-3.5 text-purple-400 shrink-0" />
               <span className="truncate">{upscaleNotice}</span>
+            </div>
+          )}
+
+          {/* Ruhiger Honig-Gold-Hinweis bei geteilten Inhalten */}
+          {shareIntakeNotice && (
+            <div
+              data-testid="share-intake-notice"
+              className="mt-2 px-3 py-1.5 rounded-xl bg-[#E5A93C]/10 border border-[#E5A93C]/30 text-[#E5A93C] text-xs leading-snug"
+            >
+              {shareIntakeNotice}
             </div>
           )}
 
@@ -1875,6 +1980,21 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
           )}
           <div ref={scrollEndRef} />
         </div>
+
+        {/* Isolierter Offline-Audio-Puffer fürs Funkloch (Stufe 2) */}
+        <OfflineAudioBufferBar
+          enabled={offlineAudioBufferEnabled !== false}
+          activeProjectId={resolvedProjectId}
+          userApiKey={userApiKey}
+          memos={effectiveOfflineMemos}
+          onSaveMemos={handleSaveOfflineMemos}
+          onSubmitTranscript={(text) => {
+            unlockAudioPlayback();
+            autoSendTriggeredRef.current = true;
+            void triggerProcess(text);
+          }}
+          className="mx-3.5 mt-2 shrink-0"
+        />
 
         {/* Untere Eingabeleiste - für flüssige Einhand-Eingaben optimiert */}
         <div

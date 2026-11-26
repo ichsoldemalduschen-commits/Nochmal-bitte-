@@ -10,8 +10,10 @@ import {
   BanditUserPreferences,
   CartItem,
   DomainType,
+  ForemanProposal,
   KnowledgeItem,
   KnowledgeKind,
+  OfflineAudioMemo,
   Project,
   ProjectTabId,
   ReminderRecurrence,
@@ -43,6 +45,15 @@ import {
   saveThumbHubPosition,
   loadAmbientLightMode,
   saveAmbientLightMode,
+  loadForemanProposals,
+  loadForemanProposalsAsync,
+  saveForemanProposals,
+  loadDismissedThinkerIds,
+  loadDismissedThinkerIdsAsync,
+  saveDismissedThinkerIds,
+  loadOfflineAudioMemos,
+  loadOfflineAudioMemosAsync,
+  saveOfflineAudioMemos,
   STORAGE_KEYS
 } from './services/storage';
 import {
@@ -77,6 +88,8 @@ import {
 } from './services/deepResearchAndScanner';
 import { BackofficeWorkspace, ZentraleSectionId } from './core/BackofficeWorkspace';
 import type { BlueprintTemplate } from './core/backoffice/SystemAndBackupSection';
+import type { CartReconcileMatch } from './services/receiptForeman';
+import type { SavedScannedReceipt } from './services/storage';
 
 interface PhotoMeasurePin {
   id: string;
@@ -114,6 +127,8 @@ export default function App() {
   const [quickFanOpen, setQuickFanOpen] = useState(false);
   const [deepResearchModalOpen, setDeepResearchModalOpen] = useState(false);
   const [autoStartMicOnOpen, setAutoStartMicOnOpen] = useState(true);
+  const [voicePrefillText, setVoicePrefillText] = useState('');
+  const urlIntakeHandledRef = useRef(false);
   const [realityModalOpen, setRealityModalOpen] = useState(false);
   const [selfCheckModalOpen, setSelfCheckModalOpen] = useState(false);
   const [newProjectModalOpen, setNewProjectModalOpen] = useState(false);
@@ -135,6 +150,11 @@ export default function App() {
   const [companionIsProcessing, setCompanionIsProcessing] = useState(false);
   const [companionIsSpeaking, setCompanionIsSpeaking] = useState(false);
   const [prefs, setPrefs] = useState<BanditUserPreferences>(loadUserPrefs);
+  const [foremanProposals, setForemanProposals] = useState<ForemanProposal[]>(loadForemanProposals);
+  const [dismissedThinkerIds, setDismissedThinkerIds] = useState<string[]>(loadDismissedThinkerIds);
+  const [offlineAudioMemos, setOfflineAudioMemos] = useState<OfflineAudioMemo[]>(
+    loadOfflineAudioMemos
+  );
   const [forceSingleViewSeq, setForceSingleViewSeq] = useState(0);
   const skipNextAutoSyncRef = useRef<boolean>(true);
   const autoSyncTimerRef = useRef<number | null>(null);
@@ -288,18 +308,25 @@ export default function App() {
       // 1. Silent IDB migration & request storage persistence BEFORE loading settings
       requestStoragePersistence();
       await migrateLocalStorageToIDB();
-      const [pins, loadedPrefs] = await Promise.all([
-        loadIdbItem<Record<string, PhotoMeasurePin[]>>(STORAGE_KEYS.PHOTO_PINS, {}),
-        loadUserPrefsAsync(),
-        loadIdbItem(STORAGE_KEYS.CLOUD_SYNC, DEFAULT_CLOUD_CONFIG),
-        loadIdbItem(STORAGE_KEYS.AUDIT_SETTINGS, { weeklyAutoAuditEnabled: true, lastRunIso: null }),
-        loadIdbItem(STORAGE_KEYS.BLUEPRINTS, [])
-      ]);
+      const [pins, loadedPrefs, loadedProposals, loadedDismissedIds, loadedAudioMemos] =
+        await Promise.all([
+          loadIdbItem<Record<string, PhotoMeasurePin[]>>(STORAGE_KEYS.PHOTO_PINS, {}),
+          loadUserPrefsAsync(),
+          loadForemanProposalsAsync(),
+          loadDismissedThinkerIdsAsync(),
+          loadOfflineAudioMemosAsync(),
+          loadIdbItem(STORAGE_KEYS.CLOUD_SYNC, DEFAULT_CLOUD_CONFIG),
+          loadIdbItem(STORAGE_KEYS.AUDIT_SETTINGS, { weeklyAutoAuditEnabled: true, lastRunIso: null }),
+          loadIdbItem(STORAGE_KEYS.BLUEPRINTS, [])
+        ]);
       if (!cancelled && pins && Object.keys(pins).length > 0) {
         setPhotoPins(pins);
       }
       if (!cancelled) {
         setPrefs(loadedPrefs);
+        setForemanProposals(loadedProposals);
+        setDismissedThinkerIds(loadedDismissedIds);
+        setOfflineAudioMemos(loadedAudioMemos);
       }
 
       // 2. Load persisted app state & unified AI/Voice settings
@@ -347,6 +374,102 @@ export default function App() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    const onProposalsUpdated = (ev: Event) => {
+      const detail = (ev as CustomEvent)?.detail;
+      if (Array.isArray(detail)) {
+        setForemanProposals(detail);
+      }
+    };
+    const onDismissedUpdated = (ev: Event) => {
+      const detail = (ev as CustomEvent)?.detail;
+      if (Array.isArray(detail)) {
+        setDismissedThinkerIds(detail);
+      }
+    };
+    const onOfflineAudioUpdated = (ev: Event) => {
+      const detail = (ev as CustomEvent)?.detail;
+      if (Array.isArray(detail)) {
+        setOfflineAudioMemos(detail);
+      }
+    };
+    window.addEventListener('banditos:foreman-proposals-updated', onProposalsUpdated);
+    window.addEventListener('banditos:dismissed-thinker-updated', onDismissedUpdated);
+    window.addEventListener('banditos:offline-audio-memos-updated', onOfflineAudioUpdated);
+    return () => {
+      window.removeEventListener('banditos:foreman-proposals-updated', onProposalsUpdated);
+      window.removeEventListener('banditos:dismissed-thinker-updated', onDismissedUpdated);
+      window.removeEventListener('banditos:offline-audio-memos-updated', onOfflineAudioUpdated);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated || urlIntakeHandledRef.current) return;
+    urlIntakeHandledRef.current = true;
+    if (typeof window === 'undefined') return;
+
+    try {
+      const url = new URL(window.location.href);
+      const params = url.searchParams;
+      const hasActionParam = params.has('action');
+      const hasShareParam =
+        params.has('share_title') || params.has('share_text') || params.has('share_url');
+
+      if (!hasActionParam && !hasShareParam) return;
+
+      const shareTitle = params.get('share_title')?.trim() || '';
+      const shareText = params.get('share_text')?.trim() || '';
+      const shareUrl = params.get('share_url')?.trim() || '';
+      const rawShareParts = [shareTitle, shareText, shareUrl].filter(Boolean);
+      const dedupedShareParts: string[] = [];
+      for (const part of rawShareParts) {
+        if (!dedupedShareParts.some((existing) => existing.includes(part))) {
+          dedupedShareParts.push(part);
+        }
+      }
+      const combinedShareText = dedupedShareParts.join(' · ').trim();
+      const actionParam = params.get('action')?.trim().toLowerCase() || '';
+
+      if (combinedShareText) {
+        if (prefs.shareTargetEnabled !== false) {
+          setIsBackoffice(false);
+          setVoicePrefillText(combinedShareText);
+          handleOpenVoice(1, false);
+        }
+      } else if (actionParam) {
+        if (prefs.appShortcutsEnabled !== false) {
+          if (actionParam === 'voice') {
+            setIsBackoffice(false);
+            handleOpenVoice(1, true);
+          } else if (actionParam === 'receipt') {
+            setIsBackoffice(false);
+            setFloatingCartOpen(false);
+            setActiveProjectTab('receipt');
+            setForceSingleViewSeq((s) => s + 1);
+          } else if (actionParam === 'cart') {
+            setIsBackoffice(false);
+            if (prefs.cartOpenMode === 'tab') {
+              setFloatingCartOpen(false);
+              setActiveProjectTab('cart');
+              setForceSingleViewSeq((s) => s + 1);
+            } else {
+              setFloatingCartOpen(true);
+            }
+          }
+        }
+      }
+
+      params.delete('action');
+      params.delete('share_title');
+      params.delete('share_text');
+      params.delete('share_url');
+      const cleanUrl = `${url.pathname}${url.search}${url.hash}`;
+      window.history.replaceState({}, '', cleanUrl);
+    } catch {
+      // ignore invalid URL state
+    }
+  }, [hydrated, prefs]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -873,6 +996,301 @@ export default function App() {
       };
     });
     notify(`Kassenbon (${totalAmount} €) verbucht & Einkaufswagen abgeglichen!`);
+  };
+
+  const handleReconcileCartItems = (
+    matches: CartReconcileMatch[],
+    receipt: SavedScannedReceipt
+  ) => {
+    if (!matches.length) return;
+    const boughtIso = new Date().toISOString();
+    const ts = formatNow();
+    const previousSnapshots: Array<{
+      projectId: string;
+      cartId: string;
+      completed: boolean;
+      boughtAt?: string;
+      price: string;
+      lastModified: string;
+      changeReason: string;
+    }> = [];
+
+    for (const m of matches) {
+      const proj = state.projects.find((p) => p.id === m.projectId);
+      const item = proj?.cart.find((c) => c.id === m.cartItemId);
+      if (item) {
+        previousSnapshots.push({
+          projectId: m.projectId,
+          cartId: m.cartItemId,
+          completed: item.completed,
+          boughtAt: item.boughtAt,
+          price: item.price,
+          lastModified: item.lastModified,
+          changeReason: item.changeReason
+        });
+      }
+    }
+
+    setState((prev) => ({
+      ...prev,
+      projects: prev.projects.map((p) => {
+        const projMatches = matches.filter((m) => m.projectId === p.id);
+        if (projMatches.length === 0) return p;
+        const byId = new Map(projMatches.map((m) => [m.cartItemId, m]));
+        return {
+          ...p,
+          cart: p.cart.map((c) => {
+            const m = byId.get(c.id);
+            if (!m) return c;
+            return {
+              ...c,
+              completed: true,
+              boughtAt: c.boughtAt || boughtIso,
+              price: m.receiptPrice ? `${m.receiptPrice} €` : c.price,
+              lastModified: ts,
+              changeReason: `Beleg ${receipt.storeName || 'Scan'} (${receipt.purchaseDate || ''})`
+            };
+          })
+        };
+      })
+    }));
+
+    registerExternalUndo({
+      message: `${matches.length} Artikel abgehakt`,
+      undo: () => {
+        setState((prev) => ({
+          ...prev,
+          projects: prev.projects.map((p) => {
+            const snaps = previousSnapshots.filter((s) => s.projectId === p.id);
+            if (snaps.length === 0) return p;
+            const byId = new Map(snaps.map((s) => [s.cartId, s]));
+            return {
+              ...p,
+              cart: p.cart.map((c) => {
+                const s = byId.get(c.id);
+                if (!s) return c;
+                return {
+                  ...c,
+                  completed: s.completed,
+                  boughtAt: s.boughtAt,
+                  price: s.price,
+                  lastModified: s.lastModified,
+                  changeReason: s.changeReason
+                };
+              })
+            };
+          })
+        }));
+        notify('Einkaufswagen-Abgleich rückgängig gemacht.');
+      }
+    });
+    notify(`${matches.length} Artikel im Einkaufswagen abgehakt ✓`);
+  };
+
+  const handleParkForemanProposal = (proposal: ForemanProposal) => {
+    setForemanProposals((prev) => {
+      const next = [proposal, ...prev.filter((p) => p.id !== proposal.id)];
+      void saveForemanProposals(next);
+      return next;
+    });
+  };
+
+  const handleSnoozeForemanProposal = (proposal: ForemanProposal) => {
+    const snoozedUntil = new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString();
+    setForemanProposals((prev) => {
+      const exists = prev.some((p) => p.id === proposal.id);
+      const next = exists
+        ? prev.map((p) =>
+            p.id === proposal.id ? { ...p, status: 'snoozed' as const, snoozedUntil } : p
+          )
+        : [{ ...proposal, status: 'snoozed' as const, snoozedUntil }, ...prev];
+      void saveForemanProposals(next);
+      return next;
+    });
+    notify('Für 4 Stunden zurückgestellt.');
+  };
+
+  const handleDismissForemanProposal = (proposal: ForemanProposal) => {
+    if (proposal.kind === 'thinker-contradiction') {
+      setDismissedThinkerIds((prev) => {
+        if (prev.includes(proposal.id)) return prev;
+        const next = [...prev, proposal.id];
+        void saveDismissedThinkerIds(next);
+        return next;
+      });
+      setForemanProposals((prev) => {
+        if (!prev.some((p) => p.id === proposal.id)) return prev;
+        const next = prev.filter((p) => p.id !== proposal.id);
+        void saveForemanProposals(next);
+        return next;
+      });
+    } else {
+      setForemanProposals((prev) => {
+        const next = prev.map((p) =>
+          p.id === proposal.id ? { ...p, status: 'dismissed' as const } : p
+        );
+        void saveForemanProposals(next);
+        return next;
+      });
+    }
+    notify('Vorschlag verworfen.');
+  };
+
+  const handleAcceptForemanProposal = (proposal: ForemanProposal) => {
+    const ts = formatNow();
+    const stamp = Date.now();
+    const prevProjectsSnapshot = state.projects.map((p) => ({
+      ...p,
+      tasks: [...p.tasks],
+      cart: [...p.cart],
+      knowledge: [...(p.knowledge || [])]
+    }));
+    const prevProposalsSnapshot = [...foremanProposals];
+    const prevDismissedSnapshot = [...dismissedThinkerIds];
+
+    setState((prev) => ({
+      ...prev,
+      projects: prev.projects.map((p) => {
+        const projActions = proposal.actions.filter((a) => (a.projectId || proposal.projectId) === p.id);
+        if (projActions.length === 0) return p;
+
+        let nextTasks = [...p.tasks];
+        let nextCart = [...p.cart];
+        let nextKnowledge = [...(p.knowledge || [])];
+
+        projActions.forEach((act, idx) => {
+          if (act.type === 'dedupe-cart') {
+            const removeSet = new Set(act.payload.removeCartItemIds || []);
+            if (removeSet.size > 0) {
+              nextCart = nextCart.filter((c) => !removeSet.has(c.id));
+            }
+          } else if (act.type === 'mark-cart-bought') {
+            const targetId = act.payload.cartItemId;
+            if (targetId) {
+              nextCart = nextCart.map((c) =>
+                c.id === targetId
+                  ? {
+                      ...c,
+                      completed: true,
+                      boughtAt: c.boughtAt || new Date().toISOString(),
+                      lastModified: ts,
+                      changeReason: 'Vorarbeiter-Abgleich'
+                    }
+                  : c
+              );
+            }
+          } else if (act.type === 'add-task') {
+            const taskTitle = (act.payload.title || proposal.title).trim();
+            if (taskTitle) {
+              nextTasks = [
+                {
+                  id: `t-foreman-${stamp}-${idx}`,
+                  title: taskTitle,
+                  completed: false,
+                  priority: 'Mittel',
+                  estimatedMinutes: 25,
+                  dayBlock: null,
+                  reminderAt: '',
+                  aiTouched: true,
+                  lastModified: ts,
+                  changeReason: act.payload.notes || 'Vorarbeiter-Freigabe',
+                  source: 'Vorarbeiter',
+                  customMeta: {}
+                },
+                ...nextTasks
+              ];
+            }
+          } else if (act.type === 'add-cart') {
+            const itemTitle = (act.payload.title || proposal.title).trim();
+            if (itemTitle) {
+              nextCart = [
+                {
+                  id: `c-foreman-${stamp}-${idx}`,
+                  title: itemTitle,
+                  quantity: act.payload.quantity || '1x',
+                  price: '',
+                  completed: false,
+                  aiTouched: true,
+                  lastModified: ts,
+                  changeReason: act.payload.notes || 'Vorarbeiter-Freigabe',
+                  source: 'Vorarbeiter',
+                  procurementCheck: buildProcurementCheck(itemTitle),
+                  customMeta: {}
+                },
+                ...nextCart
+              ];
+            }
+          } else if (act.type === 'add-knowledge') {
+            const kTitle = enforceMaxSixWords(
+              act.payload.title || proposal.title,
+              'Vorarbeiter-Beleg'
+            );
+            nextKnowledge = [
+              {
+                id: `k-foreman-${stamp}-${idx}`,
+                kind: 'reference',
+                title: kTitle,
+                content: act.payload.content || proposal.detail || proposal.summary,
+                attachments: [],
+                lastModified: ts,
+                changeReason: act.payload.notes || 'Vorarbeiter-Freigabe',
+                source: 'Vorarbeiter',
+                aiTouched: true,
+                customMeta: {}
+              },
+              ...nextKnowledge
+            ];
+          }
+        });
+
+        return {
+          ...p,
+          tasks: nextTasks,
+          cart: nextCart,
+          knowledge: nextKnowledge
+        };
+      })
+    }));
+
+    if (proposal.kind === 'murmur-research') {
+      setForemanProposals((prev) => {
+        const next = prev.map((p) =>
+          p.id === proposal.id ? { ...p, status: 'accepted' as const } : p
+        );
+        void saveForemanProposals(next);
+        return next;
+      });
+    } else {
+      // Auch bei Prüf-Aufgabe oder direkter Annahme nicht sofort wieder einblenden
+      setDismissedThinkerIds((prev) => {
+        if (prev.includes(proposal.id)) return prev;
+        const next = [...prev, proposal.id];
+        void saveDismissedThinkerIds(next);
+        return next;
+      });
+      setForemanProposals((prev) => {
+        if (!prev.some((p) => p.id === proposal.id)) return prev;
+        const next = prev.filter((p) => p.id !== proposal.id);
+        void saveForemanProposals(next);
+        return next;
+      });
+    }
+
+    registerExternalUndo({
+      message: 'Vorarbeiter-Vorschlag übernommen',
+      undo: () => {
+        setState((prev) => ({
+          ...prev,
+          projects: prevProjectsSnapshot
+        }));
+        setForemanProposals(prevProposalsSnapshot);
+        void saveForemanProposals(prevProposalsSnapshot);
+        setDismissedThinkerIds(prevDismissedSnapshot);
+        void saveDismissedThinkerIds(prevDismissedSnapshot);
+        notify('Freigabe rückgängig gemacht.');
+      }
+    });
+    notify('Vorarbeiter-Vorschlag übernommen ✓');
   };
 
   const handleReplaceFullStateFromCloud = (newState: AppStateSnapshot) => {
@@ -1555,11 +1973,24 @@ export default function App() {
         <VoiceModal
           open={voiceModalOpen}
           autoStartMic={autoStartMicOnOpen}
+          wakeLockEnabled={prefs.wakeLockEnabled !== false}
+          offlineAudioBufferEnabled={prefs.offlineAudioBufferEnabled !== false}
+          activeProjectId={activeProject?.id || BRAND_CONFIG.defaultProjectId}
+          userApiKey={state.userApiKey}
+          offlineAudioMemos={offlineAudioMemos}
+          onUpdateOfflineAudioMemos={(next) => {
+            setOfflineAudioMemos(next);
+            void saveOfflineAudioMemos(next);
+          }}
+          initialPrefillText={voicePrefillText}
           activeProjectName={activeProject?.name || BRAND_CONFIG.projects['proj-foodtruck']?.name || 'Pizza Bandit'}
           projects={state.projects}
           aiVoiceSettings={aiVoiceSettings}
           onUpdateAiVoiceSettings={handleUpdateAiVoiceSettings}
-          onClose={() => setVoiceModalOpen(false)}
+          onClose={() => {
+            setVoiceModalOpen(false);
+            setVoicePrefillText('');
+          }}
           onExecuteCommand={handleDistributeVoiceCommand}
           onExecuteOfflineFallback={handleExecuteOfflineFallback}
           onAskQuestion={(q, att) =>
@@ -1739,10 +2170,17 @@ export default function App() {
               isFloatingCartOpen={floatingCartOpen}
               prefs={prefs}
               onUpdatePrefs={handleUpdatePrefs}
+              foremanProposals={foremanProposals}
+              dismissedThinkerIds={dismissedThinkerIds}
+              onAcceptForemanProposal={handleAcceptForemanProposal}
+              onSnoozeForemanProposal={handleSnoozeForemanProposal}
+              onDismissForemanProposal={handleDismissForemanProposal}
+              onParkForemanProposal={handleParkForemanProposal}
               forceSingleViewSeq={forceSingleViewSeq}
               ambientLightMode={state.ambientLightMode || 'shimmer'}
               onSaveDossierToProject={handleSaveDossierToProject}
               onReconcileReceiptWithCart={handleReconcileReceiptWithCart}
+              onReconcileCartItems={handleReconcileCartItems}
               onNotify={notify}
             />
           ) : (
@@ -1845,6 +2283,9 @@ export default function App() {
                 skipNextAutoSyncRef.current = true;
                 setState(snap);
                 void loadUserPrefsAsync().then(setPrefs);
+                void loadForemanProposalsAsync().then(setForemanProposals);
+                void loadDismissedThinkerIdsAsync().then(setDismissedThinkerIds);
+                void loadOfflineAudioMemosAsync().then(setOfflineAudioMemos);
                 notify('Backup geladen.');
               }}
               onUploadProjectLogo={async (projId, file) => {
@@ -1904,7 +2345,10 @@ export default function App() {
               isFloatingCartOpen={floatingCartOpen}
               isFanOpen={quickFanOpen}
               onToggleFan={setQuickFanOpen}
-              onCloseCompanion={() => setVoiceModalOpen(false)}
+              onCloseCompanion={() => {
+                setVoiceModalOpen(false);
+                setVoicePrefillText('');
+              }}
               companionIsListening={companionIsListening}
               companionIsProcessing={companionIsProcessing}
               companionIsSpeaking={companionIsSpeaking}
@@ -2032,6 +2476,7 @@ export default function App() {
           onStageChange={(newStage) => {
             if (newStage === 0) {
               setVoiceModalOpen(false);
+              setVoicePrefillText('');
             } else {
               setCompanionStage(newStage);
             }
@@ -2046,11 +2491,24 @@ export default function App() {
           setQuickFanOpen(true);
         }}
         autoStartMic={autoStartMicOnOpen}
+        wakeLockEnabled={prefs.wakeLockEnabled !== false}
+        offlineAudioBufferEnabled={prefs.offlineAudioBufferEnabled !== false}
+        activeProjectId={activeProject?.id || BRAND_CONFIG.defaultProjectId}
+        userApiKey={state.userApiKey}
+        offlineAudioMemos={offlineAudioMemos}
+        onUpdateOfflineAudioMemos={(next) => {
+          setOfflineAudioMemos(next);
+          void saveOfflineAudioMemos(next);
+        }}
+        initialPrefillText={voicePrefillText}
         activeProjectName={activeProject?.name || BRAND_CONFIG.projects['proj-foodtruck']?.name || 'Pizza Bandit'}
         projects={state.projects}
         aiVoiceSettings={aiVoiceSettings}
         onUpdateAiVoiceSettings={handleUpdateAiVoiceSettings}
-        onClose={() => setVoiceModalOpen(false)}
+        onClose={() => {
+          setVoiceModalOpen(false);
+          setVoicePrefillText('');
+        }}
         onExecuteCommand={handleDistributeVoiceCommand}
         onExecuteOfflineFallback={handleExecuteOfflineFallback}
         onAskQuestion={(q, att) =>

@@ -11,6 +11,7 @@ import {
   CustomMeta,
   DomainType,
   EventSalesLog,
+  ForemanProposal,
   KnowledgeItem,
   KnowledgeKind,
   PriorityType,
@@ -31,6 +32,9 @@ import {
 } from '../services/storage';
 import { UNDO_TOAST_MS } from '../config/runtimeConfig';
 import { ZentraleSectionId } from './BackofficeWorkspace';
+import type { CartReconcileMatch } from '../services/receiptForeman';
+import type { SavedScannedReceipt } from '../services/storage';
+import { analyzeProjectConsistency } from '../services/silentThinker';
 import {
   NavigationDrawer,
   FrontHeader,
@@ -39,7 +43,8 @@ import {
   KnowledgeView,
   ExtrasView,
   ReceiptScanView,
-  DeepResearchView
+  DeepResearchView,
+  ForemanInboxCard
 } from './front';
 
 interface FrontWorkspaceProps {
@@ -63,6 +68,10 @@ interface FrontWorkspaceProps {
     purchaseDate: string,
     totalAmount: string,
     items: Array<{ title: string; quantity: string; price: string }>
+  ) => void;
+  onReconcileCartItems?: (
+    matches: CartReconcileMatch[],
+    receipt: SavedScannedReceipt
   ) => void;
   onSwitchDomain: (d: DomainType) => void;
   onSelectProject: (id: string) => void;
@@ -135,6 +144,12 @@ interface FrontWorkspaceProps {
   isFloatingCartOpen?: boolean;
   prefs?: BanditUserPreferences;
   onUpdatePrefs?: (patch: Partial<BanditUserPreferences>) => void;
+  foremanProposals?: ForemanProposal[];
+  dismissedThinkerIds?: string[];
+  onAcceptForemanProposal?: (proposal: ForemanProposal) => void;
+  onSnoozeForemanProposal?: (proposal: ForemanProposal) => void;
+  onDismissForemanProposal?: (proposal: ForemanProposal) => void;
+  onParkForemanProposal?: (proposal: ForemanProposal) => void;
   forceSingleViewSeq?: number;
   onNotify: (msg: string) => void;
 }
@@ -188,10 +203,17 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
   isFloatingCartOpen = false,
   prefs: prefsProp,
   onUpdatePrefs: onUpdatePrefsProp,
+  foremanProposals = [],
+  dismissedThinkerIds = [],
+  onAcceptForemanProposal,
+  onSnoozeForemanProposal,
+  onDismissForemanProposal,
+  onParkForemanProposal,
   forceSingleViewSeq = 0,
   ambientLightMode = 'shimmer',
   onSaveDossierToProject,
   onReconcileReceiptWithCart,
+  onReconcileCartItems,
   onNotify
 }) => {
   const [localPrefs, setLocalPrefs] = useState<BanditUserPreferences>(loadUserPrefs);
@@ -375,6 +397,53 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
     (!viewAllSections && activeTab === 'extras') && isTabEnabled(activeProject, 'extras');
   const showReceiptSection = !viewAllSections && activeTab === 'receipt';
   const showResearchSection = !viewAllSections && activeTab === 'research';
+
+  const visibleForemanProposals = useMemo(() => {
+    if (!activeProject) return [];
+    const nowMs = Date.now();
+    const storedById = new Map(foremanProposals.map((p) => [p.id, p]));
+
+    const thinkerProposals: ForemanProposal[] =
+      prefs.silentThinkerEnabled !== false
+        ? analyzeProjectConsistency(activeProject, dismissedThinkerIds).filter((tp) => {
+            const stored = storedById.get(tp.id);
+            if (!stored) return true;
+            if (stored.status === 'dismissed' || stored.status === 'accepted') return false;
+            if (stored.status === 'snoozed' && stored.snoozedUntil) {
+              const until = Date.parse(stored.snoozedUntil);
+              if (Number.isFinite(until) && until > nowMs) return false;
+            }
+            return true;
+          })
+        : [];
+
+    const murmurProposals: ForemanProposal[] =
+      prefs.murmurAutopilotEnabled !== false
+        ? foremanProposals.filter((p) => {
+            if (p.kind !== 'murmur-research') return false;
+            if (p.projectId !== activeProject.id) return false;
+            if (p.status === 'accepted' || p.status === 'dismissed') return false;
+            if (p.status === 'snoozed' && p.snoozedUntil) {
+              const until = Date.parse(p.snoozedUntil);
+              if (Number.isFinite(until) && until > nowMs) return false;
+            }
+            return true;
+          })
+        : [];
+
+    return [...murmurProposals, ...thinkerProposals];
+  }, [
+    activeProject,
+    prefs.silentThinkerEnabled,
+    prefs.murmurAutopilotEnabled,
+    foremanProposals,
+    dismissedThinkerIds
+  ]);
+
+  const showForemanInbox =
+    (showTasksSection || showCartSection || showKnowledgeSection) &&
+    visibleForemanProposals.length > 0 &&
+    Boolean(onAcceptForemanProposal && onSnoozeForemanProposal && onDismissForemanProposal);
 
   return (
     <div
@@ -594,6 +663,15 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
       {/* HAUPTARBEITSFELD */}
       {activeProject && (
         <div className="space-y-4">
+          {showForemanInbox && (
+            <ForemanInboxCard
+              proposals={visibleForemanProposals}
+              onAcceptProposal={onAcceptForemanProposal!}
+              onSnoozeProposal={onSnoozeForemanProposal!}
+              onDismissProposal={onDismissForemanProposal!}
+            />
+          )}
+
           {/* SEKTION 1: TASKS */}
           {showTasksSection && (
             <TasksView
@@ -695,6 +773,8 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
               allProjects={allProjects.length > 0 ? allProjects : domainProjects}
               themeColors={themeColors}
               userApiKey={userApiKey}
+              receiptForemanEnabled={prefs.receiptForemanEnabled !== false}
+              generalVisionEnabled={prefs.generalVisionEnabled !== false}
               onReconcileReceiptWithCart={
                 onReconcileReceiptWithCart ||
                 ((projectId, storeName, purchaseDate, totalAmount, items) => {
@@ -709,6 +789,10 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
                   );
                 })
               }
+              onReconcileCartItems={onReconcileCartItems}
+              onAddKnowledge={onAddKnowledge}
+              onAddTask={onAddTask}
+              onAddCartItems={onAddCartItems}
               onOpenSettings={(sec) => onOpenAddonsBackoffice(sec || 'ai')}
               onNotify={onNotify}
             />
@@ -721,6 +805,8 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
               allProjects={allProjects.length > 0 ? allProjects : domainProjects}
               themeColors={themeColors}
               userApiKey={userApiKey}
+              murmurAutopilotEnabled={prefs.murmurAutopilotEnabled !== false}
+              onParkForemanProposal={onParkForemanProposal}
               onSaveDossierToProject={onSaveDossierToProject}
               onAddTask={onAddTask}
               onAddKnowledge={onAddKnowledge}

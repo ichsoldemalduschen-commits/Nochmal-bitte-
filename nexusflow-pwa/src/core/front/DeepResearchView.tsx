@@ -4,6 +4,7 @@ import {
   Check,
   ChevronDown,
   ChevronUp,
+  Clock,
   ExternalLink,
   FileCheck2,
   ListTodo,
@@ -16,7 +17,7 @@ import {
   Sparkles,
   Trash2
 } from 'lucide-react';
-import { KnowledgeKind, PriorityType, Project } from '../../types';
+import { ForemanProposal, KnowledgeKind, PriorityType, Project } from '../../types';
 import {
   runDeepResearchWithCitations,
   loadAuditWatchlist,
@@ -27,8 +28,12 @@ import {
   SavedDossierItem,
   loadSavedDossiers,
   saveSavedDossiers,
+  loadUserPrefs,
+  loadForemanProposals,
+  saveForemanProposals,
   formatNow
 } from '../../services/storage';
+import { buildProposalFromResearchResult } from '../../services/silentThinker';
 import { triggerHapticFeedback } from '../../services/aiRouter';
 import { ThemeColors } from './FrontHeader';
 import { ZentraleSectionId } from '../BackofficeWorkspace';
@@ -38,6 +43,8 @@ interface DeepResearchViewProps {
   allProjects: Project[];
   themeColors: ThemeColors;
   userApiKey?: string;
+  murmurAutopilotEnabled?: boolean;
+  onParkForemanProposal?: (proposal: ForemanProposal) => void;
   onSaveDossierToProject?: (
     projectId: string,
     title: string,
@@ -66,6 +73,8 @@ export const DeepResearchView: React.FC<DeepResearchViewProps> = ({
   allProjects,
   themeColors,
   userApiKey = '',
+  murmurAutopilotEnabled: murmurAutopilotEnabledProp,
+  onParkForemanProposal,
   onSaveDossierToProject,
   onAddTask,
   onAddKnowledge,
@@ -80,6 +89,27 @@ export const DeepResearchView: React.FC<DeepResearchViewProps> = ({
   const [isResearching, setIsResearching] = useState(false);
   const [expandedDossierIds, setExpandedDossierIds] = useState<Record<string, boolean>>({});
   const [addedTaskKeys, setAddedTaskKeys] = useState<Record<string, boolean>>({});
+  const [parkedDossierIds, setParkedDossierIds] = useState<Record<string, boolean>>({});
+  const [murmurNotice, setMurmurNotice] = useState<string | null>(null);
+  const [localMurmurEnabled, setLocalMurmurEnabled] = useState<boolean>(
+    () => loadUserPrefs().murmurAutopilotEnabled !== false
+  );
+
+  useEffect(() => {
+    const onPrefsUpdated = (ev: Event) => {
+      const detail = (ev as CustomEvent)?.detail;
+      if (detail && typeof detail.murmurAutopilotEnabled === 'boolean') {
+        setLocalMurmurEnabled(detail.murmurAutopilotEnabled);
+      }
+    };
+    window.addEventListener('banditos:prefs-updated', onPrefsUpdated);
+    return () => window.removeEventListener('banditos:prefs-updated', onPrefsUpdated);
+  }, []);
+
+  const murmurEnabled =
+    typeof murmurAutopilotEnabledProp === 'boolean'
+      ? murmurAutopilotEnabledProp
+      : localMurmurEnabled;
 
   useEffect(() => {
     setSelectedProjectId(activeProject.id);
@@ -182,6 +212,72 @@ export const DeepResearchView: React.FC<DeepResearchViewProps> = ({
     }
   };
 
+  const persistProposal = async (proposal: ForemanProposal) => {
+    if (onParkForemanProposal) {
+      onParkForemanProposal(proposal);
+      return;
+    }
+    const existing = loadForemanProposals();
+    await saveForemanProposals([proposal, ...existing.filter((p) => p.id !== proposal.id)]);
+  };
+
+  const handleStartMurmurResearch = () => {
+    if (!murmurEnabled) return;
+    const topic = searchTopic.trim();
+    if (!topic) return;
+
+    const targetProj = allProjects.find((p) => p.id === selectedProjectId) || activeProject;
+    const depthSnapshot = researchDepth;
+    const apiKeySnapshot = userApiKey;
+
+    triggerHapticFeedback(15);
+    setSearchTopic('');
+    const noticeMsg = 'Vorarbeiter prüft im Hintergrund – du kannst einfach weiterarbeiten';
+    setMurmurNotice(noticeMsg);
+    onNotify(noticeMsg);
+
+    void (async () => {
+      try {
+        const res = await runDeepResearchWithCitations(
+          topic,
+          targetProj.name,
+          apiKeySnapshot,
+          depthSnapshot
+        );
+        const proposal = buildProposalFromResearchResult({
+          projectId: targetProj.id,
+          projectName: targetProj.name,
+          title: res.title,
+          markdownContent: res.markdownDossier,
+          followUpTasks: res.followUpTasks || [],
+          sourcesCount: res.sources?.length || 0,
+          modelUsed: res.modelUsed
+        });
+        await persistProposal(proposal);
+      } catch {
+        // Stille Fehlerbehandlung im Hintergrund-Modus
+      }
+    })();
+  };
+
+  const handleParkDossierAsProposal = (dossier: SavedDossierItem) => {
+    if (!murmurEnabled) return;
+    triggerHapticFeedback(15);
+    const proposal = buildProposalFromResearchResult({
+      id: `murmur-dossier:${dossier.projectId}:${dossier.id}`,
+      projectId: dossier.projectId,
+      projectName: dossier.projectName,
+      title: dossier.title,
+      markdownContent: dossier.markdownContent,
+      followUpTasks: dossier.followUpTasks || [],
+      sourcesCount: dossier.sources?.length || 0,
+      modelUsed: dossier.modelUsed || 'Dossier'
+    });
+    void persistProposal(proposal);
+    setParkedDossierIds((prev) => ({ ...prev, [dossier.id]: true }));
+    onNotify('Als Freigabe-Vorschlag für den Vorarbeiter geparkt.');
+  };
+
   const activeProjects = allProjects.filter((p) => !p.archived);
   const openWatchlistItems = watchlist.filter((w) => !w.completed);
 
@@ -282,25 +378,60 @@ export const DeepResearchView: React.FC<DeepResearchViewProps> = ({
           </div>
         </div>
 
-        <button
-          type="button"
-          disabled={isResearching || !searchTopic.trim()}
-          onClick={() => handleStartResearch()}
-          className="w-full min-h-[48px] px-4 py-3 rounded-2xl text-xs font-bold text-white flex items-center justify-center gap-2 disabled:opacity-40 active:scale-98 transition shadow-sm cursor-pointer"
-          style={{ backgroundColor: themeColors.primary }}
-        >
-          {isResearching ? (
-            <>
-              <Loader2 className="w-4 h-4 animate-spin shrink-0" />
-              <span>Recherchiere deutsche Gesetze &amp; Normen...</span>
-            </>
-          ) : (
-            <>
-              <Search className="w-4 h-4 shrink-0" />
-              <span>Tiefenrecherche jetzt starten</span>
-            </>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={isResearching || !searchTopic.trim()}
+            onClick={() => handleStartResearch()}
+            className="flex-1 min-w-[180px] min-h-[48px] px-4 py-3 rounded-2xl text-xs font-bold text-white flex items-center justify-center gap-2 disabled:opacity-40 active:scale-98 transition shadow-sm cursor-pointer"
+            style={{ backgroundColor: themeColors.primary }}
+          >
+            {isResearching ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                <span>Recherchiere deutsche Gesetze &amp; Normen...</span>
+              </>
+            ) : (
+              <>
+                <Search className="w-4 h-4 shrink-0" />
+                <span>Tiefenrecherche jetzt starten</span>
+              </>
+            )}
+          </button>
+
+          {murmurEnabled && (
+            <button
+              type="button"
+              data-testid="btn-murmur-research"
+              disabled={!searchTopic.trim()}
+              onClick={handleStartMurmurResearch}
+              className="min-h-[48px] px-4 py-3 rounded-2xl text-xs font-bold flex items-center justify-center gap-2 disabled:opacity-40 active:scale-95 transition cursor-pointer border"
+              style={{
+                backgroundColor: '#111317',
+                color: '#E5A93C',
+                borderColor: 'rgba(229,169,60,0.35)'
+              }}
+            >
+              <Clock className="w-4 h-4 shrink-0" />
+              <span>Nebenbei prüfen</span>
+            </button>
           )}
-        </button>
+        </div>
+
+        {murmurEnabled && murmurNotice && (
+          <div
+            role="status"
+            data-testid="murmur-background-notice"
+            className="p-3 rounded-2xl border flex items-center gap-2.5 text-xs text-[#F1F5F9]"
+            style={{
+              backgroundColor: '#111317',
+              borderColor: 'rgba(229,169,60,0.35)'
+            }}
+          >
+            <Sparkles className="w-4 h-4 text-[#E5A93C] shrink-0" />
+            <span className="min-w-0 flex-1 break-words">{murmurNotice}</span>
+          </div>
+        )}
       </div>
 
       {/* AUTO-AUDIT WÄCHTERLISTE (falls offene kritische Punkte vorliegen) */}
@@ -509,6 +640,28 @@ export const DeepResearchView: React.FC<DeepResearchViewProps> = ({
                         <FileCheck2 className="w-4 h-4 shrink-0" />
                         <span>Unter Wissen sichern</span>
                       </button>
+
+                      {murmurEnabled && (
+                        <button
+                          type="button"
+                          data-testid={`btn-park-dossier-${dos.id}`}
+                          disabled={!!parkedDossierIds[dos.id]}
+                          onClick={() => handleParkDossierAsProposal(dos)}
+                          className="min-h-[44px] px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 active:scale-95 transition cursor-pointer border disabled:opacity-60"
+                          style={{
+                            backgroundColor: '#111317',
+                            color: '#E5A93C',
+                            borderColor: 'rgba(229,169,60,0.35)'
+                          }}
+                        >
+                          <Sparkles className="w-4 h-4 shrink-0" />
+                          <span>
+                            {parkedDossierIds[dos.id]
+                              ? 'Als Vorschlag geparkt'
+                              : 'Als Freigabe-Vorschlag parken'}
+                          </span>
+                        </button>
+                      )}
 
                       <button
                         type="button"

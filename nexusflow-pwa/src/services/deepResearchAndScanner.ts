@@ -1,7 +1,9 @@
-import { Project } from '../types';
+import { Project, ScannedReceiptItem } from '../types';
 import { compressImageFile } from './aiRouter';
 import { BRAND_CONFIG } from '../config/brandConfig';
 import { STORAGE_KEYS, getIdbItemSync, saveIdbItem } from './storage';
+
+export type { ScannedReceiptItem };
 
 export interface AuditWatchlistItem {
   id: string;
@@ -18,18 +20,16 @@ export interface AutoAuditSettings {
   lastRunIso: string | null;
 }
 
-export interface ScannedReceiptItem {
-  title: string;
-  quantity: string;
-  price: string;
-}
-
 export interface ScannedReceiptResult {
   storeName: string;
   purchaseDate: string;
   totalAmount: string;
   items: ScannedReceiptItem[];
   summary: string;
+  netAmount?: number;
+  vatAmount?: number;
+  vatRate?: number;
+  category?: string;
 }
 
 export interface DeepResearchResult {
@@ -271,6 +271,13 @@ const RECEIPT_SCHEMA = {
     storeName: { type: 'STRING', description: 'Name des Händlers oder Baumarkts' },
     purchaseDate: { type: 'STRING', description: 'Kaufdatum auf dem Beleg' },
     totalAmount: { type: 'STRING', description: 'Gesamtbetrag in Euro, z. B. "84.50"' },
+    netAmount: { type: 'NUMBER', description: 'Optionaler Nettobetrag in Euro, falls ausgewiesen' },
+    vatAmount: { type: 'NUMBER', description: 'Optionaler MwSt-Betrag in Euro, falls ausgewiesen' },
+    vatRate: { type: 'NUMBER', description: 'Optionaler Steuersatz in Prozent (z. B. 19 oder 7)' },
+    category: {
+      type: 'STRING',
+      description: 'Passende Kategorie: Material, Lebensmittel, Werkzeug, Betrieb oder Sonstiges'
+    },
     summary: { type: 'STRING', description: 'Kurze Zusammenfassung des Belegs' },
     items: {
       type: 'ARRAY',
@@ -305,8 +312,11 @@ export async function scanReceiptImageWithGemini(
 
   try {
     const { dataUrl } = await compressImageFile(file);
-    const [meta, base64Data] = dataUrl.split(',');
+    const [meta = '', base64Data = ''] = dataUrl.split(',');
     const mimeMatch = meta.match(/data:(.*?);base64/);
+    const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+    const resolvedMimeType =
+      mimeMatch?.[1] || (isPdf ? 'application/pdf' : file.type || 'image/jpeg');
 
     const candidateModels = ['gemini-3.8-flash', 'gemini-3.8-pro', 'gemini-3.5-flash'];
     for (const model of candidateModels) {
@@ -323,11 +333,11 @@ export async function scanReceiptImageWithGemini(
               role: 'user',
               parts: [
                 {
-                  text: 'Analysiere diesen Kassenbon oder diese Rechnung. Extrahiere Händler, Datum, Gesamtsumme und alle gekauften Einzelpositionen mit klarer Bezeichnung, Menge und Preis in Euro.'
+                  text: 'Analysiere diesen Kassenbon oder diese Rechnung (Bild oder PDF). Extrahiere Händler, Datum, Gesamtsumme, nach Möglichkeit Netto/MwSt/Steuersatz/Kategorie und alle gekauften Einzelpositionen mit klarer Bezeichnung, Menge und Preis in Euro.'
                 },
                 {
                   inlineData: {
-                    mimeType: mimeMatch ? mimeMatch[1] : 'image/jpeg',
+                    mimeType: resolvedMimeType,
                     data: base64Data
                   }
                 }

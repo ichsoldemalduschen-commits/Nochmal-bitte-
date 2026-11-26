@@ -28,6 +28,14 @@ export interface BanditUserPreferences {
   flipCoverAutoDetect?: boolean;
   reminderSystemPushEnabled?: boolean;
   smartHomeEnabled?: boolean;
+  appShortcutsEnabled?: boolean;
+  shareTargetEnabled?: boolean;
+  wakeLockEnabled?: boolean;
+  receiptForemanEnabled?: boolean;
+  silentThinkerEnabled?: boolean;
+  murmurAutopilotEnabled?: boolean;
+  generalVisionEnabled?: boolean;
+  offlineAudioBufferEnabled?: boolean;
   quickCommands: string[];
   activeFocusTaskId: string | null;
   activeFocusTaskTitle: string | null;
@@ -300,6 +308,30 @@ export interface PluginDefinition {
 
 // ── Voll-Backup v2 & Projekt-Import Datenmodell ─────────────────────────────
 
+export interface ScannedReceiptItem {
+  title: string;
+  quantity: string;
+  price: string;
+}
+
+export interface ScannedReceipt {
+  id: string;
+  projectId?: string;
+  projectName?: string;
+  storeName: string;
+  purchaseDate: string;
+  totalAmount: string;
+  items: ScannedReceiptItem[];
+  createdAt?: string;
+  reconciled?: boolean;
+  netAmount?: number;
+  vatAmount?: number;
+  vatRate?: number;
+  category?: string;
+  reconciledAt?: string;
+  reconciledCount?: number;
+}
+
 export interface FullBackupV2 {
   backupVersion: 2;
   exportedAt: string;
@@ -308,11 +340,73 @@ export interface FullBackupV2 {
   blueprints: any;
   photoPins: any;
   aiChat: any;
-  scannedReceipts: any[];
+  scannedReceipts: ScannedReceipt[];
   savedDossiers: any[];
+  foremanProposals?: ForemanProposal[];
+  dismissedThinkerIds?: string[];
+  visionCaptures?: VisionCaptureItem[];
+  offlineAudioMemos?: OfflineAudioMemo[];
   pizzaCatalog: PizzaCatalogItem[];
   posSlots: PosPizzaSlot[];
   doughCalcDefaults: DoughCalcDefaults;
+}
+
+export type ForemanProposalKind = 'murmur-research' | 'thinker-contradiction';
+export type ForemanProposalStatus = 'pending' | 'snoozed' | 'accepted' | 'dismissed';
+
+export interface ForemanProposalAction {
+  type: 'add-cart' | 'add-task' | 'add-knowledge' | 'dedupe-cart' | 'mark-cart-bought';
+  label: string;
+  projectId: string;
+  payload: {
+    title?: string;
+    quantity?: string;
+    notes?: string;
+    content?: string;
+    removeCartItemIds?: string[];
+    cartItemId?: string;
+  };
+}
+
+export interface ForemanProposal {
+  id: string;
+  kind: ForemanProposalKind;
+  projectId: string;
+  title: string;
+  summary: string;
+  detail?: string;
+  status: ForemanProposalStatus;
+  createdAt: string;
+  snoozedUntil?: string;
+  actions: ForemanProposalAction[];
+}
+
+export type VisionCaptureCategory = 'nameplate' | 'sketch' | 'site-photo';
+
+export interface VisionCaptureItem {
+  id: string;
+  projectId: string;
+  category: VisionCaptureCategory;
+  title: string;
+  summary: string;
+  extractedSpecs: string[];
+  suggestedCartItems?: string[];
+  suggestedTaskTitle?: string;
+  thumbnailDataUrl?: string;
+  createdAt: string;
+}
+
+export interface OfflineAudioMemo {
+  id: string;
+  projectId: string;
+  createdAt: string;
+  durationSec: number;
+  mimeType: string;
+  audioDataUrl?: string;
+  noteText?: string;
+  status: 'queued' | 'processing' | 'transcribed' | 'error';
+  transcript?: string;
+  errorMessage?: string;
 }
 
 export interface BackupImportResult {

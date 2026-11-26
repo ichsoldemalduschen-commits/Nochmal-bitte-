@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Bell, Scale, Webhook } from 'lucide-react';
+import { Bell, BrainCircuit, Camera, Receipt, Scale, Sparkles, Webhook } from 'lucide-react';
 import { BanditUserPreferences, THEME } from '../../types';
 import { requestPushNotificationPermission } from '../../services/cloudSyncAndPush';
 import {
@@ -55,12 +55,17 @@ export const AutomationSection: React.FC<AutomationSectionProps> = ({
           : 'Browser-Freigabe noch offen (default) – In-App-Banner aktiv'
       : 'Nur In-App-Banner';
 
+  const foremanEnabled = prefs.receiptForemanEnabled !== false;
+  const sectionStatusText = `${remindersEnabled ? 'Aktiv' : 'Pausiert'} · ${
+    foremanEnabled ? 'Vorarbeiter An' : 'Vorarbeiter Aus'
+  }`;
+
   return (
     <ZentraleAccordion
       number={4}
       title="Erinnerungen, Vorarbeiter & Smart Home"
-      subtitle="Proaktive Erinnerungen, Vorschriften-Wächter & Smart Home"
-      statusText={remindersEnabled ? 'Aktiv' : 'Pausiert'}
+      subtitle="Proaktive Erinnerungen, Beleg-Vorarbeiter, Vorschriften & Smart Home"
+      statusText={sectionStatusText}
       icon={<Bell className="w-5 h-5 text-[#E5A93C]" />}
       isOpen={isOpen}
       onToggle={onToggle}
@@ -162,6 +167,92 @@ export const AutomationSection: React.FC<AutomationSectionProps> = ({
         offLabel="Aus"
         icon={<Scale className="w-4 h-4 text-[#14B8A6] shrink-0" />}
         testId="toggle-audit-settings"
+      />
+
+      {/* Beleg- & Rechnungs-Vorarbeiter */}
+      <ZentraleToggleRow
+        title="Beleg- & Rechnungs-Vorarbeiter"
+        description="Prüft Belege auf Dubletten/Lücken, schlägt Einkaufswagen-Abgleich per 1-Tipp vor und erstellt das Steuerberater-Monatspaket."
+        checked={foremanEnabled}
+        onToggle={() => {
+          const next = !foremanEnabled;
+          onUpdatePrefs({ receiptForemanEnabled: next });
+          onNotify(
+            next
+              ? 'Beleg- & Rechnungs-Vorarbeiter aktiviert.'
+              : 'Beleg- & Rechnungs-Vorarbeiter ausgeblendet.'
+          );
+        }}
+        onLabel="An"
+        offLabel="Aus"
+        icon={<Receipt className="w-4 h-4 text-[#14B8A6] shrink-0" />}
+        ariaLabel="Beleg- & Rechnungs-Vorarbeiter umschalten"
+        testId="toggle-receipt-foreman"
+      />
+
+      {/* Stiller Mitdenker */}
+      <ZentraleToggleRow
+        title="Stiller Mitdenker (Widerspruchs-Wächter)"
+        description="Erkennt im Hintergrund doppelte offene Einkäufe, Maß-/Technik-Widersprüche zwischen Aufgaben & Wissen sowie offene Einkäufe zu erledigten Aufgaben."
+        checked={prefs.silentThinkerEnabled !== false}
+        onToggle={() => {
+          const next = !(prefs.silentThinkerEnabled !== false);
+          onUpdatePrefs({ silentThinkerEnabled: next });
+          onNotify(
+            next
+              ? 'Stiller Mitdenker aktiviert.'
+              : 'Stiller Mitdenker ausgeblendet.'
+          );
+        }}
+        onLabel="An"
+        offLabel="Aus"
+        tone="honey"
+        icon={<BrainCircuit className="w-4 h-4 text-[#E5A93C] shrink-0" />}
+        ariaLabel="Stillen Mitdenker umschalten"
+        testId="toggle-silent-thinker"
+      />
+
+      {/* Nebenbei-Murmel-Autopilot */}
+      <ZentraleToggleRow
+        title="„Nebenbei-Murmel“-Autopilot (Hintergrund-Recherche)"
+        description="Ermöglicht in Deep Research das asynchrone Prüfen im Hintergrund und legt Ergebnisse als ruhige Ja/Nein/Später-Freigabekarte ab."
+        checked={prefs.murmurAutopilotEnabled !== false}
+        onToggle={() => {
+          const next = !(prefs.murmurAutopilotEnabled !== false);
+          onUpdatePrefs({ murmurAutopilotEnabled: next });
+          onNotify(
+            next
+              ? '„Nebenbei-Murmel“-Autopilot aktiviert.'
+              : '„Nebenbei-Murmel“-Autopilot ausgeblendet.'
+          );
+        }}
+        onLabel="An"
+        offLabel="Aus"
+        tone="honey"
+        icon={<Sparkles className="w-4 h-4 text-[#E5A93C] shrink-0" />}
+        ariaLabel="Nebenbei-Murmel-Autopilot umschalten"
+        testId="toggle-murmur-autopilot"
+      />
+
+      {/* Allgemeine Bild-Vision */}
+      <ZentraleToggleRow
+        title="Allgemeine Bild-Vision (Typenschilder, Skizzen & Fotos)"
+        description="Erweitert den Scanner um Typenschild-, Skizzen- und Baustellen-Foto-Analyse inkl. Projekt-Galerie."
+        checked={prefs.generalVisionEnabled !== false}
+        onToggle={() => {
+          const next = !(prefs.generalVisionEnabled !== false);
+          onUpdatePrefs({ generalVisionEnabled: next });
+          onNotify(
+            next
+              ? 'Allgemeine Bild-Vision aktiviert.'
+              : 'Allgemeine Bild-Vision ausgeblendet.'
+          );
+        }}
+        onLabel="An"
+        offLabel="Aus"
+        icon={<Camera className="w-4 h-4 text-[#14B8A6] shrink-0" />}
+        ariaLabel="Allgemeine Bild-Vision umschalten"
+        testId="toggle-general-vision"
       />
 
       {/* Smart Home / Home Assistant (Prinzip der geschlossenen Schublade) */}

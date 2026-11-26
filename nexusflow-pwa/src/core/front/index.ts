@@ -6,7 +6,13 @@ export { KnowledgeView } from './KnowledgeView';
 export { ExtrasView } from './ExtrasView';
 export { ReceiptScanView } from './ReceiptScanView';
 export { DeepResearchView } from './DeepResearchView';
+export { ForemanInboxCard, type ForemanInboxCardProps } from './ForemanInboxCard';
 export { HexThumbHub, type HexThumbHubProps } from './HexThumbHub';
 export { SingleFocusOverlay, type SingleFocusOverlayProps } from './SingleFocusOverlay';
 export { FloatingCartOverlay, type FloatingCartOverlayProps } from './FloatingCartOverlay';
+export {
+  OfflineAudioBufferBar,
+  type OfflineAudioBufferBarProps
+} from './OfflineAudioBufferBar';
+
 

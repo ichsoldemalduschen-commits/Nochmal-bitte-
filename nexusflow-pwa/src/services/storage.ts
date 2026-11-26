@@ -22,7 +22,14 @@ import {
   DayBlockId,
   ReminderRecurrence,
   KnowledgeKind,
-  VoiceProvider
+  VoiceProvider,
+  ScannedReceipt,
+  ScannedReceiptItem,
+  ForemanProposal,
+  ForemanProposalAction,
+  VisionCaptureCategory,
+  VisionCaptureItem,
+  OfflineAudioMemo
 } from '../types';
 
 export type { FullBackupV2, BackupImportResult, ProjectImportResult };
@@ -52,7 +59,11 @@ export const STORAGE_KEYS = {
   THUMB_HUB_POSITION: 'banditos_thumb_hub_position_v1',
   AMBIENT_LIGHT_MODE: 'banditos_ambient_light_mode_v1',
   SCANNED_RECEIPTS: 'banditos_scanned_receipts_v1',
-  SAVED_DOSSIERS: 'banditos_saved_dossiers_v1'
+  SAVED_DOSSIERS: 'banditos_saved_dossiers_v1',
+  FOREMAN_PROPOSALS: 'banditos_foreman_proposals_v1',
+  DISMISSED_THINKER_IDS: 'banditos_dismissed_thinker_ids_v1',
+  VISION_CAPTURES: 'banditos_vision_captures_v1',
+  OFFLINE_AUDIO_MEMOS: 'banditos_offline_audio_memos_v1'
 } as const;
 
 // In-Memory-Cache für verzögerungsfreie synchrone UI-Abfragen
@@ -153,9 +164,9 @@ function cleanAttachmentList(rawList: unknown): { attachments: Attachment[]; cha
 export function normalizeProjectKnowledge(project: any): KnowledgeItem[] {
   const existingKnowledge: KnowledgeItem[] = Array.isArray(project?.knowledge)
     ? project.knowledge.map((k: any) => ({
-        ...k,
-        attachments: cleanAttachmentList(k?.attachments).attachments
-      }))
+      ...k,
+      attachments: cleanAttachmentList(k?.attachments).attachments
+    }))
     : [];
   const knownIds = new Set(existingKnowledge.map((k) => k.id));
 
@@ -266,8 +277,8 @@ function migrateProjectInternal(rawProject: any): { project: Project; migrated: 
       reminderAt: String(t?.reminderAt || ''),
       reminderRecurrence:
         t?.reminderRecurrence === 'daily' ||
-        t?.reminderRecurrence === 'weekly' ||
-        t?.reminderRecurrence === 'none'
+          t?.reminderRecurrence === 'weekly' ||
+          t?.reminderRecurrence === 'none'
           ? (t.reminderRecurrence as ReminderRecurrence)
           : undefined,
       lastReminderFiredAt: t?.lastReminderFiredAt ? String(t.lastReminderFiredAt) : undefined,
@@ -369,12 +380,12 @@ export function migrateAppState(raw: unknown): { state: AppStateSnapshot; migrat
   const aiLogs: AiLogEntry[] = rawLogs.map((log: any) => {
     const actions = Array.isArray(log?.actions)
       ? log.actions.map((act: any) => {
-          if (act?.targetSubTab === 'explanations' || act?.targetSubTab === 'infos') {
-            migrated = true;
-            return { ...act, targetSubTab: 'knowledge' };
-          }
-          return act;
-        })
+        if (act?.targetSubTab === 'explanations' || act?.targetSubTab === 'infos') {
+          migrated = true;
+          return { ...act, targetSubTab: 'knowledge' };
+        }
+        return act;
+      })
       : [];
     return { ...log, actions };
   });
@@ -394,13 +405,13 @@ export function migrateAppState(raw: unknown): { state: AppStateSnapshot; migrat
     aiVoiceSettings:
       src.aiVoiceSettings && typeof src.aiVoiceSettings === 'object'
         ? {
-            ...DEFAULT_AI_VOICE_SETTINGS,
-            ...src.aiVoiceSettings,
-            autoModeDetection:
-              typeof src.aiVoiceSettings.autoModeDetection === 'boolean'
-                ? src.aiVoiceSettings.autoModeDetection
-                : true
-          }
+          ...DEFAULT_AI_VOICE_SETTINGS,
+          ...src.aiVoiceSettings,
+          autoModeDetection:
+            typeof src.aiVoiceSettings.autoModeDetection === 'boolean'
+              ? src.aiVoiceSettings.autoModeDetection
+              : true
+        }
         : undefined,
     haWebhookUrl: typeof src.haWebhookUrl === 'string' ? src.haWebhookUrl : '',
     haEmbedUrl: typeof src.haEmbedUrl === 'string' ? src.haEmbedUrl : ''
@@ -436,7 +447,11 @@ export async function migrateLocalStorageToIndexedDB(): Promise<void> {
     STORAGE_KEYS.THUMB_HUB_POSITION,
     STORAGE_KEYS.AMBIENT_LIGHT_MODE,
     STORAGE_KEYS.SCANNED_RECEIPTS,
-    STORAGE_KEYS.SAVED_DOSSIERS
+    STORAGE_KEYS.SAVED_DOSSIERS,
+    STORAGE_KEYS.FOREMAN_PROPOSALS,
+    STORAGE_KEYS.DISMISSED_THINKER_IDS,
+    STORAGE_KEYS.VISION_CAPTURES,
+    STORAGE_KEYS.OFFLINE_AUDIO_MEMOS
   ];
 
   for (const key of keysToMigrate) {
@@ -495,11 +510,11 @@ export async function loadIdbItem<T>(key: string, defaultValue: T): Promise<T> {
         const parsed = JSON.parse(raw) as T;
         memoryCache.set(key, parsed);
         // Hintergrund-Sync in IDB
-        set(key, parsed).catch(() => {});
+        set(key, parsed).catch(() => { });
         return parsed;
       } catch {
         memoryCache.set(key, raw);
-        set(key, raw).catch(() => {});
+        set(key, raw).catch(() => { });
         return raw as unknown as T;
       }
     }
@@ -859,6 +874,14 @@ export const DEFAULT_USER_PREFS: BanditUserPreferences = {
   flipCoverAutoDetect: true,
   reminderSystemPushEnabled: true,
   smartHomeEnabled: false,
+  appShortcutsEnabled: true,
+  shareTargetEnabled: true,
+  wakeLockEnabled: true,
+  receiptForemanEnabled: true,
+  silentThinkerEnabled: true,
+  murmurAutopilotEnabled: true,
+  generalVisionEnabled: true,
+  offlineAudioBufferEnabled: true,
   quickCommands: [
     'Gib mir ein kurzes 3-Punkte-Briefing für dieses Projekt',
     'Welche Materialien fehlen noch im Einkaufswagen?',
@@ -922,6 +945,38 @@ export function normalizeUserPrefs(
       typeof src.smartHomeEnabled === 'boolean'
         ? src.smartHomeEnabled
         : DEFAULT_USER_PREFS.smartHomeEnabled,
+    appShortcutsEnabled:
+      typeof src.appShortcutsEnabled === 'boolean'
+        ? src.appShortcutsEnabled
+        : DEFAULT_USER_PREFS.appShortcutsEnabled,
+    shareTargetEnabled:
+      typeof src.shareTargetEnabled === 'boolean'
+        ? src.shareTargetEnabled
+        : DEFAULT_USER_PREFS.shareTargetEnabled,
+    wakeLockEnabled:
+      typeof src.wakeLockEnabled === 'boolean'
+        ? src.wakeLockEnabled
+        : DEFAULT_USER_PREFS.wakeLockEnabled,
+    receiptForemanEnabled:
+      typeof src.receiptForemanEnabled === 'boolean'
+        ? src.receiptForemanEnabled
+        : DEFAULT_USER_PREFS.receiptForemanEnabled,
+    silentThinkerEnabled:
+      typeof src.silentThinkerEnabled === 'boolean'
+        ? src.silentThinkerEnabled
+        : DEFAULT_USER_PREFS.silentThinkerEnabled,
+    murmurAutopilotEnabled:
+      typeof src.murmurAutopilotEnabled === 'boolean'
+        ? src.murmurAutopilotEnabled
+        : DEFAULT_USER_PREFS.murmurAutopilotEnabled,
+    generalVisionEnabled:
+      typeof src.generalVisionEnabled === 'boolean'
+        ? src.generalVisionEnabled
+        : DEFAULT_USER_PREFS.generalVisionEnabled,
+    offlineAudioBufferEnabled:
+      typeof src.offlineAudioBufferEnabled === 'boolean'
+        ? src.offlineAudioBufferEnabled
+        : DEFAULT_USER_PREFS.offlineAudioBufferEnabled,
     quickCommands: Array.isArray(src.quickCommands)
       ? src.quickCommands
       : DEFAULT_USER_PREFS.quickCommands,
@@ -970,16 +1025,10 @@ export function triggerHapticFeedback(pattern: number | number[] = 14): void {
   }
 }
 
-export interface SavedScannedReceipt {
-  id: string;
+export interface SavedScannedReceipt extends ScannedReceipt {
   projectId: string;
   projectName: string;
-  storeName: string;
-  purchaseDate: string;
-  totalAmount: string;
-  items: Array<{ title: string; quantity: string; price: string }>;
   createdAt: string;
-  reconciled?: boolean;
 }
 
 export interface SavedDossierItem {
@@ -994,12 +1043,51 @@ export interface SavedDossierItem {
   modelUsed?: string;
 }
 
+function normalizeScannedReceiptItem(raw: any): ScannedReceiptItem {
+  return {
+    title: String(raw?.title || '').trim() || 'Position',
+    quantity: String(raw?.quantity || '1x'),
+    price: String(raw?.price ?? '')
+  };
+}
+
+export function normalizeScannedReceipts(raw: unknown): SavedScannedReceipt[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((entry) => entry && typeof entry === 'object')
+    .map((r: any, idx: number) => ({
+      id: String(r.id || `rcpt-${Date.now()}-${idx}`),
+      projectId: typeof r.projectId === 'string' ? r.projectId : '',
+      projectName: typeof r.projectName === 'string' ? r.projectName : '',
+      storeName: typeof r.storeName === 'string' ? r.storeName : '',
+      purchaseDate: typeof r.purchaseDate === 'string' ? r.purchaseDate : '',
+      totalAmount: typeof r.totalAmount === 'number' ? String(r.totalAmount) : String(r.totalAmount ?? '0,00'),
+      items: Array.isArray(r.items) ? r.items.map(normalizeScannedReceiptItem) : [],
+      createdAt: typeof r.createdAt === 'string' && r.createdAt ? r.createdAt : formatNow(),
+      reconciled: typeof r.reconciled === 'boolean' ? r.reconciled : Boolean(r.reconciledAt),
+      ...(typeof r.netAmount === 'number' && Number.isFinite(r.netAmount) ? { netAmount: r.netAmount } : {}),
+      ...(typeof r.vatAmount === 'number' && Number.isFinite(r.vatAmount) ? { vatAmount: r.vatAmount } : {}),
+      ...(typeof r.vatRate === 'number' && Number.isFinite(r.vatRate) ? { vatRate: r.vatRate } : {}),
+      ...(typeof r.category === 'string' && r.category.trim() ? { category: r.category.trim() } : {}),
+      ...(typeof r.reconciledAt === 'string' && r.reconciledAt ? { reconciledAt: r.reconciledAt } : {}),
+      ...(typeof r.reconciledCount === 'number' && Number.isFinite(r.reconciledCount)
+        ? { reconciledCount: r.reconciledCount }
+        : {})
+    }));
+}
+
 export function loadScannedReceipts(): SavedScannedReceipt[] {
-  return getIdbItemSync<SavedScannedReceipt[]>(STORAGE_KEYS.SCANNED_RECEIPTS, []);
+  const raw = getIdbItemSync<SavedScannedReceipt[]>(STORAGE_KEYS.SCANNED_RECEIPTS, []);
+  return normalizeScannedReceipts(raw);
+}
+
+export async function loadScannedReceiptsAsync(): Promise<SavedScannedReceipt[]> {
+  const raw = await loadIdbItem<SavedScannedReceipt[]>(STORAGE_KEYS.SCANNED_RECEIPTS, []);
+  return normalizeScannedReceipts(raw);
 }
 
 export function saveScannedReceipts(receipts: SavedScannedReceipt[]): void {
-  saveIdbItem(STORAGE_KEYS.SCANNED_RECEIPTS, receipts);
+  saveIdbItem(STORAGE_KEYS.SCANNED_RECEIPTS, normalizeScannedReceipts(receipts));
 }
 
 export function loadSavedDossiers(): SavedDossierItem[] {
@@ -1008,6 +1096,234 @@ export function loadSavedDossiers(): SavedDossierItem[] {
 
 export function saveSavedDossiers(dossiers: SavedDossierItem[]): void {
   saveIdbItem(STORAGE_KEYS.SAVED_DOSSIERS, dossiers);
+}
+
+// ── Vorarbeiter-Vorschläge & Stiller Mitdenker (Welle 4 / Ticket 4.2) ───────
+
+function normalizeForemanProposalAction(raw: any): ForemanProposalAction | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const validTypes: ForemanProposalAction['type'][] = [
+    'add-cart',
+    'add-task',
+    'add-knowledge',
+    'dedupe-cart',
+    'mark-cart-bought'
+  ];
+  const type = validTypes.includes(raw.type) ? (raw.type as ForemanProposalAction['type']) : null;
+  if (!type) return null;
+  const rawPayload = raw.payload && typeof raw.payload === 'object' ? raw.payload : {};
+  return {
+    type,
+    label: String(raw.label || 'Übernehmen'),
+    projectId: String(raw.projectId || ''),
+    payload: {
+      ...(typeof rawPayload.title === 'string' ? { title: rawPayload.title } : {}),
+      ...(typeof rawPayload.quantity === 'string' ? { quantity: rawPayload.quantity } : {}),
+      ...(typeof rawPayload.notes === 'string' ? { notes: rawPayload.notes } : {}),
+      ...(typeof rawPayload.content === 'string' ? { content: rawPayload.content } : {}),
+      ...(Array.isArray(rawPayload.removeCartItemIds)
+        ? { removeCartItemIds: rawPayload.removeCartItemIds.map((id: any) => String(id)) }
+        : {}),
+      ...(typeof rawPayload.cartItemId === 'string' ? { cartItemId: rawPayload.cartItemId } : {})
+    }
+  };
+}
+
+export function normalizeForemanProposals(raw: unknown): ForemanProposal[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((entry) => entry && typeof entry === 'object')
+    .map((entry: any, idx: number): ForemanProposal => {
+      const kind =
+        entry.kind === 'thinker-contradiction' ? 'thinker-contradiction' : 'murmur-research';
+      const status =
+        entry.status === 'snoozed' || entry.status === 'accepted' || entry.status === 'dismissed'
+          ? entry.status
+          : 'pending';
+      const actions = Array.isArray(entry.actions)
+        ? entry.actions
+            .map(normalizeForemanProposalAction)
+            .filter((a: ForemanProposalAction | null): a is ForemanProposalAction => Boolean(a))
+        : [];
+      return {
+        id: String(entry.id || `proposal-${Date.now()}-${idx}`),
+        kind,
+        projectId: String(entry.projectId || ''),
+        title: String(entry.title || 'Vorarbeiter-Vorschlag'),
+        summary: String(entry.summary || ''),
+        ...(typeof entry.detail === 'string' && entry.detail ? { detail: entry.detail } : {}),
+        status,
+        createdAt: typeof entry.createdAt === 'string' && entry.createdAt ? entry.createdAt : formatNow(),
+        ...(typeof entry.snoozedUntil === 'string' && entry.snoozedUntil
+          ? { snoozedUntil: entry.snoozedUntil }
+          : {}),
+        actions
+      };
+    });
+}
+
+export function normalizeDismissedThinkerIds(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  for (const item of raw) {
+    const clean = String(item || '').trim();
+    if (clean) seen.add(clean);
+  }
+  return Array.from(seen);
+}
+
+export function loadForemanProposals(): ForemanProposal[] {
+  const raw = getIdbItemSync<ForemanProposal[]>(STORAGE_KEYS.FOREMAN_PROPOSALS, []);
+  return normalizeForemanProposals(raw);
+}
+
+export async function loadForemanProposalsAsync(): Promise<ForemanProposal[]> {
+  const raw = await loadIdbItem<ForemanProposal[]>(STORAGE_KEYS.FOREMAN_PROPOSALS, []);
+  return normalizeForemanProposals(raw);
+}
+
+export function saveForemanProposals(list: ForemanProposal[]): Promise<void> {
+  const normalized = normalizeForemanProposals(list);
+  const p = saveIdbItem(STORAGE_KEYS.FOREMAN_PROPOSALS, normalized);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('banditos:foreman-proposals-updated', { detail: normalized }));
+  }
+  return p;
+}
+
+export function loadDismissedThinkerIds(): string[] {
+  const raw = getIdbItemSync<string[]>(STORAGE_KEYS.DISMISSED_THINKER_IDS, []);
+  return normalizeDismissedThinkerIds(raw);
+}
+
+export async function loadDismissedThinkerIdsAsync(): Promise<string[]> {
+  const raw = await loadIdbItem<string[]>(STORAGE_KEYS.DISMISSED_THINKER_IDS, []);
+  return normalizeDismissedThinkerIds(raw);
+}
+
+export function saveDismissedThinkerIds(ids: string[]): Promise<void> {
+  const normalized = normalizeDismissedThinkerIds(ids);
+  const p = saveIdbItem(STORAGE_KEYS.DISMISSED_THINKER_IDS, normalized);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(
+      new CustomEvent('banditos:dismissed-thinker-updated', { detail: normalized })
+    );
+  }
+  return p;
+}
+
+// ── Allgemeine Bild-Vision & Offline-Audio-Puffer (Welle 4 / Ticket 4.3) ────
+
+export const MAX_VISION_CAPTURES = 40;
+
+export function normalizeVisionCaptures(raw: unknown): VisionCaptureItem[] {
+  if (!Array.isArray(raw)) return [];
+  const validCategories: VisionCaptureCategory[] = ['nameplate', 'sketch', 'site-photo'];
+  return raw
+    .filter((entry) => entry && typeof entry === 'object')
+    .slice(0, MAX_VISION_CAPTURES)
+    .map((entry: any, idx: number): VisionCaptureItem => {
+      const category: VisionCaptureCategory = validCategories.includes(entry.category)
+        ? entry.category
+        : 'site-photo';
+      const extractedSpecs = Array.isArray(entry.extractedSpecs)
+        ? entry.extractedSpecs.map((s: any) => String(s || '').trim()).filter(Boolean)
+        : [];
+      const suggestedCartItems = Array.isArray(entry.suggestedCartItems)
+        ? entry.suggestedCartItems.map((s: any) => String(s || '').trim()).filter(Boolean)
+        : undefined;
+      return {
+        id: String(entry.id || `vis-${Date.now()}-${idx}`),
+        projectId: String(entry.projectId || ''),
+        category,
+        title: String(entry.title || 'Foto-Aufnahme').trim() || 'Foto-Aufnahme',
+        summary: String(entry.summary || '').trim(),
+        extractedSpecs,
+        ...(suggestedCartItems && suggestedCartItems.length > 0 ? { suggestedCartItems } : {}),
+        ...(typeof entry.suggestedTaskTitle === 'string' && entry.suggestedTaskTitle.trim()
+          ? { suggestedTaskTitle: entry.suggestedTaskTitle.trim() }
+          : {}),
+        ...(typeof entry.thumbnailDataUrl === 'string' && entry.thumbnailDataUrl
+          ? { thumbnailDataUrl: entry.thumbnailDataUrl }
+          : {}),
+        createdAt: typeof entry.createdAt === 'string' && entry.createdAt ? entry.createdAt : formatNow()
+      };
+    });
+}
+
+export function loadVisionCaptures(): VisionCaptureItem[] {
+  const raw = getIdbItemSync<VisionCaptureItem[]>(STORAGE_KEYS.VISION_CAPTURES, []);
+  return normalizeVisionCaptures(raw);
+}
+
+export async function loadVisionCapturesAsync(): Promise<VisionCaptureItem[]> {
+  const raw = await loadIdbItem<VisionCaptureItem[]>(STORAGE_KEYS.VISION_CAPTURES, []);
+  return normalizeVisionCaptures(raw);
+}
+
+export function saveVisionCaptures(items: VisionCaptureItem[]): Promise<void> {
+  const normalized = normalizeVisionCaptures(items);
+  const p = saveIdbItem(STORAGE_KEYS.VISION_CAPTURES, normalized);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('banditos:vision-captures-updated', { detail: normalized }));
+  }
+  return p;
+}
+
+export function normalizeOfflineAudioMemos(raw: unknown): OfflineAudioMemo[] {
+  if (!Array.isArray(raw)) return [];
+  const validStatuses: OfflineAudioMemo['status'][] = ['queued', 'processing', 'transcribed', 'error'];
+  return raw
+    .filter((entry) => entry && typeof entry === 'object')
+    .map((entry: any, idx: number): OfflineAudioMemo => {
+      const status: OfflineAudioMemo['status'] = validStatuses.includes(entry.status)
+        ? entry.status
+        : 'queued';
+      return {
+        id: String(entry.id || `memo-${Date.now()}-${idx}`),
+        projectId: String(entry.projectId || ''),
+        createdAt: typeof entry.createdAt === 'string' && entry.createdAt ? entry.createdAt : formatNow(),
+        durationSec:
+          typeof entry.durationSec === 'number' && Number.isFinite(entry.durationSec) && entry.durationSec >= 0
+            ? Math.round(entry.durationSec)
+            : 0,
+        mimeType: typeof entry.mimeType === 'string' && entry.mimeType ? entry.mimeType : 'audio/webm',
+        ...(typeof entry.audioDataUrl === 'string' && entry.audioDataUrl
+          ? { audioDataUrl: entry.audioDataUrl }
+          : {}),
+        ...(typeof entry.noteText === 'string' && entry.noteText.trim()
+          ? { noteText: entry.noteText.trim() }
+          : {}),
+        status,
+        ...(typeof entry.transcript === 'string' && entry.transcript.trim()
+          ? { transcript: entry.transcript.trim() }
+          : {}),
+        ...(typeof entry.errorMessage === 'string' && entry.errorMessage.trim()
+          ? { errorMessage: entry.errorMessage.trim() }
+          : {})
+      };
+    });
+}
+
+export function loadOfflineAudioMemos(): OfflineAudioMemo[] {
+  const raw = getIdbItemSync<OfflineAudioMemo[]>(STORAGE_KEYS.OFFLINE_AUDIO_MEMOS, []);
+  return normalizeOfflineAudioMemos(raw);
+}
+
+export async function loadOfflineAudioMemosAsync(): Promise<OfflineAudioMemo[]> {
+  const raw = await loadIdbItem<OfflineAudioMemo[]>(STORAGE_KEYS.OFFLINE_AUDIO_MEMOS, []);
+  return normalizeOfflineAudioMemos(raw);
+}
+
+export function saveOfflineAudioMemos(memos: OfflineAudioMemo[]): Promise<void> {
+  const normalized = normalizeOfflineAudioMemos(memos);
+  const p = saveIdbItem(STORAGE_KEYS.OFFLINE_AUDIO_MEMOS, normalized);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(
+      new CustomEvent('banditos:offline-audio-memos-updated', { detail: normalized })
+    );
+  }
+  return p;
 }
 
 // ── Pizza-Katalog & POS-Slots (Paket 3) ─────────────────────────────────────
@@ -1127,6 +1443,10 @@ export async function downloadFullBackupV2(snapshot: AppStateSnapshot): Promise<
     aiChat,
     scannedReceipts,
     savedDossiers,
+    foremanProposals,
+    dismissedThinkerIds,
+    visionCaptures,
+    offlineAudioMemos,
     pizzaCatalog,
     posSlots,
     doughCalcDefaults
@@ -1137,6 +1457,10 @@ export async function downloadFullBackupV2(snapshot: AppStateSnapshot): Promise<
     loadIdbItem<any>(STORAGE_KEYS.AI_CHAT, []),
     loadIdbItem<SavedScannedReceipt[]>(STORAGE_KEYS.SCANNED_RECEIPTS, []),
     loadIdbItem<SavedDossierItem[]>(STORAGE_KEYS.SAVED_DOSSIERS, []),
+    loadIdbItem<ForemanProposal[]>(STORAGE_KEYS.FOREMAN_PROPOSALS, []),
+    loadIdbItem<string[]>(STORAGE_KEYS.DISMISSED_THINKER_IDS, []),
+    loadIdbItem<VisionCaptureItem[]>(STORAGE_KEYS.VISION_CAPTURES, []),
+    loadIdbItem<OfflineAudioMemo[]>(STORAGE_KEYS.OFFLINE_AUDIO_MEMOS, []),
     loadIdbItem<PizzaCatalogItem[]>(PIZZA_CATALOG_KEY, DEFAULT_PIZZA_CATALOG),
     loadIdbItem<PosPizzaSlot[]>(POS_SLOTS_KEY, []),
     loadIdbItem<DoughCalcDefaults>(DOUGH_CALC_DEFAULTS_KEY, DEFAULT_DOUGH_CALC_DEFAULTS),
@@ -1154,6 +1478,10 @@ export async function downloadFullBackupV2(snapshot: AppStateSnapshot): Promise<
     aiChat,
     scannedReceipts,
     savedDossiers,
+    foremanProposals: normalizeForemanProposals(foremanProposals),
+    dismissedThinkerIds: normalizeDismissedThinkerIds(dismissedThinkerIds),
+    visionCaptures: normalizeVisionCaptures(visionCaptures),
+    offlineAudioMemos: normalizeOfflineAudioMemos(offlineAudioMemos),
     pizzaCatalog,
     posSlots,
     doughCalcDefaults,
@@ -1225,6 +1553,18 @@ export async function importFullBackupV2(
     if (raw.aiChat) saves.push(saveIdbItem(STORAGE_KEYS.AI_CHAT, raw.aiChat));
     if (Array.isArray(raw.scannedReceipts)) saves.push(saveIdbItem(STORAGE_KEYS.SCANNED_RECEIPTS, raw.scannedReceipts));
     if (Array.isArray(raw.savedDossiers)) saves.push(saveIdbItem(STORAGE_KEYS.SAVED_DOSSIERS, raw.savedDossiers));
+    if (Array.isArray(raw.foremanProposals)) {
+      saves.push(saveForemanProposals(raw.foremanProposals));
+    }
+    if (Array.isArray(raw.dismissedThinkerIds)) {
+      saves.push(saveDismissedThinkerIds(raw.dismissedThinkerIds));
+    }
+    if (Array.isArray(raw.visionCaptures)) {
+      saves.push(saveVisionCaptures(raw.visionCaptures));
+    }
+    if (Array.isArray(raw.offlineAudioMemos)) {
+      saves.push(saveOfflineAudioMemos(raw.offlineAudioMemos));
+    }
     if (Array.isArray(raw.pizzaCatalog) && raw.pizzaCatalog.length > 0) {
       saves.push(saveIdbItem(PIZZA_CATALOG_KEY, raw.pizzaCatalog));
     } else {
@@ -1281,31 +1621,31 @@ export function importProjectJsonToTarget(
     accentColor: raw.accentColor || targetProject.accentColor,
     tasks: Array.isArray(raw.tasks)
       ? raw.tasks.map((t: any) => ({
-          ...t,
-          title: String(t?.title || 'Importierte Aufgabe'),
-          lastModified: t?.lastModified || new Date().toISOString(),
-          changeReason: t?.changeReason || 'Projekt-JSON-Import',
-          source: t?.source || 'Import'
-        }))
+        ...t,
+        title: String(t?.title || 'Importierte Aufgabe'),
+        lastModified: t?.lastModified || new Date().toISOString(),
+        changeReason: t?.changeReason || 'Projekt-JSON-Import',
+        source: t?.source || 'Import'
+      }))
       : [],
     cart: Array.isArray(raw.cart)
       ? raw.cart.map((c: any) => ({
-          ...c,
-          title: String(c?.title || 'Importierter Artikel'),
-          quantity: String(c?.quantity || '1 Stk'),
-          lastModified: c?.lastModified || new Date().toISOString(),
-          changeReason: c?.changeReason || 'Projekt-JSON-Import',
-          source: c?.source || 'Import'
-        }))
+        ...c,
+        title: String(c?.title || 'Importierter Artikel'),
+        quantity: String(c?.quantity || '1 Stk'),
+        lastModified: c?.lastModified || new Date().toISOString(),
+        changeReason: c?.changeReason || 'Projekt-JSON-Import',
+        source: c?.source || 'Import'
+      }))
       : [],
     knowledge: Array.isArray(raw.knowledge)
       ? raw.knowledge.map((k: any) => ({
-          ...k,
-          title: String(k?.title || 'Importierter Wissens-Eintrag'),
-          lastModified: k?.lastModified || new Date().toISOString(),
-          changeReason: k?.changeReason || 'Projekt-JSON-Import',
-          source: k?.source || 'Import'
-        }))
+        ...k,
+        title: String(k?.title || 'Importierter Wissens-Eintrag'),
+        lastModified: k?.lastModified || new Date().toISOString(),
+        changeReason: k?.changeReason || 'Projekt-JSON-Import',
+        source: k?.source || 'Import'
+      }))
       : []
   });
 

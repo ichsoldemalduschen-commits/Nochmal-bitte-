@@ -162,8 +162,8 @@ Die gesamte Einstellungs-Ansicht heißt für den Nutzer **„Zentrale"** (intern
 |---|---|---|---|
 | 1 | Projekte & Werkzeuge (`ProjectsSection.tsx`) | `projects` | Projektkarten (390px-Fix: nur Farbpunkt + voller Name + Pfeil), Gesamt-Übersicht (`overviewEnabled`), Vorschriften-Wächter (`legalWatchEnabled`), Bild-Tausch, Farb-Presets, Lifecycle, Domain, Module, Plugins, JSON-Export, Archiv, 2-Stufen-Reset-Schutz |
 | 2 | Fokus, Bedienung & Smartphone (`FocusAndSmartphoneSection.tsx`) | `focus` | ADHS-Helfer (+25 %-Puffer separat von Vibration), echte `uiDensity`-`rem`-Skalierung (`compact` 15 px / `standard` 16 px / `large` 17 px via `data-density`), 3-Stufen-Hintergrundbeleuchtung, `organicMotion`, `hapticsEnabled`, `cartOpenMode` (Schwebend vs. Tab), `flipCoverAutoDetect`, `realityCheckEnabled`, `SelfCheckHistoryPanel` (zugeklappt), Tagesplaner & `.ics` |
-| 3 | KI & Stimme „Gisela" (`AiAndVoiceSection.tsx`) | `ai` | Gemini API-Key & Modellwahl, direkter Start-Modus (`activeAiMode`: `⚡ Sprech (Flash)` ↔ `🧠 Research (Pro)`), KI-Antwortstil & Quick-Commands, Azure Speech + Gisela-Test + `continuousListening` + `autoModeDetection` |
-| 4 | Erinnerungen, Vorarbeiter & Smart Home (`AutomationSection.tsx`) | `automation` | Proaktive Erinnerungen (`remindersEnabled`), separater System-Push-Schalter (`reminderSystemPushEnabled`), Browser-Push-Freigabe, Vorschriften-Wächter (`AUDIT_SETTINGS`), Smart Home / Home Assistant (`smartHomeEnabled` als geschlossene Schublade) |
+| 3 | KI & Stimme „Gisela" (`AiAndVoiceSection.tsx`) | `ai` | Gemini API-Key & Modellwahl, direkter Start-Modus (`activeAiMode`: `⚡ Sprech (Flash)` ↔ `🧠 Research (Pro)`), KI-Antwortstil & Quick-Commands, Azure Speech + Gisela-Test + `continuousListening` + `autoModeDetection` + Offline-Audio-Puffer (`offlineAudioBufferEnabled`) |
+| 4 | Erinnerungen, Vorarbeiter & Smart Home (`AutomationSection.tsx`) | `automation` | Proaktive Erinnerungen (`remindersEnabled`), separater System-Push-Schalter (`reminderSystemPushEnabled`), Browser-Push-Freigabe, Vorschriften-Wächter (`AUDIT_SETTINGS`), Beleg- & Rechnungs-Vorarbeiter (`receiptForemanEnabled`), Stiller Mitdenker (`silentThinkerEnabled`), „Nebenbei-Murmel“-Autopilot (`murmurAutopilotEnabled`), Allgemeine Bild-Vision (`generalVisionEnabled`), Smart Home / Home Assistant (`smartHomeEnabled` als geschlossene Schublade) |
 | 5 | Daten, Backup & System (`SystemAndBackupSection.tsx`, `CloudSyncPanel.tsx`) | `system` | Cloud-Synchronisation (URL, Token, `autoSyncOnChange` mit 5s-Debounce & Pull/Hydration-Loop-Schutz, Hochladen/Herunterladen), Voll-Backup v2 inkl. `BanditUserPreferences`, Projekt-JSON-Import, CSV-Export, Vorlagen-Tresor (`Blueprints` inkl. Tasks/Cart-Übernahme & Löschen) |
 
 **Verbindliche Toggle-Regel (`ZentraleToggleRow`):** Jede neue Einstellung erhält einen einheitlichen Ein-/Ausschalter (`min-h-[44px]`, `ZentraleToggleRow`), bleibt abwärtskompatibel in IndexedDB (`BanditUserPreferences` in `storage.ts`, ohne lose `localStorage`-Keys) und blendet optionale Detail-Felder im Aus-Zustand nach dem Prinzip der geschlossenen Schublade aus.
@@ -181,7 +181,7 @@ Für jede künftige Änderung gilt ein verbindliches E2E-Qualitätsgate auf mobi
 - **Befehl:** `npm run verify` im Verzeichnis `nexusflow-pwa` (führt `npm run build && npm run test:guard` aus).
 - **Pflicht vor jedem Git-Push:**
   1. `npm run build` muss fehlerfrei durchlaufen.
-  2. Playwright Mobile-Guard (`tests/mobile-guard.spec.ts`) muss alle **16 Stationen** (Start & Kopfleiste, NavigationDrawer, TasksView, CartView, KnowledgeView, Block D & VoiceModal, Zentrale mit allen 5 Bereichen, Deep-Links, Werkzeuge/POS, Wissen-Lösch-Undo & konsolidiertes Modal, Sammel-Tasks/`subTasks`, proaktive Erinnerungen, unsichtbare 3-Modi-Erkennung, Sprach-KI Rundum-Sanierung, Zentrale v2 5-Bereiche-Shell, Toggle-Offensive inkl. `uiDensity = large`, IDB-Reload-Persistenz & Smart-Home-Schublade) zu 100 % grün durchlaufen.
+  2. Playwright Mobile-Guard (`tests/mobile-guard.spec.ts`) muss alle **20 Stationen** (inkl. Allgemeine Bild-Vision & Offline-Audio-Puffer in Station 20) zu 100 % grün durchlaufen.
   3. Strikte Wächter: 0 ungefangene `pageerror`-Exceptions, 0 unberechtigte `console.error`-Meldungen, 0 horizontale Viewport-Überläufe (`document.documentElement.scrollWidth <= window.innerWidth + 1`).
 
 ---
@@ -298,3 +298,54 @@ Beide Werkzeuge besitzen oben rechts einen ruhigen `⚙`-Button (`min-h-[44px] m
 - **Android-Chrome-STT-Härtung & Satzende-Schutz (`VoiceModal.tsx`, `voiceModeClassifier.ts`, `storage.ts`):**
   - `rec.onend` mit bereits erkanntem Text hält die Sitzung mit `1200 ms` Nachlauf bzw. Sammel-Fortsetzung offen; `accumulatedPrefixRef` bewahrt bisheriges Transkript über Auto-Restarts inkl. Überlappungs- und 1-/2-/3-Wort-Phrasen-Deduplizierung.
   - Offene Satzenden (z. B. *„Notiere mal Aufgabe für“*) blockieren `quick` zuverlässig; `importFullBackupV2` synchronisiert `aiVoiceSettings` konsistent in alle Einzel-Keys (`Station 14`).
+
+---
+
+## 18  Welle 4 / Ticket 4.0 – Smartphone-Verfügbarkeit Stufe A
+
+- **PWA App-Shortcuts & Android Share-Target (`vite.config.ts`):**
+  - Manifest-`shortcuts` bietet 3 relative Direktstarts (`./?action=voice`, `./?action=receipt`, `./?action=cart`) mit `pwa-192x192.png`.
+  - Statisches `share_target` (`method: 'GET'`, `action: './'`, `params: { title: 'share_title', text: 'share_text', url: 'share_url' }`) ohne Umbau auf `injectManifest`.
+- **URL-Action- & Share-Intake (`App.tsx`, `VoiceModal.tsx`):**
+  - Einmalige Auswertung nach abgeschlossener Initial-Hydration: `?action=voice|receipt|cart` (nur bei `appShortcutsEnabled !== false`) und `?share_title`/`?share_text`/`?share_url` (nur bei `shareTargetEnabled !== false`, Öffnung von `VoiceModal` mit `initialPrefillText` und Honig-Gold-Hinweis `#E5A93C` ohne Auto-Send/Auto-Mic).
+  - Bereinigung der verarbeiteten Query-Parameter per `window.history.replaceState` unter Erhalt von `?mode=cover`.
+- **Werkstatt-Wachbleib-Modus (`src/hooks/useWakeLock.ts`, `VoiceModal.tsx`):**
+  - Isolierter, fehlerresistenter `useWakeLock(open && wakeLockEnabled && voicePhase !== 'IDLE')`-Hook mit automatischer Freigabe und `visibilitychange`-Re-Acquire (ruhiges `Display wach`-Label bei aktivem Lock).
+- **Zentrale v2 Bereich 2 & Station 17 (`FocusAndSmartphoneSection.tsx`, `storage.ts`, `tests/mobile-guard.spec.ts`):**
+  - 3 direkt schaltbare, in IndexedDB & Voll-Backup v2 persistierte `ZentraleToggleRow`-Schalter (`wakeLockEnabled`, `shareTargetEnabled`, `appShortcutsEnabled`) sowie E2E-Absicherung in **Station 17**.
+
+---
+
+## 19  Welle 4 / Ticket 4.1 – Beleg- & Rechnungs-Vorarbeiter
+
+- **Reines Vorarbeiter-Modul (`src/services/receiptForeman.ts`):**
+  - `checkReceiptPlausibilityAndDuplicates`: Dubletten-Erkennung (normalisierter Händler, Datum ±1 Tag, Brutto ±0,02 €), Plausibilitäts-Hinweise und Netto/MwSt-Berechnung (`19 %` Standard, `7 %` für Lebensmittel).
+  - `findCartMatchesForReceipt`: Robuster Abgleich gegen offene Einkaufswagen-Artikel aller aktiven Projekte (bevorzugt zugeordnetes Projekt, Wortstamm-/Teilstring-Überlappung ≥ 4 Zeichen, dedupliziert je `cartItemId`).
+  - `buildTaxAdvisorMonthlySummary`, `exportReceiptsToGermanCsv` (UTF-8-BOM `\uFEFF`, `;`-Trenner, deutsches Dezimalkomma) und `formatTaxAdvisorSummaryText`.
+- **Beleg-Vorarbeiter-UI & Zentrale Bereich 4 (`ReceiptScanView.tsx`, `AutomationSection.tsx`, `types.ts`, `storage.ts`):**
+  - Persistenter Schalter `receiptForemanEnabled` (Default `true`) in Zentrale Bereich 4; im Aus-Zustand bleiben alle 3 Vorarbeiter-Karten nach dem Prinzip der geschlossenen Schublade ausgeblendet.
+  - Abwärtskompatibles `ScannedReceipt`-Datenmodell inkl. Projekt-, Kategorie-, MwSt-Zuordnung und PDF-Upload (`accept="image/*,application/pdf"`).
+  - E2E-Absicherung auf 390×844 px in **Station 18** (`tests/mobile-guard.spec.ts`).
+
+---
+
+## 20  Welle 4 / Ticket 4.2 – Stiller Mitdenker & „Nebenbei-Murmel“-Autopilot
+
+- **Reines Analyse-Modul (`src/services/silentThinker.ts`):**
+  - `analyzeProjectConsistency(project, dismissedIds)` erkennt maximal 3 priorisierte Hinweise für das aktive Projekt: doppelte offene Einkaufsartikel (`dedupe-cart`), Maß-/Technik-Widersprüche zwischen offenen Tasks & Wissen (`cm`, `mm`, `m`, `kg`, `V`, `W`, `kW`, `A`, `L` bei gemeinsamem Kern-Schlagwort ≥ 5 Zeichen) sowie offene Einkaufsartikel zu bereits erledigten Aufgaben (`mark-cart-bought`).
+  - `buildProposalFromResearchResult` überführt Deep-Research-Ergebnisse in strukturierte `ForemanProposal`-Einträge (`murmur-research`).
+- **Ruhiger Vorarbeiter-Posteingang & Hintergrund-Recherche (`ForemanInboxCard.tsx`, `DeepResearchView.tsx`):**
+  - Standardmäßig zugeklappte Kopfzeile (`min-h-[44px]`, `#191C22`, 3-px-Honig-Gold-Streifen `#E5A93C`); bei 0 offenen Vorschlägen oder deaktivierten Schaltern bleibt die Bühne zu 100 % leer.
+  - Ruhige Ja / Später (4 h Snooze) / Nein (permanente Stummschaltung über `DISMISSED_THINKER_IDS`) Freigabekarten inkl. 4-Sekunden-Rückgängig-Leiste.
+  - Zwei persistente Zentrale-Schalter in Bereich 4 (`silentThinkerEnabled`, `murmurAutopilotEnabled`, inkl. IDB-Stores `FOREMAN_PROPOSALS` / `DISMISSED_THINKER_IDS` & Voll-Backup v2) sowie E2E-Absicherung in **Station 19**.
+
+---
+
+## 21  Welle 4 / Ticket 4.3 – Allgemeine Bild-Vision & Offline-Audio-Puffer
+
+- **Allgemeine Bild-Vision (`src/services/visionCapture.ts`, `ReceiptScanView.tsx`):**
+  - Geschlossene Schublade über `generalVisionEnabled` (Zentrale Bereich 4, Default `true`): blendet bei Bedarf den ruhigen 2-Wege-Umschalter (`Beleg & Rechnung` ↔ `Foto & Typenschild`) ein.
+  - Kategorien `Typenschild`, `Skizze` und `Baustellen-Foto`, clientseitige Thumbnail-Komprimierung (`<= 480 px`), `gemini-2.5-flash` Multimodal-Schema mit sofort nutzbarem Offline-Fallback, 1-Tipp-Übernahme (`Als Wissen sichern`, `Als Aufgabe anlegen`, `Auf Einkaufsliste`) und aufklappbare Projekt-Foto-Galerie (`VISION_CAPTURES`, max. 40 Einträge, strikt getrennt von `SCANNED_RECEIPTS` & Steuerberater-CSV).
+- **Offline-Audio-Puffer fürs Funkloch (`src/services/offlineAudioQueue.ts`, `src/core/front/OfflineAudioBufferBar.tsx`, `VoiceModal.tsx`):**
+  - Isoliert in `VoiceModal.tsx` eingebunden (5-Zustands-Maschine, STT/TTS-Logik & WakeLock bleiben zu 100 % unangetastet) und steuerbar über `offlineAudioBufferEnabled` (Zentrale Bereich 3, Default `true`).
+  - Im normalen Online-Betrieb bei leerem Puffer komplett unsichtbar; bei `!navigator.onLine` oder gepufferten Memos (`OFFLINE_AUDIO_MEMOS` inkl. Voll-Backup v2) sichert er `MediaRecorder`-Aufnahmen (≤ 1,5 MB / 60 s, inkl. Notiz-Fallback) und übergibt transkribierte Memos per `gemini-2.5-flash` sauber in den bestehenden Sprach-Flow (`Station 20`).

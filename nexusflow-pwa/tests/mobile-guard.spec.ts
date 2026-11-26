@@ -1328,4 +1328,706 @@ test.describe('Block C: Mobile-Guard 390×844 px Gesamt-Schutznetz', () => {
     await expect(haEmbedInput).toHaveCount(0);
     await assertNoHorizontalOverflow(page, 'Station 16 – Smart Home geschlossen');
   });
+
+  test('Station 17 – Smartphone-Verfügbarkeit Stufe A: App-Shortcut ?action=receipt, Share-Target-Übernahme & Zentrale-Schalter inkl. Reload-Sperre', async ({ page }) => {
+    // 1. Aufruf mit ?action=receipt -> Beleg-Scanner direkt sichtbar, ?action=receipt bereinigt
+    await page.goto('./?action=receipt');
+    await page.waitForLoadState('domcontentloaded');
+
+    await expect(page.locator('h3:has-text("Beleg-Scan")')).toBeVisible({ timeout: 10000 });
+    await expect.poll(() => page.url()).not.toContain('action=receipt');
+    await assertNoHorizontalOverflow(page, 'Station 17 – ?action=receipt');
+
+    // 2. Aufruf mit ?share_title & ?share_text -> VoiceModal öffnet mit vorbefülltem Text, Honig-Gold-Hinweis & URL bereinigt
+    await page.goto('./?share_title=Bauhaus&share_text=2x+Silikon+fuer+Pizza+Bandit');
+    await page.waitForLoadState('domcontentloaded');
+
+    const stage1Region = page.locator('div[role="region"][aria-label="KI-Begleiter Kompakt"]');
+    await expect(stage1Region).toBeVisible({ timeout: 10000 });
+
+    const shareInput = stage1Region.locator('input[placeholder*="Befehl oder Notiz"]');
+    await expect(shareInput).toBeVisible();
+    await expect(shareInput).toHaveValue(/Bauhaus.*2x Silikon fuer Pizza Bandit/);
+
+    const shareNotice = stage1Region.locator('[data-testid="share-intake-notice"]');
+    await expect(shareNotice).toBeVisible();
+    await expect(shareNotice).toContainText('Geteilter Inhalt übernommen');
+
+    await expect.poll(() => page.url()).not.toContain('share_title');
+    await expect.poll(() => page.url()).not.toContain('share_text');
+    await assertNoHorizontalOverflow(page, 'Station 17 – Share-Target Übernahme');
+
+    // Begleiter sauber schließen
+    await page.locator('button[aria-label="Daumen-Steuerung"]').click();
+    await expect(stage1Region).toBeHidden();
+
+    // 3. Zentrale Bereich 2 öffnen -> alle 3 neuen Smartphone-Schalter prüfen
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    await page.getByRole('button', { name: 'Zentrale', exact: true }).click();
+    await page.locator('button:has-text("Fokus, Bedienung & Smartphone")').click();
+    await assertNoHorizontalOverflow(page, 'Station 17 – Zentrale Bereich 2 geöffnet');
+
+    const wakeLockToggle = page.locator('[data-testid="toggle-wake-lock"]');
+    const shareTargetToggle = page.locator('[data-testid="toggle-share-target"]');
+    const appShortcutsToggle = page.locator('[data-testid="toggle-app-shortcuts"]');
+
+    for (const toggle of [wakeLockToggle, shareTargetToggle, appShortcutsToggle]) {
+      await expect(toggle).toBeVisible();
+      await expect(toggle).toContainText('An');
+      const box = await toggle.boundingBox();
+      expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
+    }
+
+    // shareTargetEnabled ausschalten -> Reload -> Persistenz prüfen
+    await shareTargetToggle.click();
+    await expect(shareTargetToggle).toContainText('Aus');
+    await page.waitForTimeout(250);
+
+    await page.reload();
+    await page.waitForLoadState('domcontentloaded');
+
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    await page.getByRole('button', { name: 'Zentrale', exact: true }).click();
+    await page.locator('button:has-text("Fokus, Bedienung & Smartphone")').click();
+    await expect(page.locator('[data-testid="toggle-share-target"]')).toContainText('Aus');
+
+    // Erneuter Aufruf mit ?share_text -> VoiceModal darf NICHT öffnen, URL wird bereinigt
+    await page.goto('./?share_text=Soll+ignoriert+werden');
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.locator('h1')).toBeVisible({ timeout: 10000 });
+    await expect.poll(() => page.url()).not.toContain('share_text');
+
+    await expect(page.locator('div[role="region"][aria-label="KI-Begleiter Kompakt"]')).toHaveCount(0);
+    await expect(page.locator('div[role="dialog"][aria-label="KI-Sprachassistent Dialog"]')).toHaveCount(0);
+    await assertNoHorizontalOverflow(page, 'Station 17 – Share-Target im Aus-Zustand ignoriert');
+
+    // Schalter sauber wieder einschalten
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    await page.getByRole('button', { name: 'Zentrale', exact: true }).click();
+    await page.locator('button:has-text("Fokus, Bedienung & Smartphone")').click();
+    const shareToggleAgain = page.locator('[data-testid="toggle-share-target"]');
+    await shareToggleAgain.click();
+    await expect(shareToggleAgain).toContainText('An');
+    await assertNoHorizontalOverflow(page, 'Station 17 – Abschluss');
+  });
+
+  test('Station 18 – Beleg- & Rechnungs-Vorarbeiter: Zentrale-Schalter, geschlossene Schublade, Dubletten-Check, 1-Tipp-Abgleich & Steuerberater-CSV (390px-Schutz)', async ({ page }) => {
+    await page.goto('./');
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.locator('h1')).toBeVisible({ timeout: 10000 });
+
+    // 1. Zentrale Bereich 4 öffnen -> Toggle prüfen (min-h >= 44px) & ausschalten
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    await page.getByRole('button', { name: 'Zentrale', exact: true }).click();
+    await page.locator('button:has-text("Erinnerungen, Vorarbeiter & Smart Home")').click();
+    await assertNoHorizontalOverflow(page, 'Station 18 – Bereich 4 geöffnet');
+
+    const foremanToggle = page.locator('[data-testid="toggle-receipt-foreman"]');
+    await expect(foremanToggle).toBeVisible();
+    await expect(foremanToggle).toContainText('An');
+    const toggleBox = await foremanToggle.boundingBox();
+    expect(toggleBox?.height ?? 0).toBeGreaterThanOrEqual(44);
+
+    await foremanToggle.click();
+    await expect(foremanToggle).toContainText('Aus');
+    await page.waitForTimeout(250);
+
+    // Reload -> Persistenz prüfen & geschlossene Schublade in ReceiptScanView verifizieren
+    await page.reload();
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.locator('h1')).toBeVisible({ timeout: 10000 });
+
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    await page.getByRole('button', { name: 'Zentrale', exact: true }).click();
+    await page.locator('button:has-text("Erinnerungen, Vorarbeiter & Smart Home")').click();
+    await expect(page.locator('[data-testid="toggle-receipt-foreman"]')).toContainText('Aus');
+    await page.locator('button:has-text("Zurück")').click();
+
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    await page.locator('div[role="toolbar"][aria-label="Schnellzugriff"] button:has-text("Beleg-Scan")').click();
+    await expect(page.locator('h3:has-text("Beleg-Scan")')).toBeVisible();
+    await expect(page.locator('[data-testid="tax-advisor-package-card"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid="receipt-duplicate-banner"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid="foreman-cart-reconcile-card"]')).toHaveCount(0);
+    await assertNoHorizontalOverflow(page, 'Station 18 – Beleg-Vorarbeiter im Aus-Zustand');
+
+    // 2. Vorarbeiter wieder einschalten
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    await page.getByRole('button', { name: 'Zentrale', exact: true }).click();
+    await page.locator('button:has-text("Erinnerungen, Vorarbeiter & Smart Home")').click();
+    await page.locator('[data-testid="toggle-receipt-foreman"]').click();
+    await expect(page.locator('[data-testid="toggle-receipt-foreman"]')).toContainText('An');
+    await page.waitForTimeout(250);
+
+    // 3. Deterministische Test-Belege (2 identische Bauhaus-Belege + passender Einkaufswagen-Artikel) in IDB ablegen
+    await page.evaluate(async () => {
+      const seededReceipts = [
+        {
+          id: 'rcpt-seed-1',
+          projectId: 'proj-foodtruck',
+          projectName: 'Pizza Bandit (TSA & Foodtruck)',
+          storeName: 'Bauhaus',
+          purchaseDate: '15.11.2026',
+          totalAmount: '119,00',
+          vatRate: 19,
+          category: 'Material',
+          items: [
+            { title: 'Bauhaus Gasdruckregler 50 mbar', quantity: '1x', price: '54,90' },
+            { title: 'Edelstahl Schrauben Set', quantity: '2x', price: '64,10' }
+          ],
+          createdAt: '15.11.2026, 12:00 Uhr',
+          reconciled: false
+        },
+        {
+          id: 'rcpt-seed-2',
+          projectId: 'proj-foodtruck',
+          projectName: 'Pizza Bandit (TSA & Foodtruck)',
+          storeName: 'Bauhaus',
+          purchaseDate: '15.11.2026',
+          totalAmount: '119,00',
+          vatRate: 19,
+          category: 'Material',
+          items: [
+            { title: 'Bauhaus Gasdruckregler 50 mbar', quantity: '1x', price: '54,90' },
+            { title: 'Edelstahl Schrauben Set', quantity: '2x', price: '64,10' }
+          ],
+          createdAt: '15.11.2026, 12:05 Uhr',
+          reconciled: false
+        }
+      ];
+
+      localStorage.setItem('banditos_scanned_receipts_v1', JSON.stringify(seededReceipts));
+      await new Promise<void>((resolve, reject) => {
+        const req = indexedDB.open('keyval-store');
+        req.onupgradeneeded = () => {
+          if (!req.result.objectStoreNames.contains('keyval')) {
+            req.result.createObjectStore('keyval');
+          }
+        };
+        req.onsuccess = () => {
+          const db = req.result;
+          const tx = db.transaction('keyval', 'readwrite');
+          tx.objectStore('keyval').put(seededReceipts, 'banditos_scanned_receipts_v1');
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error);
+        };
+        req.onerror = () => reject(req.error);
+      });
+    });
+
+    await page.goto('./?action=receipt');
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.locator('h3:has-text("Beleg-Scan")')).toBeVisible({ timeout: 10000 });
+
+    // Steuerberater-Monatspaket sichtbar mit korrekten Brutto-/Netto-Summen & CSV-Download
+    const taxCard = page.locator('[data-testid="tax-advisor-package-card"]');
+    await expect(taxCard).toBeVisible();
+    await expect(page.locator('[data-testid="tax-summary-count"]')).toHaveText('2');
+    await expect(page.locator('[data-testid="tax-summary-net"]')).toContainText('200,00 €');
+    await expect(page.locator('[data-testid="tax-summary-vat"]')).toContainText('38,00 €');
+    await expect(page.locator('[data-testid="tax-summary-gross"]')).toContainText('238,00 €');
+
+    const csvBtn = page.locator('[data-testid="btn-download-tax-csv"]');
+    await expect(csvBtn).toBeVisible();
+    const csvBox = await csvBtn.boundingBox();
+    expect(csvBox?.height ?? 0).toBeGreaterThanOrEqual(44);
+
+    const downloadPromise = page.waitForEvent('download');
+    await csvBtn.click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toBe('banditos-belege-alle.csv');
+
+    // Dubletten-Hinweis in Honig-Gold sichtbar
+    const dupBanner = page.locator('[data-testid="receipt-duplicate-banner"]');
+    await expect(dupBanner).toBeVisible();
+    await expect(dupBanner).toContainText('Bauhaus');
+
+    // 1-Tipp-Einkaufswagen-Abgleich sichtbar & ausführbar
+    const reconcileCard = page.locator('[data-testid="foreman-cart-reconcile-card"]');
+    await expect(reconcileCard).toBeVisible();
+    await expect(reconcileCard).toContainText('Gewerbe-Gasdruckregler 50 mbar');
+    await assertNoHorizontalOverflow(page, 'Station 18 – Vorarbeiter-Karten sichtbar');
+
+    const reconcileBtn = page.locator('[data-testid="btn-reconcile-selected-cart"]');
+    await expect(reconcileBtn).toBeVisible();
+    const reconcileBox = await reconcileBtn.boundingBox();
+    expect(reconcileBox?.height ?? 0).toBeGreaterThanOrEqual(44);
+    await reconcileBtn.click();
+
+    // Nach Abgleich: Karte verschwindet (oder Beleg als Abgeglichen markiert)
+    await expect(page.locator('[data-testid="receipt-card-rcpt-seed-1"]')).toContainText('Abgeglichen');
+    await assertNoHorizontalOverflow(page, 'Station 18 – Nach 1-Tipp-Abgleich');
+
+    // Im Einkaufswagen verifizieren, dass der Artikel abgehakt wurde
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    await page.locator('div[role="toolbar"][aria-label="Schnellzugriff"] button:has-text("Einkauf")').click();
+    const cartSection = page.locator('section:has(h3:has-text("Einkaufswagen"))');
+    await expect(cartSection).toBeVisible();
+    const gasReglerCard = cartSection.locator('div[id^="item-card-"]:has-text("Gewerbe-Gasdruckregler 50 mbar")');
+    await expect(gasReglerCard.locator('button[aria-label="Als offen markieren"]')).toBeVisible();
+    await assertNoHorizontalOverflow(page, 'Station 18 – Artikel im Einkaufswagen abgehakt');
+  });
+
+  test('Station 19 – Stiller Mitdenker & Nebenbei-Murmel-Autopilot: 2 Zentrale-Schalter, geschlossene Schublade, leere Bühne, Ja/Später/Nein-Freigabekarten & Hintergrund-Recherche (390px-Schutz)', async ({ page }) => {
+    await page.goto('./');
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.locator('h1')).toBeVisible({ timeout: 10000 });
+
+    // 1. Zentrale Bereich 4 öffnen -> beide neuen Schalter prüfen (min-h >= 44px, Default An) & ausschalten
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    await page.getByRole('button', { name: 'Zentrale', exact: true }).click();
+    await page.locator('button:has-text("Erinnerungen, Vorarbeiter & Smart Home")').click();
+    await assertNoHorizontalOverflow(page, 'Station 19 – Bereich 4 geöffnet');
+
+    const thinkerToggle = page.locator('[data-testid="toggle-silent-thinker"]');
+    const murmurToggle = page.locator('[data-testid="toggle-murmur-autopilot"]');
+    await expect(thinkerToggle).toBeVisible();
+    await expect(murmurToggle).toBeVisible();
+    await expect(thinkerToggle).toContainText('An');
+    await expect(murmurToggle).toContainText('An');
+
+    for (const toggle of [thinkerToggle, murmurToggle]) {
+      const box = await toggle.boundingBox();
+      expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
+    }
+
+    await thinkerToggle.click();
+    await murmurToggle.click();
+    await expect(thinkerToggle).toContainText('Aus');
+    await expect(murmurToggle).toContainText('Aus');
+    await page.waitForTimeout(250);
+
+    // Reload -> Persistenz & Prinzip der geschlossenen Schublade verifizieren
+    await page.reload();
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.locator('h1')).toBeVisible({ timeout: 10000 });
+
+    // Im Aus-Zustand: kein Vorarbeiter-Posteingang auf der Front-Bühne
+    await expect(page.locator('[data-testid="foreman-inbox-header"]')).toHaveCount(0);
+    await assertNoHorizontalOverflow(page, 'Station 19 – Front im Aus-Zustand');
+
+    // In Deep Research: Nebenbei-prüfen-Button komplett ausgeblendet
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    await page.locator('div[role="toolbar"][aria-label="Schnellzugriff"] button:has-text("Deep Research")').click();
+    await expect(page.locator('h3:has-text("Deep Research")')).toBeVisible();
+    await expect(page.locator('[data-testid="btn-murmur-research"]')).toHaveCount(0);
+    await assertNoHorizontalOverflow(page, 'Station 19 – Deep Research im Aus-Zustand');
+
+    // Zentrale Bereich 4 -> beide Schalter wieder einschalten
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    await page.getByRole('button', { name: 'Zentrale', exact: true }).click();
+    await page.locator('button:has-text("Erinnerungen, Vorarbeiter & Smart Home")').click();
+    await expect(page.locator('[data-testid="toggle-silent-thinker"]')).toContainText('Aus');
+    await expect(page.locator('[data-testid="toggle-murmur-autopilot"]')).toContainText('Aus');
+    await page.locator('[data-testid="toggle-silent-thinker"]').click();
+    await page.locator('[data-testid="toggle-murmur-autopilot"]').click();
+    await expect(page.locator('[data-testid="toggle-silent-thinker"]')).toContainText('An');
+    await expect(page.locator('[data-testid="toggle-murmur-autopilot"]')).toContainText('An');
+    await page.waitForTimeout(250);
+    await page.locator('button:has-text("Zurück")').click();
+
+    // 2. Auf sauberes Projekt "Bäckerei" wechseln -> 0 Hinweise -> Bühne zu 100 % leer (kein "0 Hinweise"-Kasten)
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    await page.locator('button:has-text("Bäckerei")').first().click();
+    await expect(page.locator('h1')).toContainText('Bäckerei');
+    await expect(page.locator('[data-testid="foreman-inbox-header"]')).toHaveCount(0);
+    await assertNoHorizontalOverflow(page, 'Station 19 – Leere Bühne bei 0 Hinweisen');
+
+    // 3. Deterministische Widersprüche (Checks 1, 2, 3) für proj-baeckerei in IDB einspeisen
+    await page.evaluate(async () => {
+      await new Promise<void>((resolve, reject) => {
+        const req = indexedDB.open('keyval-store');
+        req.onsuccess = () => {
+          const db = req.result;
+          const readTx = db.transaction('keyval', 'readonly');
+          const getReq = readTx.objectStore('keyval').get('nexusflow_pwa_v1_state');
+          getReq.onsuccess = () => {
+            const snap = getReq.result;
+            if (!snap || !Array.isArray(snap.projects)) {
+              reject(new Error('Kein AppState in IDB gefunden'));
+              return;
+            }
+            const nextProjects = snap.projects.map((p: any) => {
+              if (p.id !== 'proj-baeckerei') return p;
+              return {
+                ...p,
+                tasks: [
+                  {
+                    id: 'thinker-seed-t-measure',
+                    title: 'Arbeitsplatte auf 140 cm zuschneiden',
+                    completed: false,
+                    priority: 'Hoch',
+                    estimatedMinutes: 30,
+                    dayBlock: null,
+                    reminderAt: '',
+                    aiTouched: false,
+                    lastModified: '26.11.2026, 12:00 Uhr',
+                    changeReason: 'Test-Seed Maßkonflikt',
+                    source: 'Manuell',
+                    customMeta: {}
+                  },
+                  {
+                    id: 'thinker-seed-t-done',
+                    title: 'Teigschaber reinigen und prüfen',
+                    completed: true,
+                    priority: 'Mittel',
+                    estimatedMinutes: 10,
+                    dayBlock: null,
+                    reminderAt: '',
+                    aiTouched: false,
+                    lastModified: '26.11.2026, 12:00 Uhr',
+                    changeReason: 'Test-Seed erledigt',
+                    source: 'Manuell',
+                    customMeta: {}
+                  },
+                  ...(p.tasks || [])
+                ],
+                knowledge: [
+                  {
+                    id: 'thinker-seed-k-measure',
+                    kind: 'info',
+                    title: 'Backstube Arbeitsplatte Vorgabe',
+                    content: 'Arbeitsplatte: max. 120 cm Tiefe wegen Durchgang.',
+                    attachments: [],
+                    lastModified: '26.11.2026, 12:00 Uhr',
+                    changeReason: 'Test-Seed Wissen',
+                    source: 'Manuell',
+                    aiTouched: false,
+                    customMeta: {}
+                  },
+                  ...(p.knowledge || [])
+                ],
+                cart: [
+                  {
+                    id: 'thinker-seed-c-dup1',
+                    title: '2x Silikon Kartusche',
+                    quantity: '2x',
+                    price: '',
+                    completed: false,
+                    aiTouched: false,
+                    lastModified: '26.11.2026, 12:00 Uhr',
+                    changeReason: 'Test-Seed Dublette 1',
+                    source: 'Manuell',
+                    customMeta: {}
+                  },
+                  {
+                    id: 'thinker-seed-c-dup2',
+                    title: 'Silikon Kartusche',
+                    quantity: '1x',
+                    price: '',
+                    completed: false,
+                    aiTouched: false,
+                    lastModified: '26.11.2026, 12:00 Uhr',
+                    changeReason: 'Test-Seed Dublette 2',
+                    source: 'Manuell',
+                    customMeta: {}
+                  },
+                  {
+                    id: 'thinker-seed-c-done',
+                    title: 'Teigschaber Silikon',
+                    quantity: '1x',
+                    price: '',
+                    completed: false,
+                    aiTouched: false,
+                    lastModified: '26.11.2026, 12:00 Uhr',
+                    changeReason: 'Test-Seed offener Kauf',
+                    source: 'Manuell',
+                    customMeta: {}
+                  },
+                  ...(p.cart || [])
+                ]
+              };
+            });
+            const writeTx = db.transaction('keyval', 'readwrite');
+            writeTx.objectStore('keyval').put({ ...snap, projects: nextProjects }, 'nexusflow_pwa_v1_state');
+            writeTx.oncomplete = () => resolve();
+            writeTx.onerror = () => reject(writeTx.error);
+          };
+          getReq.onerror = () => reject(getReq.error);
+        };
+        req.onerror = () => reject(req.error);
+      });
+    });
+
+    await page.reload();
+    await page.waitForLoadState('domcontentloaded');
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    await page.locator('button:has-text("Bäckerei")').first().click();
+
+    // 4. Zugeklappte Kopfzeile mit Mono-Zähler 3 sichtbar, Kartenliste noch eingeklappt
+    const inboxHeader = page.locator('[data-testid="foreman-inbox-header"]');
+    await expect(inboxHeader).toBeVisible({ timeout: 5000 });
+    await expect(inboxHeader).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.locator('[data-testid="foreman-inbox-count"]')).toHaveText('3');
+    await expect(page.locator('[data-testid="foreman-inbox-list"]')).toHaveCount(0);
+    await assertNoHorizontalOverflow(page, 'Station 19 – Zugeklappte Vorarbeiter-Kopfzeile');
+
+    // Aufklappen -> 3 ruhige Freigabekarten sichtbar
+    await inboxHeader.click();
+    await expect(inboxHeader).toHaveAttribute('aria-expanded', 'true');
+    const inboxList = page.locator('[data-testid="foreman-inbox-list"]');
+    await expect(inboxList).toBeVisible();
+    await expect(inboxList.locator('article')).toHaveCount(3);
+    await assertNoHorizontalOverflow(page, 'Station 19 – Aufgeklappte Freigabekarten');
+
+    // Touch-Ziele (>= 44px) auf erster Karte prüfen
+    const measureCard = page.locator(
+      '[data-testid="foreman-proposal-card-thinker:measure-conflict:proj-baeckerei:thinker-seed-t-measure:thinker-seed-k-measure:cm"]'
+    );
+    await expect(measureCard).toBeVisible();
+    await expect(measureCard).toContainText('140 cm');
+    await expect(measureCard).toContainText('120 cm');
+
+    const acceptBtn = page.locator(
+      '[data-testid="foreman-accept-thinker:measure-conflict:proj-baeckerei:thinker-seed-t-measure:thinker-seed-k-measure:cm"]'
+    );
+    const snoozeBtn = page.locator(
+      '[data-testid="foreman-snooze-thinker:measure-conflict:proj-baeckerei:thinker-seed-t-measure:thinker-seed-k-measure:cm"]'
+    );
+    const dismissBtn = page.locator(
+      '[data-testid="foreman-dismiss-thinker:measure-conflict:proj-baeckerei:thinker-seed-t-measure:thinker-seed-k-measure:cm"]'
+    );
+    for (const btn of [acceptBtn, snoozeBtn, dismissBtn]) {
+      const box = await btn.boundingBox();
+      expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
+    }
+
+    // Später (Snooze 4h) auf Maßkonflikt -> Zähler sinkt auf 2
+    await snoozeBtn.click();
+    await expect(page.locator('[data-testid="foreman-inbox-count"]')).toHaveText('2');
+
+    // Nein (dauerhaft stummschalten) auf Check 3 (erledigte Aufgabe vs. offener Einkauf) -> Zähler sinkt auf 1
+    await page
+      .locator('[data-testid="foreman-dismiss-thinker:cart-task:proj-baeckerei:thinker-seed-c-done"]')
+      .click();
+    await expect(page.locator('[data-testid="foreman-inbox-count"]')).toHaveText('1');
+
+    // Ja (Doppelten Einkaufsposten bereinigen) auf Check 1 -> Posteingang leert sich komplett
+    await page
+      .locator('[data-testid="foreman-accept-thinker:dedupe-cart:proj-baeckerei:silikon-kartusche"]')
+      .click();
+    await expect(page.locator('[data-testid="foreman-inbox-header"]')).toHaveCount(0);
+
+    // Reload -> Snooze & Dismiss bleiben persistent unterdrückt
+    await page.waitForTimeout(250);
+    await page.reload();
+    await page.waitForLoadState('domcontentloaded');
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    await page.locator('button:has-text("Bäckerei")').first().click();
+    await expect(page.locator('[data-testid="foreman-inbox-header"]')).toHaveCount(0);
+
+    // 5. „Nebenbei-Murmel“-Autopilot in Deep Research testen
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    await page.locator('div[role="toolbar"][aria-label="Schnellzugriff"] button:has-text("Deep Research")').click();
+    await expect(page.locator('h3:has-text("Deep Research")')).toBeVisible();
+
+    const topicInput = page.locator('textarea[placeholder*="DVGW G 607"]');
+    await topicInput.fill('DVGW G 607 Prüfung Pizzaofen');
+
+    const murmurBtn = page.locator('[data-testid="btn-murmur-research"]');
+    await expect(murmurBtn).toBeVisible();
+    const murmurBox = await murmurBtn.boundingBox();
+    expect(murmurBox?.height ?? 0).toBeGreaterThanOrEqual(44);
+    await murmurBtn.click();
+
+    // Ruhiger Honig-Gold-Hinweis erscheint sofort, UI bleibt bedienbar
+    const murmurNotice = page.locator('[data-testid="murmur-background-notice"]');
+    await expect(murmurNotice).toBeVisible();
+    await expect(murmurNotice).toContainText('Vorarbeiter prüft im Hintergrund');
+    await assertNoHorizontalOverflow(page, 'Station 19 – Nebenbei prüfen ausgelöst');
+
+    // Zurück in die Projektansicht (Bäckerei -> Tasks/Gesamt) und entstandene Freigabekarte prüfen
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    await page.locator('button:has-text("Bäckerei")').first().click();
+
+    const researchInboxHeader = page.locator('[data-testid="foreman-inbox-header"]');
+    await expect(researchInboxHeader).toBeVisible({ timeout: 8000 });
+    await researchInboxHeader.click();
+
+    const researchCard = page.locator('[data-testid^="foreman-proposal-card-murmur:"]').first();
+    await expect(researchCard).toBeVisible();
+    await expect(researchCard).toContainText('Nebenbei-Prüfung');
+    await assertNoHorizontalOverflow(page, 'Station 19 – Murmel-Freigabekarte sichtbar');
+
+    await researchCard.locator('[data-testid^="foreman-accept-murmur:"]').click();
+    await expect(page.locator('[data-testid="foreman-inbox-header"]')).toHaveCount(0);
+    await assertNoHorizontalOverflow(page, 'Station 19 – Abschluss');
+  });
+
+  test('Station 20 – Allgemeine Bild-Vision & Offline-Audio-Puffer: 2 Zentrale-Schalter, geschlossene Schublade, Typenschild-Galerie mit 1-Tipp-Übernahme & Funkloch-Memo-Puffer (390px-Schutz)', async ({ page }) => {
+    await page.goto('./');
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.locator('h1')).toBeVisible({ timeout: 10000 });
+
+    // 1. Zentrale Bereich 4 & Bereich 3 öffnen -> beide neuen Schalter prüfen (min-h >= 44px, Default An) & ausschalten
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    await page.getByRole('button', { name: 'Zentrale', exact: true }).click();
+    await page.locator('button:has-text("Erinnerungen, Vorarbeiter & Smart Home")').click();
+
+    const visionToggle = page.locator('[data-testid="toggle-general-vision"]');
+    await expect(visionToggle).toBeVisible();
+    await expect(visionToggle).toContainText('An');
+    expect((await visionToggle.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+    await visionToggle.click();
+    await expect(visionToggle).toContainText('Aus');
+    await assertNoHorizontalOverflow(page, 'Station 20 – Bereich 4 Toggle Aus');
+
+    await page.locator('button:has-text("KI & Stimme")').click();
+    const audioBufferToggle = page.locator('[data-testid="toggle-offline-audio-buffer"]');
+    await expect(audioBufferToggle).toBeVisible();
+    await expect(audioBufferToggle).toContainText('An');
+    expect((await audioBufferToggle.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+    await audioBufferToggle.click();
+    await expect(audioBufferToggle).toContainText('Aus');
+    await assertNoHorizontalOverflow(page, 'Station 20 – Bereich 3 Toggle Aus');
+
+    // Reload -> Persistenz beider Schalter verifizieren
+    await page.waitForTimeout(250);
+    await page.reload();
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.locator('h1')).toBeVisible({ timeout: 10000 });
+
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    await page.getByRole('button', { name: 'Zentrale', exact: true }).click();
+    await page.locator('button:has-text("Erinnerungen, Vorarbeiter & Smart Home")').click();
+    await expect(page.locator('[data-testid="toggle-general-vision"]')).toContainText('Aus');
+    await page.locator('button:has-text("KI & Stimme")').click();
+    await expect(page.locator('[data-testid="toggle-offline-audio-buffer"]')).toContainText('Aus');
+    await page.locator('button:has-text("Zurück")').click();
+
+    // 2. Geschlossene Schublade: in ReceiptScanView darf Umschalter "Foto & Typenschild" nicht sichtbar sein
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    await page.locator('div[role="toolbar"][aria-label="Schnellzugriff"] button:has-text("Beleg-Scan")').click();
+    await expect(page.locator('h3:has-text("Beleg-Scan")')).toBeVisible();
+    await expect(page.locator('[data-testid="vision-mode-switch"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid="mode-tab-vision"]')).toHaveCount(0);
+    await assertNoHorizontalOverflow(page, 'Station 20 – Beleg-Scan bei deaktivierter Vision');
+
+    // Beide Schalter wieder einschalten
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    await page.getByRole('button', { name: 'Zentrale', exact: true }).click();
+    await page.locator('button:has-text("Erinnerungen, Vorarbeiter & Smart Home")').click();
+    await page.locator('[data-testid="toggle-general-vision"]').click();
+    await expect(page.locator('[data-testid="toggle-general-vision"]')).toContainText('An');
+    await page.locator('button:has-text("KI & Stimme")').click();
+    await page.locator('[data-testid="toggle-offline-audio-buffer"]').click();
+    await expect(page.locator('[data-testid="toggle-offline-audio-buffer"]')).toContainText('An');
+    await page.waitForTimeout(250);
+
+    // 3. Allgemeine Bild-Vision End-to-End (Moduswechsel, Upload im Offline-Fallback, Galerie & 1-Tipp-Übernahme)
+    await page.goto('./?action=receipt');
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.locator('[data-testid="vision-mode-switch"]')).toBeVisible({ timeout: 10000 });
+    await page.locator('[data-testid="mode-tab-vision"]').click();
+
+    const visionPanel = page.locator('[data-testid="general-vision-panel"]');
+    await expect(visionPanel).toBeVisible();
+
+    for (const catId of ['nameplate', 'sketch', 'site-photo']) {
+      const chip = page.locator(`[data-testid="vision-cat-${catId}"]`);
+      await expect(chip).toBeVisible();
+      expect((await chip.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+    }
+
+    await page.locator('[data-testid="vision-hint-input"]').fill('Ooni Koda 16 Typenschild');
+    const pngBase64 =
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+    await page.locator('[data-testid="vision-file-input"]').setInputFiles({
+      name: 'typenschild.png',
+      mimeType: 'image/png',
+      buffer: Buffer.from(pngBase64, 'base64')
+    });
+
+    const resultCard = page.locator('[data-testid="vision-result-card"]');
+    await expect(resultCard).toBeVisible({ timeout: 8000 });
+    await expect(resultCard).toContainText('Ooni Koda 16 Typenschild');
+    await expect(page.locator('[data-testid="vision-gallery-list"]')).toContainText('Ooni Koda 16 Typenschild');
+    await assertNoHorizontalOverflow(page, 'Station 20 – Vision-Ergebnis & Galerie sichtbar');
+
+    // 1-Tipp-Übernahme als Wissen & Aufgabe prüfen
+    const saveKnowledgeBtn = page.locator('[data-testid="vision-btn-save-knowledge"]');
+    const addTaskBtn = page.locator('[data-testid="vision-btn-add-task"]');
+    expect((await saveKnowledgeBtn.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+    expect((await addTaskBtn.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+
+    await saveKnowledgeBtn.click();
+    await expect(page.locator('[data-testid="vision-action-confirmed"]')).toContainText('Als Wissen gesichert');
+    await addTaskBtn.click();
+    await expect(page.locator('[data-testid="vision-action-confirmed"]')).toContainText('Als Aufgabe angelegt');
+
+    // Sicherstellen, dass Beleg & Rechnung sauber getrennt bleibt (0 Belege)
+    await page.locator('[data-testid="mode-tab-receipt"]').click();
+    await expect(page.locator('text=Noch keine Belege erfasst')).toBeVisible();
+
+    // Im Projekt prüfen, dass Wissen-Eintrag übernommen wurde
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    await page.locator('button:has-text("Wissen")').first().click();
+    await expect(page.locator('section:has(h3:has-text("Wissen"))')).toContainText('Ooni Koda 16 Typenschild');
+    await assertNoHorizontalOverflow(page, 'Station 20 – Vision-Eintrag in Wissen');
+
+    // 4. Offline-Audio-Puffer End-to-End über IDB-Seed
+    await page.evaluate(async () => {
+      const seededMemos = [
+        {
+          id: 'memo-seed-1',
+          projectId: 'proj-foodtruck',
+          createdAt: '26.11.2026, 14:10 Uhr',
+          durationSec: 18,
+          mimeType: 'audio/webm',
+          noteText: 'Funkloch-Check: 2x Silikonspray für Ofen einpacken',
+          status: 'queued'
+        }
+      ];
+      localStorage.setItem('banditos_offline_audio_memos_v1', JSON.stringify(seededMemos));
+      await new Promise<void>((resolve, reject) => {
+        const req = indexedDB.open('keyval-store');
+        req.onupgradeneeded = () => {
+          if (!req.result.objectStoreNames.contains('keyval')) {
+            req.result.createObjectStore('keyval');
+          }
+        };
+        req.onsuccess = () => {
+          const db = req.result;
+          const tx = db.transaction('keyval', 'readwrite');
+          tx.objectStore('keyval').put(seededMemos, 'banditos_offline_audio_memos_v1');
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error);
+        };
+        req.onerror = () => reject(req.error);
+      });
+    });
+
+    await page.reload();
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.locator('h1')).toBeVisible({ timeout: 10000 });
+
+    // VoiceModal öffnen -> OfflineAudioBufferBar zeigt Zähler & lässt sich aufklappen
+    await page.locator('button[aria-label="Daumen-Steuerung"]').click();
+    const stage1 = page.locator('div[role="region"][aria-label="KI-Begleiter Kompakt"]');
+    await expect(stage1).toBeVisible();
+
+    const bufferBar = stage1.locator('[data-testid="offline-audio-buffer-bar"]');
+    await expect(bufferBar).toBeVisible();
+    await expect(bufferBar.locator('[data-testid="offline-buffer-count"]')).toContainText('1 gepuffertes Memo');
+    await assertNoHorizontalOverflow(page, 'Station 20 – Offline-Audio-Puffer sichtbar');
+
+    await bufferBar.locator('[data-testid="offline-buffer-toggle"]').click();
+    await expect(bufferBar.locator('[data-testid="offline-buffer-list"]')).toBeVisible();
+    const memoCard = bufferBar.locator('[data-testid="offline-memo-memo-seed-1"]');
+    await expect(memoCard).toContainText('Funkloch-Check: 2x Silikonspray');
+    const deleteMemoBtn = memoCard.locator('[data-testid="btn-delete-offline-memo-memo-seed-1"]');
+    await expect
+      .poll(async () => (await deleteMemoBtn.boundingBox())?.height ?? 0)
+      .toBeGreaterThanOrEqual(44);
+    await assertNoHorizontalOverflow(page, 'Station 20 – Offline-Audio-Memo aufgeklappt');
+
+    // Memo löschen -> Balken verschwindet im Online-Modus wieder komplett
+    await deleteMemoBtn.click();
+    await expect(stage1.locator('[data-testid="offline-audio-buffer-bar"]')).toHaveCount(0);
+
+    // Begleiter schließen
+    await page.locator('button[aria-label="Daumen-Steuerung"]').click();
+    await expect(stage1).toBeHidden();
+    await assertNoHorizontalOverflow(page, 'Station 20 – Abschluss');
+  });
 });
