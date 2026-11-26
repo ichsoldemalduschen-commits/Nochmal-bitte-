@@ -184,8 +184,9 @@ export default function App() {
     }));
   };
 
-  const handleOpenVoice = (stage: 1 | 2 = 1, autoStart = true) => {
-    setCompanionStage(stage);
+  const handleOpenVoice = (stage?: 1 | 2, autoStart = true) => {
+    const resolvedStage: 1 | 2 = stage ?? (prefs.companionStartExpanded ? 2 : 1);
+    setCompanionStage(resolvedStage);
     setAutoStartMicOnOpen(autoStart);
     setVoiceModalOpen(true);
   };
@@ -441,7 +442,7 @@ export default function App() {
         if (prefs.appShortcutsEnabled !== false) {
           if (actionParam === 'voice') {
             setIsBackoffice(false);
-            handleOpenVoice(1, true);
+            handleOpenVoice(prefs.companionStartExpanded ? 2 : 1, true);
           } else if (actionParam === 'receipt') {
             setIsBackoffice(false);
             setFloatingCartOpen(false);
@@ -1784,10 +1785,15 @@ export default function App() {
       settings?: AiVoiceSettings;
       hintMode?: VoiceInteractionMode;
       previousMode?: VoiceInteractionMode | null;
+      overrideAiMode?: 'flash' | 'research';
     }
   ) => {
     const activeProjects = state.projects.filter((p) => !p.archived);
     const effectiveDefaultProjId = getEffectiveDefaultProjectId();
+    const baseSettings = options?.settings || aiVoiceSettingsRef.current;
+    const effectiveRequestSettings: AiVoiceSettings = options?.overrideAiMode
+      ? { ...baseSettings, activeAiMode: options.overrideAiMode }
+      : baseSettings;
     const { plan, engine, autoUpscaledToPro, aborted } = await routeVoiceCommand(
       rawText,
       state.userApiKey,
@@ -1795,10 +1801,10 @@ export default function App() {
       activeProjects,
       chatHistory,
       attachment,
-      requestedMode,
+      options?.overrideAiMode || requestedMode,
       {
         signal: options?.signal,
-        settings: options?.settings || aiVoiceSettingsRef.current,
+        settings: effectiveRequestSettings,
         hintMode: options?.hintMode,
         previousMode: options?.previousMode
       }
@@ -1993,6 +1999,8 @@ export default function App() {
           autoStartMic={autoStartMicOnOpen}
           wakeLockEnabled={prefs.wakeLockEnabled !== false}
           offlineAudioBufferEnabled={prefs.offlineAudioBufferEnabled !== false}
+          companionMessageToolsEnabled={prefs.companionMessageToolsEnabled !== false}
+          companionQuickChipsEnabled={prefs.companionQuickChipsEnabled !== false}
           activeProjectId={activeProject?.id || BRAND_CONFIG.defaultProjectId}
           userApiKey={state.userApiKey}
           offlineAudioMemos={offlineAudioMemos}
@@ -2047,6 +2055,10 @@ export default function App() {
           onJumpToAction={handleJumpToAction}
           onUndoAiAction={handleUndoAiAction}
           onMoveAiAction={handleMoveAiAction}
+          onSaveChatAsKnowledge={(title, content) => {
+            if (!activeProject) return;
+            handleAddKnowledge(activeProject.id, 'info', title, content);
+          }}
         />
       </>
     );
@@ -2348,7 +2360,9 @@ export default function App() {
                 setActiveProjectTab(tab);
                 setForceSingleViewSeq((s) => s + 1);
               }}
-              onOpenVoice={(stage) => handleOpenVoice(stage || 1, true)}
+              onOpenVoice={(stage) =>
+                handleOpenVoice(prefs.companionStartExpanded ? 2 : (stage || 1), true)
+              }
               onOpenDeepResearch={() => setDeepResearchModalOpen(true)}
               onOpenSingleFocus={(taskId) => {
                 setSingleFocusTaskId(taskId || null);
@@ -2511,6 +2525,8 @@ export default function App() {
         autoStartMic={autoStartMicOnOpen}
         wakeLockEnabled={prefs.wakeLockEnabled !== false}
         offlineAudioBufferEnabled={prefs.offlineAudioBufferEnabled !== false}
+        companionMessageToolsEnabled={prefs.companionMessageToolsEnabled !== false}
+        companionQuickChipsEnabled={prefs.companionQuickChipsEnabled !== false}
         activeProjectId={activeProject?.id || BRAND_CONFIG.defaultProjectId}
         userApiKey={state.userApiKey}
         offlineAudioMemos={offlineAudioMemos}
@@ -2565,6 +2581,10 @@ export default function App() {
         onJumpToAction={handleJumpToAction}
         onUndoAiAction={handleUndoAiAction}
         onMoveAiAction={handleMoveAiAction}
+        onSaveChatAsKnowledge={(title, content) => {
+          if (!activeProject) return;
+          handleAddKnowledge(activeProject.id, 'info', title, content);
+        }}
         onListeningChange={setCompanionIsListening}
         onProcessingChange={setCompanionIsProcessing}
         onSpeakingChange={setCompanionIsSpeaking}

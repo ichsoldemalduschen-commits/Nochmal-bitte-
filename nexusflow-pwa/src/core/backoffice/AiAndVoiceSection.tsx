@@ -500,6 +500,72 @@ export const AiAndVoiceSection: React.FC<AiAndVoiceSectionProps> = ({
           />
         </div>
       </div>
+
+      {/* BEGLEITER-OBERFLÄCHE (Stetiger Begleiter v2) */}
+      <div className="p-3.5 rounded-2xl bg-[#242930] border border-white/5 space-y-2.5">
+        <div className="text-xs font-bold text-[#F1F5F9]">Begleiter-Oberfläche</div>
+
+        <ZentraleToggleRow
+          title="Nachrichten-Werkzeuge (Kopieren, Neu verarbeiten & Export)"
+          description="Zeigt Kopieren, Bearbeiten, Neu verarbeiten, Pro-Neulauf und Chat-Export (.md/.txt/Wissen)."
+          checked={prefs.companionMessageToolsEnabled !== false}
+          onToggle={() => {
+            const next = !(prefs.companionMessageToolsEnabled !== false);
+            onUpdatePrefs({ companionMessageToolsEnabled: next });
+            onNotify(
+              next
+                ? 'Nachrichten-Werkzeuge & Export aktiviert.'
+                : 'Nachrichten-Werkzeuge ausgeblendet.'
+            );
+          }}
+          onLabel="An"
+          offLabel="Aus"
+          testId="toggle-companion-tools"
+          containerClassName="py-1"
+        />
+
+        <div className="pt-2 border-t border-white/5">
+          <ZentraleToggleRow
+            title="Quick-Command-Chips im leeren Chat"
+            description="Zeigt Schnellbefehle solange noch keine Nachricht im aktuellen Chat steht."
+            checked={prefs.companionQuickChipsEnabled !== false}
+            onToggle={() => {
+              const next = !(prefs.companionQuickChipsEnabled !== false);
+              onUpdatePrefs({ companionQuickChipsEnabled: next });
+              onNotify(
+                next
+                  ? 'Quick-Command-Chips im leeren Chat aktiviert.'
+                  : 'Quick-Command-Chips ausgeblendet.'
+              );
+            }}
+            onLabel="An"
+            offLabel="Aus"
+            testId="toggle-companion-quick-chips"
+            containerClassName="py-1"
+          />
+        </div>
+
+        <div className="pt-2 border-t border-white/5">
+          <ZentraleToggleRow
+            title="Direkt im vollen Kontext-Chat (Stufe 2) starten"
+            description="Öffnet beim Tipp auf das Sechseck direkt das volle Kontextfenster statt Stufe 1."
+            checked={Boolean(prefs.companionStartExpanded)}
+            onToggle={() => {
+              const next = !prefs.companionStartExpanded;
+              onUpdatePrefs({ companionStartExpanded: next });
+              onNotify(
+                next
+                  ? 'Begleiter startet direkt in Stufe 2.'
+                  : 'Begleiter startet kompakt in Stufe 1.'
+              );
+            }}
+            onLabel="An"
+            offLabel="Aus"
+            testId="toggle-companion-start-expanded"
+            containerClassName="py-1"
+          />
+        </div>
+      </div>
     </ZentraleAccordion>
   );
 };

@@ -326,7 +326,7 @@ test.describe('Block C: Mobile-Guard 390×844 px Gesamt-Schutznetz', () => {
 
     // 3. Stufe 1 -> Stufe 2: Klick auf ⤢ vergrößert auf volles Gesprächs-Modal
     await expandToStage2Btn.click();
-    const modalHeader = page.locator('text=KI-Kontext & Dialog');
+    const modalHeader = page.locator('div[role="dialog"][aria-label="KI-Sprachassistent Dialog"]');
     await expect(modalHeader).toBeVisible();
     await expect(stage1Region).toBeHidden();
 
@@ -447,7 +447,7 @@ test.describe('Block C: Mobile-Guard 390×844 px Gesamt-Schutznetz', () => {
 
     // VoiceModal über klassische Leiste öffnen
     await voiceBtn.click();
-    const classicModalHeader = page.locator('text=KI-Kontext & Dialog');
+    const classicModalHeader = page.locator('div[role="dialog"][aria-label="KI-Sprachassistent Dialog"]');
     await expect(classicModalHeader).toBeVisible();
     await assertNoHorizontalOverflow(page, 'Station 6 – VoiceModal geöffnet');
 
@@ -2046,5 +2046,154 @@ test.describe('Block C: Mobile-Guard 390×844 px Gesamt-Schutznetz', () => {
     await page.locator('button[aria-label="Daumen-Steuerung"]').click();
     await expect(stage1).toBeHidden();
     await assertNoHorizontalOverflow(page, 'Station 20 – Abschluss');
+  });
+
+  test('Station 21 – Stetiger Begleiter v2 (Gemini-UI): 3 Zentrale-Schalter, geschlossene Schublade, Eingabe-Kapsel, Nachrichten-Werkzeuge & Chat-Export (390px-Schutz)', async ({ page }) => {
+    await page.goto('./');
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.locator('h1')).toBeVisible({ timeout: 10000 });
+
+    // 1. Zentrale Bereich 3 öffnen -> alle 3 Begleiter-Schalter prüfen (min-h >= 44px)
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    await page.getByRole('button', { name: 'Zentrale', exact: true }).click();
+    await page.locator('button:has-text("KI & Stimme")').click();
+    await assertNoHorizontalOverflow(page, 'Station 21 – Bereich 3 geöffnet');
+
+    const toolsToggle = page.locator('[data-testid="toggle-companion-tools"]');
+    const chipsToggle = page.locator('[data-testid="toggle-companion-quick-chips"]');
+    const expandedToggle = page.locator('[data-testid="toggle-companion-start-expanded"]');
+
+    await expect(toolsToggle).toBeVisible();
+    await expect(chipsToggle).toBeVisible();
+    await expect(expandedToggle).toBeVisible();
+    await expect(toolsToggle).toContainText('An');
+    await expect(chipsToggle).toContainText('An');
+    await expect(expandedToggle).toContainText('Aus');
+
+    for (const toggle of [toolsToggle, chipsToggle, expandedToggle]) {
+      expect((await toggle.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+    }
+
+    // toggle-companion-tools ausschalten -> Reload -> Persistenz prüfen
+    await toolsToggle.click();
+    await expect(toolsToggle).toContainText('Aus');
+    await page.waitForTimeout(250);
+
+    await page.reload();
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.locator('h1')).toBeVisible({ timeout: 10000 });
+
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    await page.getByRole('button', { name: 'Zentrale', exact: true }).click();
+    await page.locator('button:has-text("KI & Stimme")').click();
+    await expect(page.locator('[data-testid="toggle-companion-tools"]')).toContainText('Aus');
+    await page.locator('button:has-text("Zurück")').click();
+
+    // 2. Begleiter öffnen (Stufe 2) & geschlossene Schublade prüfen (Export-/Werkzeug-Einträge verborgen)
+    await page.locator('button[aria-label="Daumen-Steuerung"]').click();
+    const stage1 = page.locator('div[role="region"][aria-label="KI-Begleiter Kompakt"]');
+    await expect(stage1).toBeVisible();
+    await stage1.locator('button[aria-label="Vergrößern zu Vollbild"]').click();
+
+    const dialog = page.locator('div[role="dialog"][aria-label="KI-Sprachassistent Dialog"]');
+    await expect(dialog).toBeVisible();
+
+    const chatMenuBtn = dialog.locator('button[aria-label="Chat-Optionen"]');
+    await expect(chatMenuBtn).toBeVisible();
+    await chatMenuBtn.click();
+    const chatMenu = dialog.locator('div[role="menu"][aria-label="Chat-Optionen Menü"]');
+    await expect(chatMenu).toBeVisible();
+    await expect(chatMenu.locator('button:has-text("Verlauf kopieren")')).toHaveCount(0);
+    await expect(chatMenu.locator('button:has-text("Als Markdown (.md) exportieren")')).toHaveCount(0);
+    await expect(chatMenu.locator('button:has-text("Als Text (.txt) exportieren")')).toHaveCount(0);
+    await expect(chatMenu.locator('button:has-text("Verlauf als Projekt-Wissen sichern")')).toHaveCount(0);
+    await expect(chatMenu.locator('button:has-text("Verlauf leeren")')).toBeVisible();
+
+    await dialog.locator('button[aria-label="Schließen"]').click();
+    await expect(dialog).toBeHidden();
+
+    // Schalter wieder einschalten
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    await page.getByRole('button', { name: 'Zentrale', exact: true }).click();
+    await page.locator('button:has-text("KI & Stimme")').click();
+    await page.locator('[data-testid="toggle-companion-tools"]').click();
+    await expect(page.locator('[data-testid="toggle-companion-tools"]')).toContainText('An');
+    await page.waitForTimeout(250);
+    await page.locator('button:has-text("Zurück")').click();
+
+    // 3. Gemini-Eingabe-Kapsel, Nachrichten-Werkzeuge & Chat-Export testen
+    await page.locator('button[aria-label="Daumen-Steuerung"]').click();
+    await expect(stage1).toBeVisible();
+    await stage1.locator('button[aria-label="Vergrößern zu Vollbild"]').click();
+    await expect(dialog).toBeVisible();
+
+    const textarea = dialog.locator('textarea');
+    const photoAttachLabel = dialog.locator('label[aria-label="Foto oder Datei anhängen"]');
+    const modePill = dialog.locator('button[aria-label="KI-Modus umschalten"]');
+    const micBtn = dialog.locator('button[aria-label="Mikrofon umschalten"]');
+    const sendBtn = dialog.locator('button[aria-label="Senden"]');
+
+    await expect(textarea).toBeVisible();
+    await expect(photoAttachLabel).toBeVisible();
+    await expect(modePill).toBeVisible();
+    await expect(micBtn).toBeVisible();
+    await expect(sendBtn).toBeVisible();
+    await assertNoHorizontalOverflow(page, 'Station 21 – Gemini-Eingabe-Kapsel');
+
+    // Nachricht eintippen & absenden
+    const testPrompt = 'Welche Aufgaben sind im Projekt noch offen?';
+    await textarea.fill(testPrompt);
+    await expect(sendBtn).toBeEnabled();
+    await sendBtn.click();
+
+    // Nutzer-Nachricht mit Kopieren, Bearbeiten & Nochmal senden (>= 44px)
+    const userCopyBtn = dialog.locator('button:has-text("Kopieren")').first();
+    const userEditBtn = dialog.locator('button:has-text("Bearbeiten")').first();
+    const userResendBtn = dialog.locator('button:has-text("Nochmal senden")').first();
+    await expect(userCopyBtn).toBeVisible({ timeout: 5000 });
+    await expect(userEditBtn).toBeVisible();
+    await expect(userResendBtn).toBeVisible();
+
+    for (const btn of [userCopyBtn, userEditBtn, userResendBtn]) {
+      expect((await btn.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+    }
+
+    // KI-Antwort mit Kopieren, Neu verarbeiten, Mit 🧠 Pro & Als Wissen
+    const reprocessBtn = dialog.locator('button:has-text("Neu verarbeiten")').first();
+    const proBtn = dialog.locator('button:has-text("Pro")').first();
+    const saveInfoBtn = dialog.locator('button:has-text("Als Wissen")').first();
+    await expect(reprocessBtn).toBeVisible({ timeout: 5000 });
+    await expect(proBtn).toBeVisible();
+    await expect(saveInfoBtn).toBeVisible();
+    await assertNoHorizontalOverflow(page, 'Station 21 – Nachrichten-Werkzeuge sichtbar');
+
+    // Bearbeiten tippen -> Text landet zurück im Eingabefeld
+    await userEditBtn.click();
+    await expect(textarea).toHaveValue(testPrompt);
+    await textarea.fill('');
+
+    // Chat-Menü (⋮) öffnen & alle 4 Export-/Wissen-Optionen prüfen
+    await chatMenuBtn.click();
+    await expect(chatMenu).toBeVisible();
+    const copyAllBtn = chatMenu.locator('button:has-text("Verlauf kopieren")');
+    const exportMdBtn = chatMenu.locator('button:has-text("Als Markdown (.md) exportieren")');
+    const exportTxtBtn = chatMenu.locator('button:has-text("Als Text (.txt) exportieren")');
+    const saveChatKnowledgeBtn = chatMenu.locator('button:has-text("Verlauf als Projekt-Wissen sichern")');
+
+    for (const btn of [copyAllBtn, exportMdBtn, exportTxtBtn, saveChatKnowledgeBtn]) {
+      await expect(btn).toBeVisible();
+      expect((await btn.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+    }
+    await assertNoHorizontalOverflow(page, 'Station 21 – Chat-Optionen Menü offen');
+
+    // Verlauf als Projekt-Wissen sichern & ruhige Bestätigung prüfen
+    await saveChatKnowledgeBtn.click();
+    await expect(dialog.locator('[data-testid="companion-chat-action-notice"]')).toContainText(
+      'Verlauf als Projekt-Wissen gesichert'
+    );
+    await assertNoHorizontalOverflow(page, 'Station 21 – Abschluss');
+
+    await dialog.locator('button[aria-label="Schließen"]').click();
+    await expect(dialog).toBeHidden();
   });
 });

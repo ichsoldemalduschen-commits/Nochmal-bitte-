@@ -349,3 +349,27 @@ Beide Werkzeuge besitzen oben rechts einen ruhigen `⚙`-Button (`min-h-[44px] m
 - **Offline-Audio-Puffer fürs Funkloch (`src/services/offlineAudioQueue.ts`, `src/core/front/OfflineAudioBufferBar.tsx`, `VoiceModal.tsx`):**
   - Isoliert in `VoiceModal.tsx` eingebunden (5-Zustands-Maschine, STT/TTS-Logik & WakeLock bleiben zu 100 % unangetastet) und steuerbar über `offlineAudioBufferEnabled` (Zentrale Bereich 3, Default `true`).
   - Im normalen Online-Betrieb bei leerem Puffer komplett unsichtbar; bei `!navigator.onLine` oder gepufferten Memos (`OFFLINE_AUDIO_MEMOS` inkl. Voll-Backup v2) sichert er `MediaRecorder`-Aufnahmen (≤ 1,5 MB / 60 s, inkl. Notiz-Fallback) und übergibt transkribierte Memos per `gemini-2.5-flash` sauber in den bestehenden Sprach-Flow (`Station 20`).
+
+---
+
+## 22  Stetiger Begleiter v2 (Ticket C1) – Modul-Schnitt `src/core/companion/`
+
+Die ehemalige Mono-Komponente `VoiceModal.tsx` (> 2 200 Zeilen) ist verlustfrei und zu 100 % verhaltensgleich in eine schlanke Orchestrator-Hülle (`VoiceModal.tsx`, rückwärtskompatibel zu `App.tsx`) und fünf fokussierte Bausteine unter `src/core/companion/` zerlegt:
+
+| Modul | Verantwortung |
+|---|---|
+| `VoiceModal.tsx` (Shell) | Schlanker Orchestrator (~110 Zeilen): bindet `useVoiceSession(props)` ein und delegiert an Stufe 1 bzw. Stufe 2 |
+| `companion/useVoiceSession.ts` | Isolierte 5-Zustands-Sprach-Engine (`IDLE \| LISTENING \| PROCESSING \| SPEAKING \| COOLDOWN`), STT-Hardening (`accumulatedPrefixRef`, Android-`onend`-Nachlauf), synchroner Audio-Unlock, TTS-Ausgabe, dynamische Timeouts, Retry-/Parken-Handler, `useWakeLock` & IDB-Chat-Persistenz |
+| `companion/CompanionStageOne.tsx` | Kompakte Stufe-1-Darstellung über dem Sechseck (Mini-Hex, Status, Live-Transkript/Eingabe, `Display wach`, Share-Intake-Banner, `OfflineAudioBufferBar`, Fortschrittslinie, 3 Kontrollen) |
+| `companion/CompanionChatSheet.tsx` | Vollbild-Stufe-2-Ansicht (Kopfzeile mit Modus-/Stumm-/Stage-Steuerung, Quick-Command-Chips, Nachrichtenliste inkl. 5s-Wartehinweis und `CompanionComposer`) |
+| `companion/CompanionMessageItem.tsx` | Einzelne Chat-Nachricht (Nutzer-/KI-Blase, Aktions-Quittungen mit Projekt-Wechsel & `Rückgängig`, Honig-Gold-Fehler-/Timeout-Karte mit `Nochmal senden` & `Als Notiz parken`, *„Als Projekt-Info sichern“*) |
+| `companion/CompanionComposer.tsx` | Untere Eingabeleiste für Stufe 2 (`OfflineAudioBufferBar`, Denkpause-Fortschrittslinie, Datei-/Foto-Upload, Textfeld mit Auto-Send-Pause, Senden-Button, Liquid-Orb-Mikrofon) |
+| `companion/index.ts` | Barrel-Reexport aller Companion-Module und Hook-Typen |
+
+### Stetiger Begleiter v2 (Ticket C2) – Gemini-UI, Re-Run & Export
+
+- **Reines Export-Helfermodul (`src/core/companion/companionExport.ts`):** Formatiert Verläufe ohne UI-Abhängigkeiten als deutsches Markdown (`formatChatAsMarkdown`), ruhigen Klartext (`formatChatAsPlainText`), stößt `.md`/`.txt`-Downloads an (`triggerTextDownload`) und kopiert absturzsicher in die Zwischenablage (`copyTextToClipboard`).
+- **Gemini-UI-Neuaufbau (`CompanionStageOne.tsx`, `CompanionChatSheet.tsx`, `CompanionMessageItem.tsx`, `CompanionComposer.tsx`):**
+  - **Stufe 1:** Schwebender Streifen ohne Vollbild-Backdrop mit Zieh-Griff, 1-Zeilen-Status, ruhigem Fokus-Feld, 2-px-Fortschrittslinie und kollisionsfreier Daumen-Steuerung (Mini-Sechseck, `⌨`, `⊞`, `⤢`, `✕`).
+  - **Stufe 2:** Einzeiliger Kopf (Projektfarbpunkt, Name, Phasen-Indikator, Stumm/Ton, `⤡`, `⋮` `Chat-Optionen`, `✕`), Quick-Command-Chips nur bei leerem Chat, ruhige Eingabe-Kapsel unten (`<textarea>`, `+` Foto, `⚡ Sprech` ↔ `🧠 Research`-Pill, Mikrofon, Senden) sowie `Vorlesen`, `Kopieren`, `Bearbeiten`, `Nochmal senden`, `Neu verarbeiten`, `Mit 🧠 Pro` (einzelner Pro-Reprocess über `overrideAiMode` ohne globale Änderung) und `Als Wissen`.
+- **Zentrale Bereich 3 & Station 21:** Drei persistente `ZentraleToggleRow`-Schalter (`companionMessageToolsEnabled`, `companionQuickChipsEnabled`, `companionStartExpanded`) inkl. IDB-Normalisierung & Voll-Backup v2 sowie E2E-Absicherung auf 390×844 px in **Station 21** (`tests/mobile-guard.spec.ts`).

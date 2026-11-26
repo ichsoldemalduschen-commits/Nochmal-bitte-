@@ -36,6 +36,9 @@ export interface BanditUserPreferences {
   murmurAutopilotEnabled?: boolean;
   generalVisionEnabled?: boolean;
   offlineAudioBufferEnabled?: boolean;
+  companionMessageToolsEnabled?: boolean;
+  companionQuickChipsEnabled?: boolean;
+  companionStartExpanded?: boolean;
   quickCommands: string[];
   activeFocusTaskId: string | null;
   activeFocusTaskTitle: string | null;

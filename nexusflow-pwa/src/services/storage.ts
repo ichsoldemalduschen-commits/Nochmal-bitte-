@@ -882,6 +882,9 @@ export const DEFAULT_USER_PREFS: BanditUserPreferences = {
   murmurAutopilotEnabled: true,
   generalVisionEnabled: true,
   offlineAudioBufferEnabled: true,
+  companionMessageToolsEnabled: true,
+  companionQuickChipsEnabled: true,
+  companionStartExpanded: false,
   quickCommands: [
     'Gib mir ein kurzes 3-Punkte-Briefing für dieses Projekt',
     'Welche Materialien fehlen noch im Einkaufswagen?',
@@ -977,6 +980,18 @@ export function normalizeUserPrefs(
       typeof src.offlineAudioBufferEnabled === 'boolean'
         ? src.offlineAudioBufferEnabled
         : DEFAULT_USER_PREFS.offlineAudioBufferEnabled,
+    companionMessageToolsEnabled:
+      typeof src.companionMessageToolsEnabled === 'boolean'
+        ? src.companionMessageToolsEnabled
+        : DEFAULT_USER_PREFS.companionMessageToolsEnabled,
+    companionQuickChipsEnabled:
+      typeof src.companionQuickChipsEnabled === 'boolean'
+        ? src.companionQuickChipsEnabled
+        : DEFAULT_USER_PREFS.companionQuickChipsEnabled,
+    companionStartExpanded:
+      typeof src.companionStartExpanded === 'boolean'
+        ? src.companionStartExpanded
+        : DEFAULT_USER_PREFS.companionStartExpanded,
     quickCommands: Array.isArray(src.quickCommands)
       ? src.quickCommands
       : DEFAULT_USER_PREFS.quickCommands,
