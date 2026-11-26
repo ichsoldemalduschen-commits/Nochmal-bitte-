@@ -77,6 +77,8 @@ import {
 } from './services/deepResearchAndScanner';
 import { BackofficeWorkspace, ZentraleSectionId } from './core/BackofficeWorkspace';
 import type { BlueprintTemplate } from './core/backoffice/SystemAndBackupSection';
+import type { CartReconcileMatch } from './services/receiptForeman';
+import type { SavedScannedReceipt } from './services/storage';
 
 interface PhotoMeasurePin {
   id: string;
@@ -942,6 +944,95 @@ export default function App() {
       };
     });
     notify(`Kassenbon (${totalAmount} €) verbucht & Einkaufswagen abgeglichen!`);
+  };
+
+  const handleReconcileCartItems = (
+    matches: CartReconcileMatch[],
+    receipt: SavedScannedReceipt
+  ) => {
+    if (!matches.length) return;
+    const boughtIso = new Date().toISOString();
+    const ts = formatNow();
+    const previousSnapshots: Array<{
+      projectId: string;
+      cartId: string;
+      completed: boolean;
+      boughtAt?: string;
+      price: string;
+      lastModified: string;
+      changeReason: string;
+    }> = [];
+
+    for (const m of matches) {
+      const proj = state.projects.find((p) => p.id === m.projectId);
+      const item = proj?.cart.find((c) => c.id === m.cartItemId);
+      if (item) {
+        previousSnapshots.push({
+          projectId: m.projectId,
+          cartId: m.cartItemId,
+          completed: item.completed,
+          boughtAt: item.boughtAt,
+          price: item.price,
+          lastModified: item.lastModified,
+          changeReason: item.changeReason
+        });
+      }
+    }
+
+    setState((prev) => ({
+      ...prev,
+      projects: prev.projects.map((p) => {
+        const projMatches = matches.filter((m) => m.projectId === p.id);
+        if (projMatches.length === 0) return p;
+        const byId = new Map(projMatches.map((m) => [m.cartItemId, m]));
+        return {
+          ...p,
+          cart: p.cart.map((c) => {
+            const m = byId.get(c.id);
+            if (!m) return c;
+            return {
+              ...c,
+              completed: true,
+              boughtAt: c.boughtAt || boughtIso,
+              price: m.receiptPrice ? `${m.receiptPrice} €` : c.price,
+              lastModified: ts,
+              changeReason: `Beleg ${receipt.storeName || 'Scan'} (${receipt.purchaseDate || ''})`
+            };
+          })
+        };
+      })
+    }));
+
+    registerExternalUndo({
+      message: `${matches.length} Artikel abgehakt`,
+      undo: () => {
+        setState((prev) => ({
+          ...prev,
+          projects: prev.projects.map((p) => {
+            const snaps = previousSnapshots.filter((s) => s.projectId === p.id);
+            if (snaps.length === 0) return p;
+            const byId = new Map(snaps.map((s) => [s.cartId, s]));
+            return {
+              ...p,
+              cart: p.cart.map((c) => {
+                const s = byId.get(c.id);
+                if (!s) return c;
+                return {
+                  ...c,
+                  completed: s.completed,
+                  boughtAt: s.boughtAt,
+                  price: s.price,
+                  lastModified: s.lastModified,
+                  changeReason: s.changeReason
+                };
+              })
+            };
+          })
+        }));
+        notify('Einkaufswagen-Abgleich rückgängig gemacht.');
+      }
+    });
+    notify(`${matches.length} Artikel im Einkaufswagen abgehakt ✓`);
   };
 
   const handleReplaceFullStateFromCloud = (newState: AppStateSnapshot) => {
@@ -1817,6 +1908,7 @@ export default function App() {
               ambientLightMode={state.ambientLightMode || 'shimmer'}
               onSaveDossierToProject={handleSaveDossierToProject}
               onReconcileReceiptWithCart={handleReconcileReceiptWithCart}
+              onReconcileCartItems={handleReconcileCartItems}
               onNotify={notify}
             />
           ) : (

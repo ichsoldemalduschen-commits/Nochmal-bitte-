@@ -31,6 +31,7 @@ export interface BanditUserPreferences {
   appShortcutsEnabled?: boolean;
   shareTargetEnabled?: boolean;
   wakeLockEnabled?: boolean;
+  receiptForemanEnabled?: boolean;
   quickCommands: string[];
   activeFocusTaskId: string | null;
   activeFocusTaskTitle: string | null;
@@ -303,6 +304,30 @@ export interface PluginDefinition {
 
 // ── Voll-Backup v2 & Projekt-Import Datenmodell ─────────────────────────────
 
+export interface ScannedReceiptItem {
+  title: string;
+  quantity: string;
+  price: string;
+}
+
+export interface ScannedReceipt {
+  id: string;
+  projectId?: string;
+  projectName?: string;
+  storeName: string;
+  purchaseDate: string;
+  totalAmount: string;
+  items: ScannedReceiptItem[];
+  createdAt?: string;
+  reconciled?: boolean;
+  netAmount?: number;
+  vatAmount?: number;
+  vatRate?: number;
+  category?: string;
+  reconciledAt?: string;
+  reconciledCount?: number;
+}
+
 export interface FullBackupV2 {
   backupVersion: 2;
   exportedAt: string;
@@ -311,7 +336,7 @@ export interface FullBackupV2 {
   blueprints: any;
   photoPins: any;
   aiChat: any;
-  scannedReceipts: any[];
+  scannedReceipts: ScannedReceipt[];
   savedDossiers: any[];
   pizzaCatalog: PizzaCatalogItem[];
   posSlots: PosPizzaSlot[];

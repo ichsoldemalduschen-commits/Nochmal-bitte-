@@ -163,7 +163,7 @@ Die gesamte Einstellungs-Ansicht heißt für den Nutzer **„Zentrale"** (intern
 | 1 | Projekte & Werkzeuge (`ProjectsSection.tsx`) | `projects` | Projektkarten (390px-Fix: nur Farbpunkt + voller Name + Pfeil), Gesamt-Übersicht (`overviewEnabled`), Vorschriften-Wächter (`legalWatchEnabled`), Bild-Tausch, Farb-Presets, Lifecycle, Domain, Module, Plugins, JSON-Export, Archiv, 2-Stufen-Reset-Schutz |
 | 2 | Fokus, Bedienung & Smartphone (`FocusAndSmartphoneSection.tsx`) | `focus` | ADHS-Helfer (+25 %-Puffer separat von Vibration), echte `uiDensity`-`rem`-Skalierung (`compact` 15 px / `standard` 16 px / `large` 17 px via `data-density`), 3-Stufen-Hintergrundbeleuchtung, `organicMotion`, `hapticsEnabled`, `cartOpenMode` (Schwebend vs. Tab), `flipCoverAutoDetect`, `realityCheckEnabled`, `SelfCheckHistoryPanel` (zugeklappt), Tagesplaner & `.ics` |
 | 3 | KI & Stimme „Gisela" (`AiAndVoiceSection.tsx`) | `ai` | Gemini API-Key & Modellwahl, direkter Start-Modus (`activeAiMode`: `⚡ Sprech (Flash)` ↔ `🧠 Research (Pro)`), KI-Antwortstil & Quick-Commands, Azure Speech + Gisela-Test + `continuousListening` + `autoModeDetection` |
-| 4 | Erinnerungen, Vorarbeiter & Smart Home (`AutomationSection.tsx`) | `automation` | Proaktive Erinnerungen (`remindersEnabled`), separater System-Push-Schalter (`reminderSystemPushEnabled`), Browser-Push-Freigabe, Vorschriften-Wächter (`AUDIT_SETTINGS`), Smart Home / Home Assistant (`smartHomeEnabled` als geschlossene Schublade) |
+| 4 | Erinnerungen, Vorarbeiter & Smart Home (`AutomationSection.tsx`) | `automation` | Proaktive Erinnerungen (`remindersEnabled`), separater System-Push-Schalter (`reminderSystemPushEnabled`), Browser-Push-Freigabe, Vorschriften-Wächter (`AUDIT_SETTINGS`), Beleg- & Rechnungs-Vorarbeiter (`receiptForemanEnabled`), Smart Home / Home Assistant (`smartHomeEnabled` als geschlossene Schublade) |
 | 5 | Daten, Backup & System (`SystemAndBackupSection.tsx`, `CloudSyncPanel.tsx`) | `system` | Cloud-Synchronisation (URL, Token, `autoSyncOnChange` mit 5s-Debounce & Pull/Hydration-Loop-Schutz, Hochladen/Herunterladen), Voll-Backup v2 inkl. `BanditUserPreferences`, Projekt-JSON-Import, CSV-Export, Vorlagen-Tresor (`Blueprints` inkl. Tasks/Cart-Übernahme & Löschen) |
 
 **Verbindliche Toggle-Regel (`ZentraleToggleRow`):** Jede neue Einstellung erhält einen einheitlichen Ein-/Ausschalter (`min-h-[44px]`, `ZentraleToggleRow`), bleibt abwärtskompatibel in IndexedDB (`BanditUserPreferences` in `storage.ts`, ohne lose `localStorage`-Keys) und blendet optionale Detail-Felder im Aus-Zustand nach dem Prinzip der geschlossenen Schublade aus.
@@ -181,7 +181,7 @@ Für jede künftige Änderung gilt ein verbindliches E2E-Qualitätsgate auf mobi
 - **Befehl:** `npm run verify` im Verzeichnis `nexusflow-pwa` (führt `npm run build && npm run test:guard` aus).
 - **Pflicht vor jedem Git-Push:**
   1. `npm run build` muss fehlerfrei durchlaufen.
-  2. Playwright Mobile-Guard (`tests/mobile-guard.spec.ts`) muss alle **17 Stationen** (Start & Kopfleiste, NavigationDrawer, TasksView, CartView, KnowledgeView, Block D & VoiceModal, Zentrale mit allen 5 Bereichen, Deep-Links, Werkzeuge/POS, Wissen-Lösch-Undo & konsolidiertes Modal, Sammel-Tasks/`subTasks`, proaktive Erinnerungen, unsichtbare 3-Modi-Erkennung, Sprach-KI Rundum-Sanierung, Zentrale v2 5-Bereiche-Shell, Toggle-Offensive inkl. `uiDensity = large`, IDB-Reload-Persistenz & Smart-Home-Schublade, Smartphone-Verfügbarkeit Stufe A inkl. App-Shortcuts, Share-Target & Wake-Lock-Toggles) zu 100 % grün durchlaufen.
+  2. Playwright Mobile-Guard (`tests/mobile-guard.spec.ts`) muss alle **18 Stationen** (Start & Kopfleiste, NavigationDrawer, TasksView, CartView, KnowledgeView, Block D & VoiceModal, Zentrale mit allen 5 Bereichen, Deep-Links, Werkzeuge/POS, Wissen-Lösch-Undo & konsolidiertes Modal, Sammel-Tasks/`subTasks`, proaktive Erinnerungen, unsichtbare 3-Modi-Erkennung, Sprach-KI Rundum-Sanierung, Zentrale v2 5-Bereiche-Shell, Toggle-Offensive inkl. `uiDensity = large`, IDB-Reload-Persistenz & Smart-Home-Schublade, Smartphone-Verfügbarkeit Stufe A inkl. App-Shortcuts, Share-Target & Wake-Lock-Toggles, Beleg- & Rechnungs-Vorarbeiter inkl. Zentrale-Schalter, Dubletten-Check, 1-Tipp-Abgleich & Steuerberater-CSV) zu 100 % grün durchlaufen.
   3. Strikte Wächter: 0 ungefangene `pageerror`-Exceptions, 0 unberechtigte `console.error`-Meldungen, 0 horizontale Viewport-Überläufe (`document.documentElement.scrollWidth <= window.innerWidth + 1`).
 
 ---
@@ -313,3 +313,16 @@ Beide Werkzeuge besitzen oben rechts einen ruhigen `⚙`-Button (`min-h-[44px] m
   - Isolierter, fehlerresistenter `useWakeLock(open && wakeLockEnabled && voicePhase !== 'IDLE')`-Hook mit automatischer Freigabe und `visibilitychange`-Re-Acquire (ruhiges `Display wach`-Label bei aktivem Lock).
 - **Zentrale v2 Bereich 2 & Station 17 (`FocusAndSmartphoneSection.tsx`, `storage.ts`, `tests/mobile-guard.spec.ts`):**
   - 3 direkt schaltbare, in IndexedDB & Voll-Backup v2 persistierte `ZentraleToggleRow`-Schalter (`wakeLockEnabled`, `shareTargetEnabled`, `appShortcutsEnabled`) sowie E2E-Absicherung in **Station 17**.
+
+---
+
+## 19  Welle 4 / Ticket 4.1 – Beleg- & Rechnungs-Vorarbeiter
+
+- **Reines Vorarbeiter-Modul (`src/services/receiptForeman.ts`):**
+  - `checkReceiptPlausibilityAndDuplicates`: Dubletten-Erkennung (normalisierter Händler, Datum ±1 Tag, Brutto ±0,02 €), Plausibilitäts-Hinweise und Netto/MwSt-Berechnung (`19 %` Standard, `7 %` für Lebensmittel).
+  - `findCartMatchesForReceipt`: Robuster Abgleich gegen offene Einkaufswagen-Artikel aller aktiven Projekte (bevorzugt zugeordnetes Projekt, Wortstamm-/Teilstring-Überlappung ≥ 4 Zeichen, dedupliziert je `cartItemId`).
+  - `buildTaxAdvisorMonthlySummary`, `exportReceiptsToGermanCsv` (UTF-8-BOM `\uFEFF`, `;`-Trenner, deutsches Dezimalkomma) und `formatTaxAdvisorSummaryText`.
+- **Beleg-Vorarbeiter-UI & Zentrale Bereich 4 (`ReceiptScanView.tsx`, `AutomationSection.tsx`, `types.ts`, `storage.ts`):**
+  - Persistenter Schalter `receiptForemanEnabled` (Default `true`) in Zentrale Bereich 4; im Aus-Zustand bleiben alle 3 Vorarbeiter-Karten nach dem Prinzip der geschlossenen Schublade ausgeblendet.
+  - Abwärtskompatibles `ScannedReceipt`-Datenmodell inkl. Projekt-, Kategorie-, MwSt-Zuordnung und PDF-Upload (`accept="image/*,application/pdf"`).
+  - E2E-Absicherung auf 390×844 px in **Station 18** (`tests/mobile-guard.spec.ts`).

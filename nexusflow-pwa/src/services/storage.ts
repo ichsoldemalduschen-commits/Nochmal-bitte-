@@ -22,7 +22,9 @@ import {
   DayBlockId,
   ReminderRecurrence,
   KnowledgeKind,
-  VoiceProvider
+  VoiceProvider,
+  ScannedReceipt,
+  ScannedReceiptItem
 } from '../types';
 
 export type { FullBackupV2, BackupImportResult, ProjectImportResult };
@@ -862,6 +864,7 @@ export const DEFAULT_USER_PREFS: BanditUserPreferences = {
   appShortcutsEnabled: true,
   shareTargetEnabled: true,
   wakeLockEnabled: true,
+  receiptForemanEnabled: true,
   quickCommands: [
     'Gib mir ein kurzes 3-Punkte-Briefing für dieses Projekt',
     'Welche Materialien fehlen noch im Einkaufswagen?',
@@ -937,6 +940,10 @@ export function normalizeUserPrefs(
       typeof src.wakeLockEnabled === 'boolean'
         ? src.wakeLockEnabled
         : DEFAULT_USER_PREFS.wakeLockEnabled,
+    receiptForemanEnabled:
+      typeof src.receiptForemanEnabled === 'boolean'
+        ? src.receiptForemanEnabled
+        : DEFAULT_USER_PREFS.receiptForemanEnabled,
     quickCommands: Array.isArray(src.quickCommands)
       ? src.quickCommands
       : DEFAULT_USER_PREFS.quickCommands,
@@ -985,16 +992,10 @@ export function triggerHapticFeedback(pattern: number | number[] = 14): void {
   }
 }
 
-export interface SavedScannedReceipt {
-  id: string;
+export interface SavedScannedReceipt extends ScannedReceipt {
   projectId: string;
   projectName: string;
-  storeName: string;
-  purchaseDate: string;
-  totalAmount: string;
-  items: Array<{ title: string; quantity: string; price: string }>;
   createdAt: string;
-  reconciled?: boolean;
 }
 
 export interface SavedDossierItem {
@@ -1009,12 +1010,51 @@ export interface SavedDossierItem {
   modelUsed?: string;
 }
 
+function normalizeScannedReceiptItem(raw: any): ScannedReceiptItem {
+  return {
+    title: String(raw?.title || '').trim() || 'Position',
+    quantity: String(raw?.quantity || '1x'),
+    price: String(raw?.price ?? '')
+  };
+}
+
+export function normalizeScannedReceipts(raw: unknown): SavedScannedReceipt[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((entry) => entry && typeof entry === 'object')
+    .map((r: any, idx: number) => ({
+      id: String(r.id || `rcpt-${Date.now()}-${idx}`),
+      projectId: typeof r.projectId === 'string' ? r.projectId : '',
+      projectName: typeof r.projectName === 'string' ? r.projectName : '',
+      storeName: typeof r.storeName === 'string' ? r.storeName : '',
+      purchaseDate: typeof r.purchaseDate === 'string' ? r.purchaseDate : '',
+      totalAmount: typeof r.totalAmount === 'number' ? String(r.totalAmount) : String(r.totalAmount ?? '0,00'),
+      items: Array.isArray(r.items) ? r.items.map(normalizeScannedReceiptItem) : [],
+      createdAt: typeof r.createdAt === 'string' && r.createdAt ? r.createdAt : formatNow(),
+      reconciled: typeof r.reconciled === 'boolean' ? r.reconciled : Boolean(r.reconciledAt),
+      ...(typeof r.netAmount === 'number' && Number.isFinite(r.netAmount) ? { netAmount: r.netAmount } : {}),
+      ...(typeof r.vatAmount === 'number' && Number.isFinite(r.vatAmount) ? { vatAmount: r.vatAmount } : {}),
+      ...(typeof r.vatRate === 'number' && Number.isFinite(r.vatRate) ? { vatRate: r.vatRate } : {}),
+      ...(typeof r.category === 'string' && r.category.trim() ? { category: r.category.trim() } : {}),
+      ...(typeof r.reconciledAt === 'string' && r.reconciledAt ? { reconciledAt: r.reconciledAt } : {}),
+      ...(typeof r.reconciledCount === 'number' && Number.isFinite(r.reconciledCount)
+        ? { reconciledCount: r.reconciledCount }
+        : {})
+    }));
+}
+
 export function loadScannedReceipts(): SavedScannedReceipt[] {
-  return getIdbItemSync<SavedScannedReceipt[]>(STORAGE_KEYS.SCANNED_RECEIPTS, []);
+  const raw = getIdbItemSync<SavedScannedReceipt[]>(STORAGE_KEYS.SCANNED_RECEIPTS, []);
+  return normalizeScannedReceipts(raw);
+}
+
+export async function loadScannedReceiptsAsync(): Promise<SavedScannedReceipt[]> {
+  const raw = await loadIdbItem<SavedScannedReceipt[]>(STORAGE_KEYS.SCANNED_RECEIPTS, []);
+  return normalizeScannedReceipts(raw);
 }
 
 export function saveScannedReceipts(receipts: SavedScannedReceipt[]): void {
-  saveIdbItem(STORAGE_KEYS.SCANNED_RECEIPTS, receipts);
+  saveIdbItem(STORAGE_KEYS.SCANNED_RECEIPTS, normalizeScannedReceipts(receipts));
 }
 
 export function loadSavedDossiers(): SavedDossierItem[] {

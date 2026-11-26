@@ -1410,4 +1410,161 @@ test.describe('Block C: Mobile-Guard 390×844 px Gesamt-Schutznetz', () => {
     await expect(shareToggleAgain).toContainText('An');
     await assertNoHorizontalOverflow(page, 'Station 17 – Abschluss');
   });
+
+  test('Station 18 – Beleg- & Rechnungs-Vorarbeiter: Zentrale-Schalter, geschlossene Schublade, Dubletten-Check, 1-Tipp-Abgleich & Steuerberater-CSV (390px-Schutz)', async ({ page }) => {
+    await page.goto('./');
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.locator('h1')).toBeVisible({ timeout: 10000 });
+
+    // 1. Zentrale Bereich 4 öffnen -> Toggle prüfen (min-h >= 44px) & ausschalten
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    await page.getByRole('button', { name: 'Zentrale', exact: true }).click();
+    await page.locator('button:has-text("Erinnerungen, Vorarbeiter & Smart Home")').click();
+    await assertNoHorizontalOverflow(page, 'Station 18 – Bereich 4 geöffnet');
+
+    const foremanToggle = page.locator('[data-testid="toggle-receipt-foreman"]');
+    await expect(foremanToggle).toBeVisible();
+    await expect(foremanToggle).toContainText('An');
+    const toggleBox = await foremanToggle.boundingBox();
+    expect(toggleBox?.height ?? 0).toBeGreaterThanOrEqual(44);
+
+    await foremanToggle.click();
+    await expect(foremanToggle).toContainText('Aus');
+    await page.waitForTimeout(250);
+
+    // Reload -> Persistenz prüfen & geschlossene Schublade in ReceiptScanView verifizieren
+    await page.reload();
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.locator('h1')).toBeVisible({ timeout: 10000 });
+
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    await page.getByRole('button', { name: 'Zentrale', exact: true }).click();
+    await page.locator('button:has-text("Erinnerungen, Vorarbeiter & Smart Home")').click();
+    await expect(page.locator('[data-testid="toggle-receipt-foreman"]')).toContainText('Aus');
+    await page.locator('button:has-text("Zurück")').click();
+
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    await page.locator('div[role="toolbar"][aria-label="Schnellzugriff"] button:has-text("Beleg-Scan")').click();
+    await expect(page.locator('h3:has-text("Beleg-Scan")')).toBeVisible();
+    await expect(page.locator('[data-testid="tax-advisor-package-card"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid="receipt-duplicate-banner"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid="foreman-cart-reconcile-card"]')).toHaveCount(0);
+    await assertNoHorizontalOverflow(page, 'Station 18 – Beleg-Vorarbeiter im Aus-Zustand');
+
+    // 2. Vorarbeiter wieder einschalten
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    await page.getByRole('button', { name: 'Zentrale', exact: true }).click();
+    await page.locator('button:has-text("Erinnerungen, Vorarbeiter & Smart Home")').click();
+    await page.locator('[data-testid="toggle-receipt-foreman"]').click();
+    await expect(page.locator('[data-testid="toggle-receipt-foreman"]')).toContainText('An');
+    await page.waitForTimeout(250);
+
+    // 3. Deterministische Test-Belege (2 identische Bauhaus-Belege + passender Einkaufswagen-Artikel) in IDB ablegen
+    await page.evaluate(async () => {
+      const seededReceipts = [
+        {
+          id: 'rcpt-seed-1',
+          projectId: 'proj-foodtruck',
+          projectName: 'Pizza Bandit (TSA & Foodtruck)',
+          storeName: 'Bauhaus',
+          purchaseDate: '15.11.2026',
+          totalAmount: '119,00',
+          vatRate: 19,
+          category: 'Material',
+          items: [
+            { title: 'Bauhaus Gasdruckregler 50 mbar', quantity: '1x', price: '54,90' },
+            { title: 'Edelstahl Schrauben Set', quantity: '2x', price: '64,10' }
+          ],
+          createdAt: '15.11.2026, 12:00 Uhr',
+          reconciled: false
+        },
+        {
+          id: 'rcpt-seed-2',
+          projectId: 'proj-foodtruck',
+          projectName: 'Pizza Bandit (TSA & Foodtruck)',
+          storeName: 'Bauhaus',
+          purchaseDate: '15.11.2026',
+          totalAmount: '119,00',
+          vatRate: 19,
+          category: 'Material',
+          items: [
+            { title: 'Bauhaus Gasdruckregler 50 mbar', quantity: '1x', price: '54,90' },
+            { title: 'Edelstahl Schrauben Set', quantity: '2x', price: '64,10' }
+          ],
+          createdAt: '15.11.2026, 12:05 Uhr',
+          reconciled: false
+        }
+      ];
+
+      localStorage.setItem('banditos_scanned_receipts_v1', JSON.stringify(seededReceipts));
+      await new Promise<void>((resolve, reject) => {
+        const req = indexedDB.open('keyval-store');
+        req.onupgradeneeded = () => {
+          if (!req.result.objectStoreNames.contains('keyval')) {
+            req.result.createObjectStore('keyval');
+          }
+        };
+        req.onsuccess = () => {
+          const db = req.result;
+          const tx = db.transaction('keyval', 'readwrite');
+          tx.objectStore('keyval').put(seededReceipts, 'banditos_scanned_receipts_v1');
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error);
+        };
+        req.onerror = () => reject(req.error);
+      });
+    });
+
+    await page.goto('./?action=receipt');
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.locator('h3:has-text("Beleg-Scan")')).toBeVisible({ timeout: 10000 });
+
+    // Steuerberater-Monatspaket sichtbar mit korrekten Brutto-/Netto-Summen & CSV-Download
+    const taxCard = page.locator('[data-testid="tax-advisor-package-card"]');
+    await expect(taxCard).toBeVisible();
+    await expect(page.locator('[data-testid="tax-summary-count"]')).toHaveText('2');
+    await expect(page.locator('[data-testid="tax-summary-net"]')).toContainText('200,00 €');
+    await expect(page.locator('[data-testid="tax-summary-vat"]')).toContainText('38,00 €');
+    await expect(page.locator('[data-testid="tax-summary-gross"]')).toContainText('238,00 €');
+
+    const csvBtn = page.locator('[data-testid="btn-download-tax-csv"]');
+    await expect(csvBtn).toBeVisible();
+    const csvBox = await csvBtn.boundingBox();
+    expect(csvBox?.height ?? 0).toBeGreaterThanOrEqual(44);
+
+    const downloadPromise = page.waitForEvent('download');
+    await csvBtn.click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toBe('banditos-belege-alle.csv');
+
+    // Dubletten-Hinweis in Honig-Gold sichtbar
+    const dupBanner = page.locator('[data-testid="receipt-duplicate-banner"]');
+    await expect(dupBanner).toBeVisible();
+    await expect(dupBanner).toContainText('Bauhaus');
+
+    // 1-Tipp-Einkaufswagen-Abgleich sichtbar & ausführbar
+    const reconcileCard = page.locator('[data-testid="foreman-cart-reconcile-card"]');
+    await expect(reconcileCard).toBeVisible();
+    await expect(reconcileCard).toContainText('Gewerbe-Gasdruckregler 50 mbar');
+    await assertNoHorizontalOverflow(page, 'Station 18 – Vorarbeiter-Karten sichtbar');
+
+    const reconcileBtn = page.locator('[data-testid="btn-reconcile-selected-cart"]');
+    await expect(reconcileBtn).toBeVisible();
+    const reconcileBox = await reconcileBtn.boundingBox();
+    expect(reconcileBox?.height ?? 0).toBeGreaterThanOrEqual(44);
+    await reconcileBtn.click();
+
+    // Nach Abgleich: Karte verschwindet (oder Beleg als Abgeglichen markiert)
+    await expect(page.locator('[data-testid="receipt-card-rcpt-seed-1"]')).toContainText('Abgeglichen');
+    await assertNoHorizontalOverflow(page, 'Station 18 – Nach 1-Tipp-Abgleich');
+
+    // Im Einkaufswagen verifizieren, dass der Artikel abgehakt wurde
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    await page.locator('div[role="toolbar"][aria-label="Schnellzugriff"] button:has-text("Einkauf")').click();
+    const cartSection = page.locator('section:has(h3:has-text("Einkaufswagen"))');
+    await expect(cartSection).toBeVisible();
+    const gasReglerCard = cartSection.locator('div[id^="item-card-"]:has-text("Gewerbe-Gasdruckregler 50 mbar")');
+    await expect(gasReglerCard.locator('button[aria-label="Als offen markieren"]')).toBeVisible();
+    await assertNoHorizontalOverflow(page, 'Station 18 – Artikel im Einkaufswagen abgehakt');
+  });
 });

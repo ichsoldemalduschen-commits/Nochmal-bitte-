@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Bell, Scale, Webhook } from 'lucide-react';
+import { Bell, Receipt, Scale, Webhook } from 'lucide-react';
 import { BanditUserPreferences, THEME } from '../../types';
 import { requestPushNotificationPermission } from '../../services/cloudSyncAndPush';
 import {
@@ -55,12 +55,17 @@ export const AutomationSection: React.FC<AutomationSectionProps> = ({
           : 'Browser-Freigabe noch offen (default) – In-App-Banner aktiv'
       : 'Nur In-App-Banner';
 
+  const foremanEnabled = prefs.receiptForemanEnabled !== false;
+  const sectionStatusText = `${remindersEnabled ? 'Aktiv' : 'Pausiert'} · ${
+    foremanEnabled ? 'Vorarbeiter An' : 'Vorarbeiter Aus'
+  }`;
+
   return (
     <ZentraleAccordion
       number={4}
       title="Erinnerungen, Vorarbeiter & Smart Home"
-      subtitle="Proaktive Erinnerungen, Vorschriften-Wächter & Smart Home"
-      statusText={remindersEnabled ? 'Aktiv' : 'Pausiert'}
+      subtitle="Proaktive Erinnerungen, Beleg-Vorarbeiter, Vorschriften & Smart Home"
+      statusText={sectionStatusText}
       icon={<Bell className="w-5 h-5 text-[#E5A93C]" />}
       isOpen={isOpen}
       onToggle={onToggle}
@@ -162,6 +167,27 @@ export const AutomationSection: React.FC<AutomationSectionProps> = ({
         offLabel="Aus"
         icon={<Scale className="w-4 h-4 text-[#14B8A6] shrink-0" />}
         testId="toggle-audit-settings"
+      />
+
+      {/* Beleg- & Rechnungs-Vorarbeiter */}
+      <ZentraleToggleRow
+        title="Beleg- & Rechnungs-Vorarbeiter"
+        description="Prüft Belege auf Dubletten/Lücken, schlägt Einkaufswagen-Abgleich per 1-Tipp vor und erstellt das Steuerberater-Monatspaket."
+        checked={foremanEnabled}
+        onToggle={() => {
+          const next = !foremanEnabled;
+          onUpdatePrefs({ receiptForemanEnabled: next });
+          onNotify(
+            next
+              ? 'Beleg- & Rechnungs-Vorarbeiter aktiviert.'
+              : 'Beleg- & Rechnungs-Vorarbeiter ausgeblendet.'
+          );
+        }}
+        onLabel="An"
+        offLabel="Aus"
+        icon={<Receipt className="w-4 h-4 text-[#14B8A6] shrink-0" />}
+        ariaLabel="Beleg- & Rechnungs-Vorarbeiter umschalten"
+        testId="toggle-receipt-foreman"
       />
 
       {/* Smart Home / Home Assistant (Prinzip der geschlossenen Schublade) */}
