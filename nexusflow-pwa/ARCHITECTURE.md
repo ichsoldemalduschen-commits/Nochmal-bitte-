@@ -178,7 +178,7 @@ Für jede künftige Änderung gilt ein verbindliches E2E-Qualitätsgate auf mobi
 - **Befehl:** `npm run verify` im Verzeichnis `nexusflow-pwa` (führt `npm run build && npm run test:guard` aus).
 - **Pflicht vor jedem Git-Push:**
   1. `npm run build` muss fehlerfrei durchlaufen.
-  2. Playwright Mobile-Guard (`tests/mobile-guard.spec.ts`) muss alle 10 Stationen (Start & Kopfleiste, NavigationDrawer, TasksView, CartView, KnowledgeView, Block D & VoiceModal, Zentrale mit allen 4 Überbereichen, Deep-Links, Werkzeuge/POS, Wissen-Lösch-Undo & konsolidiertes Modal) zu 100 % grün durchlaufen.
+  2. Playwright Mobile-Guard (`tests/mobile-guard.spec.ts`) muss alle 13 Stationen (Start & Kopfleiste, NavigationDrawer, TasksView, CartView, KnowledgeView, Block D & VoiceModal, Zentrale mit allen 4 Überbereichen, Deep-Links, Werkzeuge/POS, Wissen-Lösch-Undo & konsolidiertes Modal, Sammel-Tasks/`subTasks`, proaktive Erinnerungen, unsichtbare 3-Modi-Erkennung) zu 100 % grün durchlaufen.
   3. Strikte Wächter: 0 ungefangene `pageerror`-Exceptions, 0 unberechtigte `console.error`-Meldungen, 0 horizontale Viewport-Überläufe (`document.documentElement.scrollWidth <= window.innerWidth + 1`).
 
 ---
@@ -269,3 +269,11 @@ Beide Werkzeuge besitzen oben rechts einen ruhigen `⚙`-Button (`min-h-[44px] m
 - **Dateiname:** `bandit-os-vollbackup-YYYY-MM-DD.json`.
 - **Verlustfreier Import:** Stellt alle Stores in IndexedDB und den aktuellen App-State wieder her (abwärtskompatibel für v1-Backups). Quittungskarte direkt in Bereich 4 zeigt gesicherte/wiederhergestellte Elemente an.
 - **1-Klick-Projekt-JSON-Import:** Hängt Tasks, Einkäufe und Wissens-Einträge an das Zielprojekt an, ohne Bestehendes zu löschen, und füllt fehlende optionale Felder mit robusten Defaults.
+
+---
+
+## 16  Phase 3 – Sammel-Tasks, Proaktive Erinnerungen & Unsichtbare 3-Modi-Sprach-KI
+
+- **Aufklappbare Sammel-Tasks (`TaskItem.subTasks`):** Aufgaben können beliebig viele Einzelschritte (`SubTaskItem[]`) bündeln. Zugeklappt zeigt die Karte den Fortschrittszähler in `font-mono` (`0/N`) und rotiert automatisch auf den ersten offenen Schritt; bei Erledigung des letzten offenen Sub-Tasks wird der Haupt-Task inkl. 4-Sekunden-Rückgängig-Leiste abgeschlossen (`TasksView.tsx`, `SingleFocusOverlay.tsx`, `Station 11`).
+- **Proaktive Erinnerungen (`src/hooks/useReminderEngine.ts`):** Polling bei Start, `visibilitychange` und `REMINDER_POLL_INTERVAL_MS` (`30000 ms`) auf fällige `reminderAt`-Zeiten (ISO & `"HH:mm"`) ohne Doppelfeuer (`lastReminderFiredAt`). Löst ruhiges Honig-Gold-In-App-Banner (`#E5A93C` mit `Erledigt ✓`, `+30 Min`, `OK`), ServiceWorker-/Web-Notifications sowie `DTSTART`/`DTEND`-Werte im `.ics`-Export aus (`Station 12`).
+- **Unsichtbare 3-Modi-Erkennung (`src/services/voiceModeClassifier.ts` & `aiRouter.ts`):** Klassifiziert laufende Spracheingaben im Hintergrund nach `quick` (`2000 ms`), `dialog` (`3500 ms`) oder `collect` (`5500 ms`), ersetzt hektisch springende Countdown-Sekunden in `VoiceModal.tsx` durch eine ruhige Fortschrittslinie und steuert automatisches Nachhören über `detectedMode`, `expectFollowUp` und `autoModeDetection` (Default `true`, umschaltbar in Zentrale Bereich 3; `Station 13`).

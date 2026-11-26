@@ -1,12 +1,14 @@
 export type DomainType = 'business' | 'private';
 export type PriorityType = 'Hoch' | 'Mittel' | 'Niedrig';
 export type DayBlockId = 'morning' | 'focus' | 'errands' | 'evening' | null;
+export type ReminderRecurrence = 'none' | 'daily' | 'weekly';
 export type ProjectTabId = 'tasks' | 'cart' | 'knowledge' | 'extras' | 'receipt' | 'research';
 export type BackofficeTabId = 'analytics' | 'planner' | 'addons' | 'system';
 export type AmbientLightMode = 'off' | 'static' | 'shimmer';
 export type VoiceProvider = 'azure-gisela' | 'browser';
 export type PreferredModelMode = 'SMART_PRO' | 'ALWAYS_PRO' | 'ALWAYS_FLASH' | string;
 export type QuickAiMode = 'flash' | 'research';
+export type VoiceInteractionMode = 'quick' | 'collect' | 'dialog';
 
 export interface AiVoiceSettings {
   ttsEnabled: boolean;
@@ -16,6 +18,7 @@ export interface AiVoiceSettings {
   preferredModelMode: PreferredModelMode;
   activeAiMode: QuickAiMode;
   continuousListening: boolean;
+  autoModeDetection: boolean;
 }
 
 export const THEME = {
@@ -49,6 +52,14 @@ export interface ProcurementCheckData {
   searchTerm: string;
 }
 
+export interface SubTaskItem {
+  id: string;
+  title: string;
+  completed: boolean;
+  order: number;
+  completedAt?: string;
+}
+
 export interface TaskItem {
   id: string;
   title: string;
@@ -57,11 +68,14 @@ export interface TaskItem {
   estimatedMinutes: number;
   dayBlock: DayBlockId;
   reminderAt: string;
+  reminderRecurrence?: ReminderRecurrence;
+  lastReminderFiredAt?: string;
   aiTouched: boolean;
   lastModified: string;
   changeReason: string;
   source: string;
   assemblyGroup?: string;
+  subTasks?: SubTaskItem[];
   customMeta: CustomMeta;
 }
 
@@ -237,6 +251,7 @@ export interface AppStateSnapshot {
   thumbHubEnabled?: boolean;
   thumbHubPosition?: 'left' | 'center' | 'right';
   ambientLightMode?: AmbientLightMode;
+  remindersEnabled?: boolean;
   aiVoiceSettings?: AiVoiceSettings;
 }
 

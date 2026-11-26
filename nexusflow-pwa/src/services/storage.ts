@@ -15,9 +15,11 @@ import {
   BackupImportResult,
   ProjectImportResult,
   TaskItem,
+  SubTaskItem,
   CartItem,
   PriorityType,
   DayBlockId,
+  ReminderRecurrence,
   KnowledgeKind,
   VoiceProvider
 } from '../types';
@@ -43,6 +45,7 @@ export const STORAGE_KEYS = {
   AZURE_SPEECH_REGION: 'banditos_azure_speech_region_v1',
   ACTIVE_AI_MODE: 'banditos_active_ai_mode_v1',
   CONTINUOUS_LISTENING: 'banditos_continuous_listening_v1',
+  AUTO_MODE_DETECTION: 'banditos_auto_mode_detection_v1',
   FIRED_REMINDERS: 'banditos_fired_reminders_v4',
   THUMB_HUB_ENABLED: 'banditos_thumb_hub_enabled_v1',
   THUMB_HUB_POSITION: 'banditos_thumb_hub_position_v1',
@@ -101,6 +104,32 @@ function normalizePriorityValue(rawPriority: unknown): { priority: PriorityType;
     return { priority: 'Niedrig', changed: true };
   }
   return { priority: 'Mittel', changed: true };
+}
+
+function normalizeSubTasksList(rawSubTasks: unknown): { subTasks: SubTaskItem[] | undefined; changed: boolean } {
+  if (!Array.isArray(rawSubTasks) || rawSubTasks.length === 0) {
+    return { subTasks: undefined, changed: Array.isArray(rawSubTasks) };
+  }
+  let changed = false;
+  const mapped: SubTaskItem[] = rawSubTasks.map((st: any, idx: number) => {
+    const hasOrder = typeof st?.order === 'number' && Number.isFinite(st.order);
+    if (!hasOrder || !st?.id) changed = true;
+    return {
+      id: String(st?.id || `st_${Date.now()}_${idx}`),
+      title: String(st?.title || '').trim() || 'Arbeitsschritt',
+      completed: Boolean(st?.completed),
+      order: hasOrder ? st.order : idx,
+      completedAt: st?.completedAt ? String(st.completedAt) : undefined
+    };
+  });
+  const sorted = [...mapped].sort((a, b) => a.order - b.order);
+  for (let i = 0; i < mapped.length; i++) {
+    if (mapped[i].id !== sorted[i].id) {
+      changed = true;
+      break;
+    }
+  }
+  return { subTasks: sorted, changed };
 }
 
 function cleanAttachmentList(rawList: unknown): { attachments: Attachment[]; changed: boolean } {
@@ -222,6 +251,9 @@ function migrateProjectInternal(rawProject: any): { project: Project; migrated: 
       }
     }
 
+    const subRes = normalizeSubTasksList(t?.subTasks);
+    if (subRes.changed) migrated = true;
+
     return {
       ...t,
       id: String(t?.id || `task_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`),
@@ -231,11 +263,19 @@ function migrateProjectInternal(rawProject: any): { project: Project; migrated: 
       estimatedMinutes: Number(t?.estimatedMinutes) || 15,
       dayBlock: (t?.dayBlock as DayBlockId) || null,
       reminderAt: String(t?.reminderAt || ''),
+      reminderRecurrence:
+        t?.reminderRecurrence === 'daily' ||
+        t?.reminderRecurrence === 'weekly' ||
+        t?.reminderRecurrence === 'none'
+          ? (t.reminderRecurrence as ReminderRecurrence)
+          : undefined,
+      lastReminderFiredAt: t?.lastReminderFiredAt ? String(t.lastReminderFiredAt) : undefined,
       aiTouched: Boolean(t?.aiTouched),
       lastModified: t?.lastModified || formatNow(),
       changeReason: t?.changeReason || '',
       source: t?.source || 'Manuell',
       assemblyGroup,
+      ...(subRes.subTasks ? { subTasks: subRes.subTasks } : { subTasks: undefined }),
       customMeta: typeof t?.customMeta === 'object' && t.customMeta ? t.customMeta : {}
     };
   });
@@ -348,6 +388,19 @@ export function migrateAppState(raw: unknown): { state: AppStateSnapshot; migrat
     userApiKey: typeof src.userApiKey === 'string' ? src.userApiKey : '',
     realityCheckEnabled:
       typeof src.realityCheckEnabled === 'boolean' ? src.realityCheckEnabled : true,
+    remindersEnabled:
+      typeof src.remindersEnabled === 'boolean' ? src.remindersEnabled : true,
+    aiVoiceSettings:
+      src.aiVoiceSettings && typeof src.aiVoiceSettings === 'object'
+        ? {
+            ...DEFAULT_AI_VOICE_SETTINGS,
+            ...src.aiVoiceSettings,
+            autoModeDetection:
+              typeof src.aiVoiceSettings.autoModeDetection === 'boolean'
+                ? src.aiVoiceSettings.autoModeDetection
+                : true
+          }
+        : undefined,
     haWebhookUrl: typeof src.haWebhookUrl === 'string' ? src.haWebhookUrl : '',
     haEmbedUrl: typeof src.haEmbedUrl === 'string' ? src.haEmbedUrl : ''
   };
@@ -516,7 +569,8 @@ export async function loadPersistedState(
         ...migratedStored,
         schemaVersion: 2,
         thumbHubEnabled: typeof (stored as any).thumbHubEnabled === 'boolean' ? (stored as any).thumbHubEnabled : true,
-        thumbHubPosition: (stored as any).thumbHubPosition || 'center'
+        thumbHubPosition: (stored as any).thumbHubPosition || 'center',
+        remindersEnabled: typeof (stored as any).remindersEnabled === 'boolean' ? (stored as any).remindersEnabled : true
       };
       if (migrated || (stored as any).schemaVersion !== 2) {
         await savePersistedState(finalState);
@@ -535,7 +589,8 @@ export async function loadPersistedState(
             ...migratedParsed,
             schemaVersion: 2,
             thumbHubEnabled: typeof (parsed as any).thumbHubEnabled === 'boolean' ? (parsed as any).thumbHubEnabled : true,
-            thumbHubPosition: (parsed as any).thumbHubPosition || 'center'
+            thumbHubPosition: (parsed as any).thumbHubPosition || 'center',
+            remindersEnabled: typeof (parsed as any).remindersEnabled === 'boolean' ? (parsed as any).remindersEnabled : true
           };
           if (migrated || (parsed as any).schemaVersion !== 2) {
             await savePersistedState(finalState);
@@ -553,7 +608,8 @@ export async function loadPersistedState(
     ...migratedSeed,
     schemaVersion: 2,
     thumbHubEnabled: true,
-    thumbHubPosition: 'center'
+    thumbHubPosition: 'center',
+    remindersEnabled: true
   };
 }
 
@@ -637,6 +693,14 @@ export function saveContinuousListening(enabled: boolean): void {
   void saveIdbItem(STORAGE_KEYS.CONTINUOUS_LISTENING, enabled);
 }
 
+export function getAutoModeDetection(): boolean {
+  return getIdbItemSync<boolean>(STORAGE_KEYS.AUTO_MODE_DETECTION, true);
+}
+
+export function saveAutoModeDetection(enabled: boolean): void {
+  void saveIdbItem(STORAGE_KEYS.AUTO_MODE_DETECTION, enabled);
+}
+
 export const DEFAULT_AI_VOICE_SETTINGS: AiVoiceSettings = {
   ttsEnabled: true,
   voiceProvider: 'azure-gisela',
@@ -644,7 +708,8 @@ export const DEFAULT_AI_VOICE_SETTINGS: AiVoiceSettings = {
   azureSpeechRegion: 'germanywestcentral',
   preferredModelMode: 'SMART_PRO',
   activeAiMode: 'flash',
-  continuousListening: true
+  continuousListening: true,
+  autoModeDetection: true
 };
 
 /**
@@ -662,7 +727,8 @@ export async function loadAiVoiceSettings(
     azureSpeechRegion,
     preferredModelMode,
     rawActiveAiMode,
-    continuousListening
+    continuousListening,
+    autoModeDetection
   ] = await Promise.all([
     loadIdbItem<boolean>(
       STORAGE_KEYS.TTS_ENABLED,
@@ -691,6 +757,10 @@ export async function loadAiVoiceSettings(
     loadIdbItem<boolean>(
       STORAGE_KEYS.CONTINUOUS_LISTENING,
       snapSettings?.continuousListening ?? DEFAULT_AI_VOICE_SETTINGS.continuousListening
+    ),
+    loadIdbItem<boolean>(
+      STORAGE_KEYS.AUTO_MODE_DETECTION,
+      snapSettings?.autoModeDetection ?? DEFAULT_AI_VOICE_SETTINGS.autoModeDetection
     )
   ]);
 
@@ -707,7 +777,8 @@ export async function loadAiVoiceSettings(
         ? preferredModelMode
         : 'SMART_PRO',
     activeAiMode: rawActiveAiMode === 'research' ? 'research' : 'flash',
-    continuousListening: typeof continuousListening === 'boolean' ? continuousListening : true
+    continuousListening: typeof continuousListening === 'boolean' ? continuousListening : true,
+    autoModeDetection: typeof autoModeDetection === 'boolean' ? autoModeDetection : true
   };
 }
 
@@ -722,7 +793,8 @@ export async function saveAiVoiceSettings(settings: AiVoiceSettings): Promise<vo
     saveIdbItem(STORAGE_KEYS.AZURE_SPEECH_REGION, settings.azureSpeechRegion),
     saveIdbItem(STORAGE_KEYS.PREFERRED_MODEL, settings.preferredModelMode),
     saveIdbItem(STORAGE_KEYS.ACTIVE_AI_MODE, settings.activeAiMode),
-    saveIdbItem(STORAGE_KEYS.CONTINUOUS_LISTENING, settings.continuousListening)
+    saveIdbItem(STORAGE_KEYS.CONTINUOUS_LISTENING, settings.continuousListening),
+    saveIdbItem(STORAGE_KEYS.AUTO_MODE_DETECTION, settings.autoModeDetection)
   ]);
 }
 
@@ -980,6 +1052,7 @@ export async function importFullBackupV2(
     thumbHubEnabled: typeof migratedAppState.thumbHubEnabled === 'boolean' ? migratedAppState.thumbHubEnabled : currentSnapshot.thumbHubEnabled,
     thumbHubPosition: migratedAppState.thumbHubPosition || currentSnapshot.thumbHubPosition,
     ambientLightMode: migratedAppState.ambientLightMode || currentSnapshot.ambientLightMode,
+    remindersEnabled: typeof migratedAppState.remindersEnabled === 'boolean' ? migratedAppState.remindersEnabled : currentSnapshot.remindersEnabled,
     aiVoiceSettings: migratedAppState.aiVoiceSettings || currentSnapshot.aiVoiceSettings,
   };
 

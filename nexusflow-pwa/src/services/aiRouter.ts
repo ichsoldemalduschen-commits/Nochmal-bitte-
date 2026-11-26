@@ -1,7 +1,8 @@
-import { AiActionType, AiVoiceSettings, Attachment, KnowledgeKind, PriorityType, Project } from '../types';
+import { AiActionType, AiVoiceSettings, Attachment, KnowledgeKind, PriorityType, Project, VoiceInteractionMode } from '../types';
 import { BRAND_CONFIG } from '../config/brandConfig';
 import { STORAGE_KEYS, getActiveAiMode, getIdbItemSync, saveIdbItem } from './storage';
 import { speakText, stopAllSpeech, stopSpeaking, testGiselaVoice } from './azureSpeech';
+import { classifyLiveSpeechIntent } from './voiceModeClassifier';
 
 export { speakText, stopAllSpeech, stopSpeaking, testGiselaVoice };
 
@@ -153,6 +154,8 @@ export interface StructuredAiResponse {
   directAnswer?: string;
   isQuestion?: boolean;
   needsClarification?: boolean;
+  detectedMode?: VoiceInteractionMode;
+  expectFollowUp?: boolean;
   actions: StructuredAiActionPlan[];
 }
 
@@ -338,6 +341,15 @@ const AI_ROUTER_RESPONSE_SCHEMA = {
       type: 'BOOLEAN',
       description: 'TRUE, wenn eine Angabe unklar ist und das Mikrofon nach der Antwort direkt wieder zuhören soll.'
     },
+    detectedMode: {
+      type: 'STRING',
+      enum: ['quick', 'collect', 'dialog'],
+      description: 'Erkannter Gesprächsmodus: quick (kurzer Befehl), collect (mehrteiliges Einsammeln), dialog (Beratung/Nachdenken).'
+    },
+    expectFollowUp: {
+      type: 'BOOLEAN',
+      description: 'TRUE, wenn nach der Antwort ein direkter Anschlussbeitrag erwartet wird (collect, dialog oder Rückfrage). FALSE bei abgeschlossenen Quick-Befehlen.'
+    },
     spokenFeedback: {
       type: 'STRING',
       description: 'Gesprochene Rückmeldung. Bei kurzen Befehlen nur 2-4 Wörter ("Ist erledigt."). Bei Fragen/Briefings eine prägnante gesprochene Antwort.'
@@ -443,10 +455,13 @@ function buildWorkspaceContextSummary(projects: Project[]): string {
 export function buildLocalFallbackPlan(
   rawText: string,
   defaultProjectId: string,
-  allProjects?: Project[]
+  allProjects?: Project[],
+  hintMode?: VoiceInteractionMode,
+  previousMode?: VoiceInteractionMode | null
 ): StructuredAiResponse {
   const prefs = loadUserPrefs();
   const trimmed = rawText.trim();
+  const classifiedHint = hintMode || classifyLiveSpeechIntent(trimmed, previousMode).mode;
   const isQuestion =
     trimmed.endsWith('?') ||
     /^(wie|was|wo|wann|warum|welche|welcher|welches|kannst du|weißt du|zeig mir|gib mir)/i.test(
@@ -457,6 +472,8 @@ export function buildLocalFallbackPlan(
     return {
       isQuestion: true,
       needsClarification: false,
+      detectedMode: 'dialog',
+      expectFollowUp: true,
       spokenFeedback: 'Bitte prüfe den API-Schlüssel in den Einstellungen.',
       directAnswer:
         'Offline-Modus aktiv: Für autonome Antworten und Analysen bitte in den Einstellungen unter KI-Schnittstelle den Gemini API-Key prüfen.',
@@ -474,6 +491,8 @@ export function buildLocalFallbackPlan(
     return {
       isQuestion: true,
       needsClarification: true,
+      detectedMode: classifiedHint,
+      expectFollowUp: true,
       spokenFeedback: 'Für welches Projekt soll ich das eintragen – Foodtruck oder Baustelle?',
       directAnswer:
         'Rückfrage: Zu welchem Projekt gehört das (z. B. Pizza Bandit Foodtruck oder Baustelle Bäckerei)?',
@@ -541,10 +560,28 @@ export function buildLocalFallbackPlan(
     };
   });
 
+  const resolvedMode: VoiceInteractionMode =
+    actions.length > 1 || classifiedHint === 'collect'
+      ? 'collect'
+      : classifiedHint === 'dialog'
+        ? 'dialog'
+        : 'quick';
+  const expectFollowUp = resolvedMode !== 'quick';
+  const fallbackSpoken =
+    resolvedMode === 'collect'
+      ? `${actions.length} Punkt${actions.length === 1 ? '' : 'e'} geparkt – noch was?`
+      : resolvedMode === 'dialog'
+        ? `Notiert: ${actions[0]?.shortCheckableTitle || 'Eintrag'}. Worauf sollen wir als Nächstes schauen?`
+        : actions.length === 1 && actions[0].actionType === 'ADD_CART_ITEM'
+          ? 'Steht auf Einkauf.'
+          : 'Ist erledigt.';
+
   return {
     isQuestion: false,
     needsClarification: false,
-    spokenFeedback: 'Ist erledigt.',
+    detectedMode: resolvedMode,
+    expectFollowUp,
+    spokenFeedback: fallbackSpoken,
     directAnswer: `${actions.length} Eintrag/Einträge lokal zugeordnet.`,
     summary: `${actions.length} Punkt(e) zugeordnet.`,
     actions
@@ -559,17 +596,25 @@ export async function routeVoiceCommand(
   chatHistory?: ChatTurnHistory[],
   attachment?: Attachment | null,
   requestedMode?: 'flash' | 'research',
-  options?: { signal?: AbortSignal; settings?: AiVoiceSettings }
+  options?: {
+    signal?: AbortSignal;
+    settings?: AiVoiceSettings;
+    hintMode?: VoiceInteractionMode;
+    previousMode?: VoiceInteractionMode | null;
+  }
 ): Promise<{
   plan: StructuredAiResponse;
   engine: string;
   autoUpscaledToPro?: boolean;
+  detectedMode?: VoiceInteractionMode;
+  expectFollowUp?: boolean;
   aborted?: boolean;
 }> {
   const cleanKey = apiKey ? apiKey.trim() : '';
   const prefs = loadUserPrefs();
   const signal = options?.signal;
   const preferredModelMode = options?.settings?.preferredModelMode ?? getPreferredModelMode();
+  const autoHint = options?.hintMode || classifyLiveSpeechIntent(rawText, options?.previousMode).mode;
 
   // 1-Tipp-Modus: Flash (⚡ Sprech) vs. Research (🧠 Pro) + Intelligenz-Modus aus Zentrale
   const currentMode = requestedMode || options?.settings?.activeAiMode || getActiveAiMode() || 'flash';
@@ -625,7 +670,11 @@ REGELN:
 - Du hast vollen Lesezugriff auf alle Projekte, Tasks, Einkäufe und Wissenseinträge (Abläufe & Infos) im Kontext.
 - Bei einfachen Befehlen ("Merke dir...", "Leg X in den Einkaufswagen") halte "spokenFeedback" ultrakurz (z. B. "Ist erledigt.").
 - Bei Unklarheit setze "needsClarification": true und stelle eine präzise Rückfrage.
-- WICHTIG BEI MEHRDEUTIGKEIT: Wenn der Nutzer neutrale Werkzeuge, Baumaterialien oder Maße nennt, die ohne Kontext nicht eindeutig einem Projekt zuordenbar sind (z. B. "Silikon kaufen", "Schrauben besorgen", "Maße nehmen", "Acryl", "Malerband", "Dichtband"), ordne NICHT blind zu! Setze "needsClarification": true, "isQuestion": true, "actions": [] und frage kurz und präzise, zu welchem Projekt es gehört.`;
+- WICHTIG BEI MEHRDEUTIGKEIT: Wenn der Nutzer neutrale Werkzeuge, Baumaterialien oder Maße nennt, die ohne Kontext nicht eindeutig einem Projekt zuordenbar sind (z. B. "Silikon kaufen", "Schrauben besorgen", "Maße nehmen", "Acryl", "Malerband", "Dichtband"), ordne NICHT blind zu! Setze "needsClarification": true, "isQuestion": true, "actions": [] und frage kurz und präzise, zu welchem Projekt es gehört.
+- UNSICHTBARE 3-MODI-ERKENNUNG (setze "detectedMode" und "expectFollowUp"):
+  • "quick": Sofortige Ausführung, ultraknappe Bestätigung (1 kurzer Satz, z. B. "Steht auf Einkauf."). "expectFollowUp": false – außer bei mehrdeutigem Projekt/fehlender Info (dann kurze Rückfrage + "expectFollowUp": true).
+  • "collect": Zerlege längeren Redefluss sauber in gebündelte Tasks-, Einkaufs- oder Wissenskarten; fasse kurz die Anzahl zusammen ("4 Punkte geparkt – noch was?"). "expectFollowUp": true.
+  • "dialog": Natürliches Gespräch auf Augenhöhe mit gezielter Rückfrage; lege erst dann Karten an, wenn etwas konkret spruchreif oder ausdrücklich gewünscht ist. "expectFollowUp": true.`;
 
   if (cleanKey) {
     try {
@@ -642,6 +691,7 @@ REGELN:
         {
           text: [
             `AKTUELLES PROJEKT: "${defaultProjectId}"`,
+            `MODUS-KONTEXT: vorläufiger Hinweis="${autoHint}"${options?.previousMode ? `, vorheriger Modus="${options.previousMode}"` : ''}`,
             `GESPRÄCHSVERLAUF:\n${historyText}`,
             `DATENBESTAND:\n${workspaceContext}`,
             `EINGABE:\n"${rawText}"`
@@ -700,14 +750,16 @@ REGELN:
       }
 
       if (!result.ok) {
-        const fallback = buildLocalFallbackPlan(rawText, defaultProjectId, allProjects);
+        const fallback = buildLocalFallbackPlan(rawText, defaultProjectId, allProjects, autoHint, options?.previousMode);
         return {
           plan: {
             ...fallback,
             directAnswer: `Hinweis: API meldete "${result.errorMessage}". Lokale Zuordnung genutzt.`
           },
           engine: `Fallback (${result.errorMessage})`,
-          autoUpscaledToPro
+          autoUpscaledToPro,
+          detectedMode: fallback.detectedMode,
+          expectFollowUp: fallback.expectFollowUp
         };
       }
 
@@ -734,10 +786,21 @@ REGELN:
           }))
           : [];
 
+        const resolvedMode: VoiceInteractionMode =
+          parsed.detectedMode === 'quick' || parsed.detectedMode === 'collect' || parsed.detectedMode === 'dialog'
+            ? parsed.detectedMode
+            : autoHint;
+        const resolvedFollowUp =
+          typeof parsed.expectFollowUp === 'boolean'
+            ? parsed.expectFollowUp
+            : resolvedMode !== 'quick' || Boolean(parsed.needsClarification);
+
         return {
           plan: {
             isQuestion: Boolean(parsed.isQuestion),
             needsClarification: Boolean(parsed.needsClarification),
+            detectedMode: resolvedMode,
+            expectFollowUp: resolvedFollowUp,
             spokenFeedback:
               parsed.spokenFeedback ||
               (sanitizedActions.length > 0 ? 'Ist erledigt.' : parsed.directAnswer || 'Verstanden.'),
@@ -751,7 +814,9 @@ REGELN:
             actions: sanitizedActions
           },
           engine: result.usedModel,
-          autoUpscaledToPro
+          autoUpscaledToPro,
+          detectedMode: resolvedMode,
+          expectFollowUp: resolvedFollowUp
         };
       }
     } catch (err: any) {
@@ -774,10 +839,19 @@ REGELN:
     }
   }
 
+  const offlineFallback = buildLocalFallbackPlan(
+    rawText,
+    defaultProjectId,
+    allProjects,
+    autoHint,
+    options?.previousMode
+  );
   return {
-    plan: buildLocalFallbackPlan(rawText, defaultProjectId, allProjects),
+    plan: offlineFallback,
     engine: cleanKey ? 'Fallback (Verbindungsfehler)' : 'Lokaler Modus (Kein API-Key)',
-    autoUpscaledToPro
+    autoUpscaledToPro,
+    detectedMode: offlineFallback.detectedMode,
+    expectFollowUp: offlineFallback.expectFollowUp
   };
 }
 

@@ -3,6 +3,7 @@ import {
   Calendar,
   Check,
   CheckSquare,
+  Clock,
   Copy,
   Crosshair,
   Edit3,
@@ -17,10 +18,19 @@ import {
 import {
   PriorityType,
   Project,
+  ReminderRecurrence,
+  SubTaskItem,
   TaskItem
 } from '../../types';
-import { buildGoogleCalendarTemplateUrl } from '../../services/cloudSyncAndPush';
+import {
+  buildGoogleCalendarTemplateUrl,
+  formatReminderBadge,
+  parseReminderDate,
+  toLocalDateTimeInputValue
+} from '../../services/cloudSyncAndPush';
 import { BanditUserPreferences, triggerHapticFeedback } from '../../services/aiRouter';
+import { DESIGN_TOKENS } from '../../config/designTokens';
+import { CHECK_GLOW_MS } from '../../config/runtimeConfig';
 import { ThemeColors } from './FrontHeader';
 
 interface TasksViewProps {
@@ -31,12 +41,17 @@ interface TasksViewProps {
   searchQuery: string;
   highlightedItemId: string | null;
   onToggleTask: (projectId: string, taskId: string) => void;
+  onAddSubTask?: (projectId: string, taskId: string, title: string) => void;
+  onToggleSubTask?: (projectId: string, taskId: string, subTaskId: string) => void;
+  onDeleteSubTask?: (projectId: string, taskId: string, subTaskId: string) => void;
   onAddTask: (
     projectId: string,
     title: string,
     priority?: PriorityType,
     estimatedMinutes?: number,
-    assemblyGroup?: string
+    assemblyGroup?: string,
+    reminderAt?: string,
+    reminderRecurrence?: ReminderRecurrence
   ) => void;
   onDeleteTask: (projectId: string, taskId: string) => void;
   onUpdateTask?: (projectId: string, taskId: string, patch: Partial<TaskItem>) => void;
@@ -62,6 +77,9 @@ export const TasksView: React.FC<TasksViewProps> = ({
   searchQuery,
   highlightedItemId,
   onToggleTask,
+  onAddSubTask,
+  onToggleSubTask,
+  onDeleteSubTask,
   onAddTask,
   onDeleteTask,
   onUpdateTask,
@@ -81,12 +99,18 @@ export const TasksView: React.FC<TasksViewProps> = ({
   const [isAddingTask, setIsAddingTask] = useState(false);
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [newTaskGroup, setNewTaskGroup] = useState('');
+  const [newTaskReminderAt, setNewTaskReminderAt] = useState('');
+  const [newTaskRecurrence, setNewTaskRecurrence] = useState<ReminderRecurrence>('none');
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [editTaskTitle, setEditTaskTitle] = useState('');
   const [editTaskGroup, setEditTaskGroup] = useState('');
+  const [editTaskReminderAt, setEditTaskReminderAt] = useState('');
+  const [editTaskRecurrence, setEditTaskRecurrence] = useState<ReminderRecurrence>('none');
   const [singleFocusActive, setSingleFocusActive] = useState(false);
   const [expandedActionCards, setExpandedActionCards] = useState<Record<string, boolean>>({});
   const [glowTaskId, setGlowTaskId] = useState<string | null>(null);
+  const [glowSubTaskId, setGlowSubTaskId] = useState<string | null>(null);
+  const [subTaskDrafts, setSubTaskDrafts] = useState<Record<string, string>>({});
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
@@ -155,7 +179,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
           message: `„${titleToDisplay}“ erledigt`,
           undo: () => onToggleTask(activeProject.id, task.id)
         });
-      }, 450);
+      }, CHECK_GLOW_MS);
     } else {
       onToggleTask(activeProject.id, task.id);
       const bracketMatch = task.title.match(/^\[(.*?)\]\s*(.*)$/);
@@ -164,6 +188,27 @@ export const TasksView: React.FC<TasksViewProps> = ({
         message: `„${titleToDisplay}“ wieder offen`,
         undo: () => onToggleTask(activeProject.id, task.id)
       });
+    }
+  };
+
+  const handleSoftSubTaskToggle = (task: TaskItem, subTask: SubTaskItem) => {
+    triggerHapticFeedback([12, 30]);
+    if (!subTask.completed) {
+      const sortedSubs = [...(task.subTasks || [])].sort((a, b) => a.order - b.order);
+      const willAutoFinish = sortedSubs.filter((s) => !s.completed && s.id !== subTask.id).length === 0;
+      setGlowSubTaskId(subTask.id);
+      setTimeout(() => {
+        onToggleSubTask?.(activeProject.id, task.id, subTask.id);
+        setGlowSubTaskId(null);
+        if (willAutoFinish) {
+          onRegisterUndo?.({
+            message: `„${task.title}“ komplett erledigt`,
+            undo: () => onToggleSubTask?.(activeProject.id, task.id, subTask.id)
+          });
+        }
+      }, CHECK_GLOW_MS);
+    } else {
+      onToggleSubTask?.(activeProject.id, task.id, subTask.id);
     }
   };
 
@@ -184,6 +229,104 @@ export const TasksView: React.FC<TasksViewProps> = ({
       }
     });
     onNotify('Aufgabe gelöscht.');
+  };
+
+  const buildPresetLocalTime = (daysOffset: number, hour: number, minute: number): string => {
+    const d = new Date();
+    d.setDate(d.getDate() + daysOffset);
+    d.setHours(hour, minute, 0, 0);
+    return toLocalDateTimeInputValue(d);
+  };
+
+  const toDateTimeLocalInputVal = (val: string): string => {
+    if (!val.trim()) return '';
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(val.trim())) {
+      return val.trim().slice(0, 16);
+    }
+    const parsed = parseReminderDate(val);
+    return parsed ? toLocalDateTimeInputValue(parsed) : '';
+  };
+
+  const renderReminderPicker = (
+    reminderValue: string,
+    recurrenceValue: ReminderRecurrence,
+    onChangeReminder: (nextVal: string) => void,
+    onChangeRecurrence: (nextRec: ReminderRecurrence) => void
+  ) => {
+    const chips = [
+      { label: 'Heute 18:00', getValue: () => buildPresetLocalTime(0, 18, 0) },
+      { label: 'Abend-Check 20:00', getValue: () => buildPresetLocalTime(0, 20, 0) },
+      { label: 'Morgen 09:00', getValue: () => buildPresetLocalTime(1, 9, 0) }
+    ];
+    const recurrenceOptions: Array<{ id: ReminderRecurrence; label: string }> = [
+      { id: 'none', label: 'Einmalig' },
+      { id: 'daily', label: 'Täglich' },
+      { id: 'weekly', label: 'Wöchentlich' }
+    ];
+
+    return (
+      <div className="p-3 rounded-xl bg-[#111317] border border-white/10 space-y-2.5">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 text-xs font-semibold text-[#E5A93C]">
+            <Clock className="w-3.5 h-3.5 shrink-0" />
+            <span>Erinnerung</span>
+          </div>
+          {reminderValue && (
+            <button
+              type="button"
+              onClick={() => {
+                onChangeReminder('');
+                onChangeRecurrence('none');
+              }}
+              className="min-h-[44px] px-3 rounded-xl text-xs font-semibold text-[#94A3B8] hover:text-[#F1F5F9] bg-[#191C22] border border-white/5 active:scale-95 transition cursor-pointer"
+            >
+              Aus
+            </button>
+          )}
+        </div>
+
+        <div className="flex flex-wrap gap-1.5">
+          {chips.map((chip) => (
+            <button
+              key={chip.label}
+              type="button"
+              onClick={() => onChangeReminder(chip.getValue())}
+              className="min-h-[44px] px-3 py-1.5 rounded-xl text-xs font-semibold bg-[#191C22] hover:bg-[#22262F] text-[#F1F5F9] border border-white/10 active:scale-95 transition cursor-pointer"
+            >
+              {chip.label}
+            </button>
+          ))}
+        </div>
+
+        <input
+          type="datetime-local"
+          aria-label="Erinnerungszeit wählen"
+          value={toDateTimeLocalInputVal(reminderValue)}
+          onChange={(e) => onChangeReminder(e.target.value)}
+          className="w-full min-w-0 min-h-[44px] px-3 py-2 rounded-xl text-xs font-mono bg-[#191C22] text-[#F1F5F9] border border-white/10 focus:outline-none focus:border-[#E5A93C] [color-scheme:dark]"
+        />
+
+        {reminderValue && (
+          <div className="grid grid-cols-3 gap-1.5">
+            {recurrenceOptions.map((opt) => (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => onChangeRecurrence(opt.id)}
+                className={`min-h-[44px] px-2 py-1.5 rounded-xl text-xs font-semibold border transition active:scale-95 cursor-pointer ${
+                  recurrenceValue === opt.id
+                    ? 'text-[#111317] border-transparent font-bold'
+                    : 'bg-[#191C22] text-[#94A3B8] hover:text-[#F1F5F9] border-white/10'
+                }`}
+                style={recurrenceValue === opt.id ? { backgroundColor: DESIGN_TOKENS.accentHoney } : {}}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    );
   };
 
   return (
@@ -296,10 +439,14 @@ export const TasksView: React.FC<TasksViewProps> = ({
               newTaskTitle.trim(),
               'Mittel',
               25,
-              newTaskGroup.trim() || undefined
+              newTaskGroup.trim() || undefined,
+              newTaskReminderAt || undefined,
+              newTaskReminderAt ? newTaskRecurrence : undefined
             );
             setNewTaskTitle('');
             setNewTaskGroup('');
+            setNewTaskReminderAt('');
+            setNewTaskRecurrence('none');
             setIsAddingTask(false);
             onNotify('Aufgabe hinzugefügt.');
           }}
@@ -322,6 +469,12 @@ export const TasksView: React.FC<TasksViewProps> = ({
               className="sm:w-44 min-h-[44px] px-3.5 py-2.5 rounded-xl text-sm bg-[#111317] text-[#F1F5F9] border border-white/10 placeholder-[#94A3B8] focus:outline-none focus:border-white/20"
             />
           </div>
+          {renderReminderPicker(
+            newTaskReminderAt,
+            newTaskRecurrence,
+            setNewTaskReminderAt,
+            setNewTaskRecurrence
+          )}
           <div className="flex justify-end gap-2 pt-1">
             <button
               type="button"
@@ -329,6 +482,8 @@ export const TasksView: React.FC<TasksViewProps> = ({
                 setIsAddingTask(false);
                 setNewTaskTitle('');
                 setNewTaskGroup('');
+                setNewTaskReminderAt('');
+                setNewTaskRecurrence('none');
               }}
               className="min-h-[44px] px-4 rounded-xl text-xs font-semibold text-[#94A3B8] hover:text-white transition cursor-pointer"
             >
@@ -356,6 +511,13 @@ export const TasksView: React.FC<TasksViewProps> = ({
           const bracketMatch = task.title.match(/^\[(.*?)\]\s*(.*)$/);
           const displayTitle = bracketMatch ? bracketMatch[2] : task.title;
           const displayGroup = task.assemblyGroup || (bracketMatch ? bracketMatch[1] : null);
+          const sortedSubTasks =
+            Array.isArray(task.subTasks) && task.subTasks.length > 0
+              ? [...task.subTasks].sort((a, b) => a.order - b.order)
+              : [];
+          const hasSubTasks = sortedSubTasks.length > 0;
+          const doneSubCount = sortedSubTasks.filter((st) => st.completed).length;
+          const firstOpenSubTask = sortedSubTasks.find((st) => !st.completed) || null;
 
           return (
             <div
@@ -427,6 +589,12 @@ export const TasksView: React.FC<TasksViewProps> = ({
                       </span>
                     )}
 
+                    {hasSubTasks && (
+                      <span className="text-xs font-mono font-semibold px-2 py-0.5 rounded-md bg-[#111317] text-[#F1F5F9] border border-white/5">
+                        {doneSubCount}/{sortedSubTasks.length}
+                      </span>
+                    )}
+
                     {displayGroup && (
                       <span className="text-xs font-medium text-[#94A3B8] px-2 py-0.5 rounded-md bg-[#111317]">
                         {displayGroup}
@@ -442,13 +610,150 @@ export const TasksView: React.FC<TasksViewProps> = ({
                         Min.
                       </span>
                     )}
+
+                    {!task.completed && task.reminderAt && (
+                      <span className="inline-flex items-center gap-1 text-xs font-mono text-[#94A3B8] px-2 py-0.5 rounded-md bg-[#111317]">
+                        <span>⏰ {formatReminderBadge(task.reminderAt)}</span>
+                        {(task.reminderRecurrence === 'daily' ||
+                          task.reminderRecurrence === 'weekly') && (
+                          <span aria-hidden="true">↻</span>
+                        )}
+                      </span>
+                    )}
                   </div>
+
+                  {/* Zugeklappter Sammel-Task: Genau eine ruhige Vorschauzeile mit erstem offenen Schritt */}
+                  {!isTrayOpen && hasSubTasks && firstOpenSubTask && (
+                    <div className="mt-1.5 flex items-center gap-2 text-xs text-[#94A3B8] leading-snug break-words">
+                      <span
+                        className="w-1.5 h-1.5 rounded-full shrink-0"
+                        style={{ backgroundColor: DESIGN_TOKENS.accentHoney }}
+                      />
+                      <span className="min-w-0 break-words">
+                        Nächster: <span className="text-[#F1F5F9]/90">{firstOpenSubTask.title}</span>
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
 
-              {/* In-Place aufgeklappter Bereich (Kontext-Infos + Kompakte Aktionsleiste) */}
+              {/* In-Place aufgeklappter Bereich (Kontext-Infos + Arbeitsschritte + Kompakte Aktionsleiste) */}
               {isTrayOpen && (
                 <div className="px-4 pb-4 pt-2.5 border-t border-white/5 space-y-3 bg-[#111317]/80 animate-fadeIn">
+                  {/* Arbeitsschritte (Sammel-Task / Arbeitsblock) */}
+                  <div className="space-y-2">
+                    {hasSubTasks && (
+                      <div className="space-y-1.5">
+                        {sortedSubTasks.map((st) => {
+                          const isSubGlowing = glowSubTaskId === st.id;
+                          const isSubCompleted = st.completed || isSubGlowing;
+                          const isNextStep = firstOpenSubTask?.id === st.id;
+                          return (
+                            <div
+                              key={st.id}
+                              data-active-step={isNextStep ? 'true' : undefined}
+                              className={`relative min-h-[44px] rounded-xl border flex items-center gap-1 pr-1 overflow-hidden transition-all duration-300 ${
+                                st.completed && !isSubGlowing ? 'opacity-65' : ''
+                              }`}
+                              style={{
+                                backgroundColor: DESIGN_TOKENS.surface,
+                                borderColor: isSubGlowing
+                                  ? `${themeColors.primary}99`
+                                  : isNextStep
+                                  ? `${DESIGN_TOKENS.accentHoney}55`
+                                  : DESIGN_TOKENS.borderSubtle,
+                                boxShadow: isSubGlowing
+                                  ? `0 0 12px ${themeColors.primary}44`
+                                  : undefined
+                              }}
+                            >
+                              {isNextStep && (
+                                <div
+                                  className="absolute left-0 top-0 bottom-0 w-[3px]"
+                                  style={{ backgroundColor: DESIGN_TOKENS.accentHoney }}
+                                  aria-hidden="true"
+                                />
+                              )}
+
+                              <button
+                                type="button"
+                                onClick={() => handleSoftSubTaskToggle(task, st)}
+                                className="min-w-[44px] min-h-[44px] w-11 h-11 flex items-center justify-center shrink-0 cursor-pointer"
+                                aria-label={
+                                  st.completed
+                                    ? `Arbeitsschritt ${st.title} wieder öffnen`
+                                    : `Arbeitsschritt ${st.title} abhaken`
+                                }
+                              >
+                                <div
+                                  className="w-4 h-4 rounded flex items-center justify-center border transition-all duration-300"
+                                  style={{
+                                    backgroundColor: isSubCompleted
+                                      ? `${themeColors.primary}33`
+                                      : 'rgba(17,19,23,0.8)',
+                                    borderColor: isSubCompleted ? themeColors.highlight : '#6B7280'
+                                  }}
+                                >
+                                  {isSubCompleted && (
+                                    <Check className="w-3 h-3 text-white stroke-[2.5]" />
+                                  )}
+                                </div>
+                              </button>
+
+                              <span
+                                className={`flex-1 min-w-0 py-2 text-xs font-medium leading-snug break-words transition-colors duration-300 ${
+                                  st.completed && !isSubGlowing
+                                    ? 'line-through text-[#94A3B8]/60'
+                                    : 'text-[#F1F5F9]'
+                                }`}
+                              >
+                                {st.title}
+                              </span>
+
+                              <button
+                                type="button"
+                                onClick={() => onDeleteSubTask?.(activeProject.id, task.id, st.id)}
+                                className="min-w-[44px] min-h-[44px] w-11 h-11 flex items-center justify-center rounded-xl text-[#94A3B8] hover:text-[#F1F5F9] hover:bg-white/5 shrink-0 transition cursor-pointer"
+                                aria-label={`Arbeitsschritt ${st.title} löschen`}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {/* Schlanke Zeile zum Hinzufügen eines Arbeitsschritts (auch bei normalen Tasks) */}
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        const draft = (subTaskDrafts[task.id] || '').trim();
+                        if (!draft) return;
+                        onAddSubTask?.(activeProject.id, task.id, draft);
+                        setSubTaskDrafts((prev) => ({ ...prev, [task.id]: '' }));
+                      }}
+                      className="flex items-center gap-1.5"
+                    >
+                      <input
+                        type="text"
+                        value={subTaskDrafts[task.id] || ''}
+                        onChange={(e) =>
+                          setSubTaskDrafts((prev) => ({ ...prev, [task.id]: e.target.value }))
+                        }
+                        placeholder="+ Arbeitsschritt hinzufügen..."
+                        className="flex-1 min-w-0 min-h-[44px] px-3 py-2 rounded-xl text-xs bg-[#191C22] text-[#F1F5F9] border border-white/10 placeholder-[#94A3B8] focus:outline-none focus:border-white/25"
+                      />
+                      <button
+                        type="submit"
+                        disabled={!(subTaskDrafts[task.id] || '').trim()}
+                        aria-label="Arbeitsschritt hinzufügen"
+                        className="min-w-[44px] min-h-[44px] w-11 h-11 rounded-xl bg-[#191C22] hover:bg-[#22262F] text-[#14B8A6] border border-white/10 flex items-center justify-center shrink-0 disabled:opacity-40 active:scale-95 transition cursor-pointer"
+                      >
+                        <Plus className="w-4 h-4" />
+                      </button>
+                    </form>
+                  </div>
                   {/* Inline-Bearbeitung */}
                   {editingTaskId === task.id ? (
                     <div className="p-3 rounded-2xl bg-[#191C22] border border-white/10 space-y-2.5">
@@ -466,6 +771,12 @@ export const TasksView: React.FC<TasksViewProps> = ({
                         placeholder="Baugruppe (optional)"
                         className="w-full min-h-[44px] px-3.5 py-2 rounded-xl text-xs bg-[#111317] text-[#F1F5F9] border border-white/10 focus:outline-none focus:border-[#14B8A6]"
                       />
+                      {renderReminderPicker(
+                        editTaskReminderAt,
+                        editTaskRecurrence,
+                        setEditTaskReminderAt,
+                        setEditTaskRecurrence
+                      )}
                       <div className="flex justify-end gap-2 pt-1">
                         <button
                           type="button"
@@ -478,9 +789,15 @@ export const TasksView: React.FC<TasksViewProps> = ({
                           type="button"
                           onClick={() => {
                             if (!editTaskTitle.trim()) return;
+                            const nextReminder = editTaskReminderAt.trim();
                             onUpdateTask?.(activeProject.id, task.id, {
                               title: editTaskTitle.trim(),
-                              assemblyGroup: editTaskGroup.trim() || undefined
+                              assemblyGroup: editTaskGroup.trim() || undefined,
+                              reminderAt: nextReminder,
+                              reminderRecurrence: nextReminder ? editTaskRecurrence : 'none',
+                              ...(nextReminder !== (task.reminderAt || '')
+                                ? { lastReminderFiredAt: undefined }
+                                : {})
                             });
                             setEditingTaskId(null);
                             onNotify('Aufgabe aktualisiert.');
@@ -532,6 +849,8 @@ export const TasksView: React.FC<TasksViewProps> = ({
                         const m = task.title.match(/^\[(.*?)\]\s*(.*)$/);
                         setEditTaskTitle(m ? m[2] : task.title);
                         setEditTaskGroup(task.assemblyGroup || (m ? m[1] : ''));
+                        setEditTaskReminderAt(task.reminderAt || '');
+                        setEditTaskRecurrence(task.reminderRecurrence || 'none');
                         setEditingTaskId(task.id);
                       }}
                       className="min-w-0 min-h-[44px] px-3 rounded-xl text-xs font-semibold bg-[#191C22] hover:bg-[#22262F] text-[#F1F5F9] hover:text-[#14B8A6] border border-white/5 flex items-center justify-center gap-1.5 active:scale-95 transition cursor-pointer"

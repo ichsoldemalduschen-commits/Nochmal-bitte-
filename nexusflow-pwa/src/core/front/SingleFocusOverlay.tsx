@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Check, CheckCircle2, RotateCcw, Timer, X } from 'lucide-react';
 import { Project, TaskItem } from '../../types';
+import { DESIGN_TOKENS } from '../../config/designTokens';
+import { UNDO_TOAST_MS } from '../../config/runtimeConfig';
 
 export interface SingleFocusOverlayProps {
   open: boolean;
@@ -8,6 +10,7 @@ export interface SingleFocusOverlayProps {
   activeProject?: Project;
   initialTaskId?: string | null;
   onToggleTask: (projectId: string, taskId: string) => void;
+  onToggleSubTask?: (projectId: string, taskId: string, subTaskId: string) => void;
   onRegisterUndo?: (action: { message: string; undo: () => void }) => void;
   themeColors: {
     primary: string;
@@ -21,6 +24,7 @@ export const SingleFocusOverlay: React.FC<SingleFocusOverlayProps> = ({
   activeProject,
   initialTaskId,
   onToggleTask,
+  onToggleSubTask,
   onRegisterUndo,
   themeColors
 }) => {
@@ -69,6 +73,14 @@ export const SingleFocusOverlay: React.FC<SingleFocusOverlayProps> = ({
   const currentTask: TaskItem | undefined =
     openTasks.find((t) => t.id === currentTaskId) || openTasks[0];
 
+  const sortedSubTasks =
+    currentTask && Array.isArray(currentTask.subTasks) && currentTask.subTasks.length > 0
+      ? [...currentTask.subTasks].sort((a, b) => a.order - b.order)
+      : [];
+  const firstOpenSubTask = sortedSubTasks.find((st) => !st.completed) || null;
+  const doneSubCount = sortedSubTasks.filter((st) => st.completed).length;
+  const currentStepNumber = sortedSubTasks.length > 0 ? Math.min(doneSubCount + 1, sortedSubTasks.length) : 0;
+
   const handlePark = () => {
     if (openTasks.length <= 1) {
       // Keine weiteren offenen Aufgaben -> entspannt schließen
@@ -82,6 +94,39 @@ export const SingleFocusOverlay: React.FC<SingleFocusOverlayProps> = ({
 
   const handleComplete = () => {
     if (!currentTask) return;
+
+    // Sammel-Task: Schritt-für-Schritt-Spotlight über die offenen subTasks
+    if (firstOpenSubTask && onToggleSubTask) {
+      const remainingSubCount = sortedSubTasks.filter((s) => !s.completed && s.id !== firstOpenSubTask.id).length;
+      const isLastSubTask = remainingSubCount === 0;
+      const subId = firstOpenSubTask.id;
+      const subTitle = firstOpenSubTask.title;
+      const parentId = currentTask.id;
+      const parentTitle = currentTask.title;
+
+      onToggleSubTask(activeProject.id, parentId, subId);
+
+      const undoObj = {
+        message: isLastSubTask ? `„${parentTitle}“ erledigt` : `„${subTitle}“ erledigt`,
+        undo: () => {
+          onToggleSubTask(activeProject.id, parentId, subId);
+          setCurrentTaskId(parentId);
+        }
+      };
+
+      onRegisterUndo?.(undoObj);
+      setLocalUndo(undoObj);
+      setTimeout(() => {
+        setLocalUndo(null);
+      }, UNDO_TOAST_MS);
+
+      if (isLastSubTask) {
+        const remainingOpen = openTasks.filter((t) => t.id !== parentId);
+        setCurrentTaskId(remainingOpen.length > 0 ? remainingOpen[0].id : null);
+      }
+      return;
+    }
+
     const completedTaskId = currentTask.id;
     const titleToDisplay = currentTask.title;
 
@@ -96,7 +141,7 @@ export const SingleFocusOverlay: React.FC<SingleFocusOverlayProps> = ({
     setLocalUndo(undoObj);
     setTimeout(() => {
       setLocalUndo(null);
-    }, 4000);
+    }, UNDO_TOAST_MS);
 
     // Zur nächsten Aufgabe wechseln
     const remainingOpen = openTasks.filter((t) => t.id !== completedTaskId);
@@ -107,7 +152,7 @@ export const SingleFocusOverlay: React.FC<SingleFocusOverlayProps> = ({
     }
   };
 
-  const displayTitle = currentTask?.title;
+  const displayTitle = firstOpenSubTask ? firstOpenSubTask.title : currentTask?.title;
   const displayGroup = currentTask?.assemblyGroup || null;
 
   return (
@@ -196,6 +241,30 @@ export const SingleFocusOverlay: React.FC<SingleFocusOverlayProps> = ({
               </button>
             </div>
 
+            {/* Übergeordnetes Hauptziel & Schritt-Zähler bei Sammel-Tasks */}
+            {firstOpenSubTask && (
+              <div
+                className="p-3 rounded-2xl border flex items-center justify-between gap-2 flex-wrap"
+                style={{
+                  backgroundColor: DESIGN_TOKENS.canvas,
+                  borderColor: DESIGN_TOKENS.borderSubtle
+                }}
+              >
+                <span className="text-xs font-medium text-[#94A3B8] break-words min-w-0 flex-1">
+                  {currentTask?.title}
+                </span>
+                <span
+                  className="text-xs font-mono font-bold px-2.5 py-0.5 rounded-md shrink-0"
+                  style={{
+                    color: DESIGN_TOKENS.accentHoney,
+                    backgroundColor: `${DESIGN_TOKENS.accentHoney}1A`
+                  }}
+                >
+                  Schritt {currentStepNumber} von {sortedSubTasks.length}
+                </span>
+              </div>
+            )}
+
             {/* Großer mehrzeiliger Aufgabentitel in Inter */}
             <div className="py-2">
               <h2 className="text-xl font-bold text-[#F1F5F9] leading-snug break-words tracking-tight">
@@ -262,6 +331,22 @@ export const SingleFocusOverlay: React.FC<SingleFocusOverlayProps> = ({
                 Alle Aufgaben in diesem Projekt sind erledigt. Gönn dir eine Pause.
               </p>
             </div>
+            {localUndo && (
+              <div className="p-2.5 rounded-xl bg-[#111317] border border-white/10 flex items-center justify-between text-xs animate-fadeIn text-left">
+                <span className="text-[#F1F5F9] font-medium truncate">{localUndo.message}</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    localUndo.undo();
+                    setLocalUndo(null);
+                  }}
+                  className="min-h-[44px] px-3 font-bold text-[#14B8A6] flex items-center gap-1 cursor-pointer shrink-0"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Rückgängig</span>
+                </button>
+              </div>
+            )}
             <button
               type="button"
               onClick={onClose}
