@@ -393,18 +393,6 @@ export async function savePersistedState(snapshot: AppStateSnapshot): Promise<vo
   }
 }
 
-export function downloadStateBackupJson(snapshot: AppStateSnapshot): void {
-  const blob = new Blob([JSON.stringify(snapshot, null, 2)], {
-    type: 'application/json;charset=utf-8'
-  });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `nexusflow-backup-${new Date().toISOString().slice(0, 10)}.json`;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
 export const migrateLocalStorageToIDB = migrateLocalStorageToIndexedDB;
 
 /**

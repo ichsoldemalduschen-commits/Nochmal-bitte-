@@ -7,7 +7,6 @@ import {
   AmbientLightMode,
   AppStateSnapshot,
   Attachment,
-  BackofficeTabId,
   CartItem,
   DomainType,
   KnowledgeItem,
@@ -21,7 +20,6 @@ import { BRAND_CONFIG } from './config/brandConfig';
 import { INITIAL_APP_SNAPSHOT } from './data/pizzaBanditTsaSeed';
 import {
   DEFAULT_AI_VOICE_SETTINGS,
-  downloadStateBackupJson,
   downloadFullBackupV2,
   formatNow,
   loadAiVoiceSettings,
@@ -94,7 +92,6 @@ export default function App() {
   const [hydrated, setHydrated] = useState(false);
 
   const [isBackoffice, setIsBackoffice] = useState(false);
-  const [backofficeTab, setBackofficeTab] = useState<BackofficeTabId>('analytics');
   const [zentraleSection, setZentraleSection] = useState<ZentraleSectionId | null>(null);
   const [flip7CoverMode, setFlip7CoverMode] = useState<boolean>(isCoverScreenEnvironment);
 
@@ -1380,7 +1377,6 @@ export default function App() {
           autoStartMic={autoStartMicOnOpen}
           activeProjectName={activeProject?.name || BRAND_CONFIG.projects['proj-foodtruck']?.name || 'Pizza Bandit'}
           projects={state.projects}
-          aiLogs={state.aiLogs}
           aiVoiceSettings={aiVoiceSettings}
           onUpdateAiVoiceSettings={handleUpdateAiVoiceSettings}
           onClose={() => setVoiceModalOpen(false)}
@@ -1563,7 +1559,6 @@ export default function App() {
               onOpenAddonsBackoffice={(section?: ZentraleSectionId) => {
                 setZentraleSection(section || null);
                 setIsBackoffice(true);
-                setBackofficeTab('addons');
               }}
               onOpenFloatingCart={() => setFloatingCartOpen(true)}
               isFloatingCartOpen={floatingCartOpen}
@@ -1574,9 +1569,7 @@ export default function App() {
             />
           ) : (
             <BackofficeWorkspace
-              activeTab={backofficeTab}
               projects={state.projects}
-              aiLogs={state.aiLogs}
               selfChecks={state.selfChecks}
               eventSalesLogs={state.eventSalesLogs}
               userApiKey={state.userApiKey}
@@ -1588,11 +1581,7 @@ export default function App() {
               onChangeAmbientLightMode={handleChangeAmbientLightMode}
               fullState={state}
               onReplaceFullStateFromCloud={handleReplaceFullStateFromCloud}
-              onChangeTab={setBackofficeTab}
               onCloseBackoffice={() => { setIsBackoffice(false); setZentraleSection(null); }}
-              onJumpToAction={handleJumpToAction}
-              onUndoAiAction={handleUndoAiAction}
-              onMoveAiAction={handleMoveAiAction}
               onToggleArchiveProject={(projId) => {
                 const ts = formatNow();
                 updateProject(projId, (p) => ({
@@ -1713,7 +1702,6 @@ export default function App() {
               }}
               onOpenZentrale={() => {
                 setIsBackoffice(true);
-                setBackofficeTab('addons');
               }}
               onOpenFloatingCart={() => setFloatingCartOpen(true)}
               isCompanionActive={voiceModalOpen}
@@ -1832,7 +1820,6 @@ export default function App() {
           onConfirmRedDot={handleConfirmRedDot}
           onOpenSettings={() => {
             setIsBackoffice(true);
-            setBackofficeTab('addons');
           }}
           onNotify={notify}
           onRegisterUndo={(action) => notify(action.message)}
@@ -1862,7 +1849,6 @@ export default function App() {
         autoStartMic={autoStartMicOnOpen}
         activeProjectName={activeProject?.name || BRAND_CONFIG.projects['proj-foodtruck']?.name || 'Pizza Bandit'}
         projects={state.projects}
-        aiLogs={state.aiLogs}
         aiVoiceSettings={aiVoiceSettings}
         onUpdateAiVoiceSettings={handleUpdateAiVoiceSettings}
         onClose={() => setVoiceModalOpen(false)}

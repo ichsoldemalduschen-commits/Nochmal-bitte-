@@ -36,46 +36,6 @@ export function exportEventSalesToCsv(logs: EventSalesLog[]): void {
   URL.revokeObjectURL(url);
 }
 
-export async function copyEventSalesAsTsvForSheets(logs: EventSalesLog[]): Promise<boolean> {
-  const header = [
-    'Zeitstempel',
-    'Event',
-    'Pizzen',
-    'Umsatz (€)',
-    'Wareneinsatz (€)',
-    'Rohertrag (€)',
-    'Feuerwehrauto-Fonds (€)',
-    'Sorten'
-  ].join('\t');
-
-  const lines = logs.map((l) =>
-    [
-      l.timestamp,
-      l.eventName,
-      l.totalPizzas,
-      l.grossRevenue.toFixed(2).replace('.', ','),
-      l.cogsTotal.toFixed(2).replace('.', ','),
-      l.grossProfit.toFixed(2).replace('.', ','),
-      l.firetruckTipFund.toFixed(2).replace('.', ','),
-      l.items.map((i) => `${i.name} (${i.count}x)`).join(', ')
-    ].join('\t')
-  );
-
-  const tsv = [header, ...lines].join('\n');
-  try {
-    await navigator.clipboard.writeText(tsv);
-    return true;
-  } catch {
-    const ta = document.createElement('textarea');
-    ta.value = tsv;
-    document.body.appendChild(ta);
-    ta.select();
-    document.execCommand('copy');
-    document.body.removeChild(ta);
-    return true;
-  }
-}
-
 export function exportScheduledTasksToIcs(projects: Project[]): number {
   const blockTimes: Record<string, { start: string; end: string }> = {
     morning: { start: '063000', end: '083000' },

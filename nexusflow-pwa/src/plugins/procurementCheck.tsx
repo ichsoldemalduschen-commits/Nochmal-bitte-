@@ -22,7 +22,7 @@ export function buildProcurementCheck(
       ideas:
         'Gewerbe-Ausführung mit DVGW-/VDE-Prüfzeichen wählen (+ Pflicht für Foodtruck-Abnahme & hohe Hitzebeständigkeit).',
       regionalVsOnline:
-        '? Regional im Baumarkt (Bauhaus/Hornbach) direkt prüfen & sofort mitnehmen; Spezial-Gewerberegler (BGV D34) online gegenprüfen.',
+        '🏪 Regional im Baumarkt (Bauhaus/Hornbach) direkt prüfen & sofort mitnehmen; Spezial-Gewerberegler (BGV D34) online gegenprüfen.',
       searchTerm
     };
   }
@@ -32,7 +32,7 @@ export function buildProcurementCheck(
       ideas:
         'Industrie-/Gastronorm-Qualität mit Rastfunktion bzw. Staffelpack wählen (+ exakte Passform für den TSA-Ausbau, deutlich günstiger pro Stück).',
       regionalVsOnline:
-        '? Online bestellen – Schwerlastauszüge mit Verriegelung, Shelly-Aktoren und lebensmittelechte Pizzaballen-Boxen sind online bis zu 40 % günstiger.',
+        '📦 Online bestellen – Schwerlastauszüge mit Verriegelung, Shelly-Aktoren und lebensmittelechte Pizzaballen-Boxen sind online bis zu 40 % günstiger.',
       searchTerm
     };
   }
@@ -41,7 +41,7 @@ export function buildProcurementCheck(
     ideas:
       'Option A: Gewerbe-/Edelstahlausführung (CNS 1.4301) für Dauerbelastung. Option B: Standard-Ausführung für schnellen Austausch.',
     regionalVsOnline:
-      '?? Bei heutigem Einbau lokal im Baumarkt holen; für geplante Baugruppen vorab Preise vergleichen.',
+      '⚖️ Bei heutigem Einbau lokal im Baumarkt holen; für geplante Baugruppen vorab Preise vergleichen.',
     searchTerm
   };
 }

@@ -19,7 +19,7 @@ import {
   X,
   Zap
 } from 'lucide-react';
-import { AiExecutedAction, AiLogEntry, AiVoiceSettings, Attachment, Project, THEME } from '../types';
+import { AiExecutedAction, AiVoiceSettings, Attachment, Project, THEME } from '../types';
 import {
   buildLocalFallbackPlan,
   compressImageFile,
@@ -60,7 +60,6 @@ export interface VoiceModalProps {
   autoStartMic?: boolean;
   activeProjectName: string;
   projects?: Project[];
-  aiLogs?: AiLogEntry[];
   aiVoiceSettings?: AiVoiceSettings;
   onUpdateAiVoiceSettings?: (patch: Partial<AiVoiceSettings>) => void;
   themeColors?: {
