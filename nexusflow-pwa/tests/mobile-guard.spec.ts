@@ -1567,4 +1567,290 @@ test.describe('Block C: Mobile-Guard 390×844 px Gesamt-Schutznetz', () => {
     await expect(gasReglerCard.locator('button[aria-label="Als offen markieren"]')).toBeVisible();
     await assertNoHorizontalOverflow(page, 'Station 18 – Artikel im Einkaufswagen abgehakt');
   });
+
+  test('Station 19 – Stiller Mitdenker & Nebenbei-Murmel-Autopilot: 2 Zentrale-Schalter, geschlossene Schublade, leere Bühne, Ja/Später/Nein-Freigabekarten & Hintergrund-Recherche (390px-Schutz)', async ({ page }) => {
+    await page.goto('./');
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.locator('h1')).toBeVisible({ timeout: 10000 });
+
+    // 1. Zentrale Bereich 4 öffnen -> beide neuen Schalter prüfen (min-h >= 44px, Default An) & ausschalten
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    await page.getByRole('button', { name: 'Zentrale', exact: true }).click();
+    await page.locator('button:has-text("Erinnerungen, Vorarbeiter & Smart Home")').click();
+    await assertNoHorizontalOverflow(page, 'Station 19 – Bereich 4 geöffnet');
+
+    const thinkerToggle = page.locator('[data-testid="toggle-silent-thinker"]');
+    const murmurToggle = page.locator('[data-testid="toggle-murmur-autopilot"]');
+    await expect(thinkerToggle).toBeVisible();
+    await expect(murmurToggle).toBeVisible();
+    await expect(thinkerToggle).toContainText('An');
+    await expect(murmurToggle).toContainText('An');
+
+    for (const toggle of [thinkerToggle, murmurToggle]) {
+      const box = await toggle.boundingBox();
+      expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
+    }
+
+    await thinkerToggle.click();
+    await murmurToggle.click();
+    await expect(thinkerToggle).toContainText('Aus');
+    await expect(murmurToggle).toContainText('Aus');
+    await page.waitForTimeout(250);
+
+    // Reload -> Persistenz & Prinzip der geschlossenen Schublade verifizieren
+    await page.reload();
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.locator('h1')).toBeVisible({ timeout: 10000 });
+
+    // Im Aus-Zustand: kein Vorarbeiter-Posteingang auf der Front-Bühne
+    await expect(page.locator('[data-testid="foreman-inbox-header"]')).toHaveCount(0);
+    await assertNoHorizontalOverflow(page, 'Station 19 – Front im Aus-Zustand');
+
+    // In Deep Research: Nebenbei-prüfen-Button komplett ausgeblendet
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    await page.locator('div[role="toolbar"][aria-label="Schnellzugriff"] button:has-text("Deep Research")').click();
+    await expect(page.locator('h3:has-text("Deep Research")')).toBeVisible();
+    await expect(page.locator('[data-testid="btn-murmur-research"]')).toHaveCount(0);
+    await assertNoHorizontalOverflow(page, 'Station 19 – Deep Research im Aus-Zustand');
+
+    // Zentrale Bereich 4 -> beide Schalter wieder einschalten
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    await page.getByRole('button', { name: 'Zentrale', exact: true }).click();
+    await page.locator('button:has-text("Erinnerungen, Vorarbeiter & Smart Home")').click();
+    await expect(page.locator('[data-testid="toggle-silent-thinker"]')).toContainText('Aus');
+    await expect(page.locator('[data-testid="toggle-murmur-autopilot"]')).toContainText('Aus');
+    await page.locator('[data-testid="toggle-silent-thinker"]').click();
+    await page.locator('[data-testid="toggle-murmur-autopilot"]').click();
+    await expect(page.locator('[data-testid="toggle-silent-thinker"]')).toContainText('An');
+    await expect(page.locator('[data-testid="toggle-murmur-autopilot"]')).toContainText('An');
+    await page.waitForTimeout(250);
+    await page.locator('button:has-text("Zurück")').click();
+
+    // 2. Auf sauberes Projekt "Bäckerei" wechseln -> 0 Hinweise -> Bühne zu 100 % leer (kein "0 Hinweise"-Kasten)
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    await page.locator('button:has-text("Bäckerei")').first().click();
+    await expect(page.locator('h1')).toContainText('Bäckerei');
+    await expect(page.locator('[data-testid="foreman-inbox-header"]')).toHaveCount(0);
+    await assertNoHorizontalOverflow(page, 'Station 19 – Leere Bühne bei 0 Hinweisen');
+
+    // 3. Deterministische Widersprüche (Checks 1, 2, 3) für proj-baeckerei in IDB einspeisen
+    await page.evaluate(async () => {
+      await new Promise<void>((resolve, reject) => {
+        const req = indexedDB.open('keyval-store');
+        req.onsuccess = () => {
+          const db = req.result;
+          const readTx = db.transaction('keyval', 'readonly');
+          const getReq = readTx.objectStore('keyval').get('nexusflow_pwa_v1_state');
+          getReq.onsuccess = () => {
+            const snap = getReq.result;
+            if (!snap || !Array.isArray(snap.projects)) {
+              reject(new Error('Kein AppState in IDB gefunden'));
+              return;
+            }
+            const nextProjects = snap.projects.map((p: any) => {
+              if (p.id !== 'proj-baeckerei') return p;
+              return {
+                ...p,
+                tasks: [
+                  {
+                    id: 'thinker-seed-t-measure',
+                    title: 'Arbeitsplatte auf 140 cm zuschneiden',
+                    completed: false,
+                    priority: 'Hoch',
+                    estimatedMinutes: 30,
+                    dayBlock: null,
+                    reminderAt: '',
+                    aiTouched: false,
+                    lastModified: '26.11.2026, 12:00 Uhr',
+                    changeReason: 'Test-Seed Maßkonflikt',
+                    source: 'Manuell',
+                    customMeta: {}
+                  },
+                  {
+                    id: 'thinker-seed-t-done',
+                    title: 'Teigschaber reinigen und prüfen',
+                    completed: true,
+                    priority: 'Mittel',
+                    estimatedMinutes: 10,
+                    dayBlock: null,
+                    reminderAt: '',
+                    aiTouched: false,
+                    lastModified: '26.11.2026, 12:00 Uhr',
+                    changeReason: 'Test-Seed erledigt',
+                    source: 'Manuell',
+                    customMeta: {}
+                  },
+                  ...(p.tasks || [])
+                ],
+                knowledge: [
+                  {
+                    id: 'thinker-seed-k-measure',
+                    kind: 'info',
+                    title: 'Backstube Arbeitsplatte Vorgabe',
+                    content: 'Arbeitsplatte: max. 120 cm Tiefe wegen Durchgang.',
+                    attachments: [],
+                    lastModified: '26.11.2026, 12:00 Uhr',
+                    changeReason: 'Test-Seed Wissen',
+                    source: 'Manuell',
+                    aiTouched: false,
+                    customMeta: {}
+                  },
+                  ...(p.knowledge || [])
+                ],
+                cart: [
+                  {
+                    id: 'thinker-seed-c-dup1',
+                    title: '2x Silikon Kartusche',
+                    quantity: '2x',
+                    price: '',
+                    completed: false,
+                    aiTouched: false,
+                    lastModified: '26.11.2026, 12:00 Uhr',
+                    changeReason: 'Test-Seed Dublette 1',
+                    source: 'Manuell',
+                    customMeta: {}
+                  },
+                  {
+                    id: 'thinker-seed-c-dup2',
+                    title: 'Silikon Kartusche',
+                    quantity: '1x',
+                    price: '',
+                    completed: false,
+                    aiTouched: false,
+                    lastModified: '26.11.2026, 12:00 Uhr',
+                    changeReason: 'Test-Seed Dublette 2',
+                    source: 'Manuell',
+                    customMeta: {}
+                  },
+                  {
+                    id: 'thinker-seed-c-done',
+                    title: 'Teigschaber Silikon',
+                    quantity: '1x',
+                    price: '',
+                    completed: false,
+                    aiTouched: false,
+                    lastModified: '26.11.2026, 12:00 Uhr',
+                    changeReason: 'Test-Seed offener Kauf',
+                    source: 'Manuell',
+                    customMeta: {}
+                  },
+                  ...(p.cart || [])
+                ]
+              };
+            });
+            const writeTx = db.transaction('keyval', 'readwrite');
+            writeTx.objectStore('keyval').put({ ...snap, projects: nextProjects }, 'nexusflow_pwa_v1_state');
+            writeTx.oncomplete = () => resolve();
+            writeTx.onerror = () => reject(writeTx.error);
+          };
+          getReq.onerror = () => reject(getReq.error);
+        };
+        req.onerror = () => reject(req.error);
+      });
+    });
+
+    await page.reload();
+    await page.waitForLoadState('domcontentloaded');
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    await page.locator('button:has-text("Bäckerei")').first().click();
+
+    // 4. Zugeklappte Kopfzeile mit Mono-Zähler 3 sichtbar, Kartenliste noch eingeklappt
+    const inboxHeader = page.locator('[data-testid="foreman-inbox-header"]');
+    await expect(inboxHeader).toBeVisible({ timeout: 5000 });
+    await expect(inboxHeader).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.locator('[data-testid="foreman-inbox-count"]')).toHaveText('3');
+    await expect(page.locator('[data-testid="foreman-inbox-list"]')).toHaveCount(0);
+    await assertNoHorizontalOverflow(page, 'Station 19 – Zugeklappte Vorarbeiter-Kopfzeile');
+
+    // Aufklappen -> 3 ruhige Freigabekarten sichtbar
+    await inboxHeader.click();
+    await expect(inboxHeader).toHaveAttribute('aria-expanded', 'true');
+    const inboxList = page.locator('[data-testid="foreman-inbox-list"]');
+    await expect(inboxList).toBeVisible();
+    await expect(inboxList.locator('article')).toHaveCount(3);
+    await assertNoHorizontalOverflow(page, 'Station 19 – Aufgeklappte Freigabekarten');
+
+    // Touch-Ziele (>= 44px) auf erster Karte prüfen
+    const measureCard = page.locator(
+      '[data-testid="foreman-proposal-card-thinker:measure-conflict:proj-baeckerei:thinker-seed-t-measure:thinker-seed-k-measure:cm"]'
+    );
+    await expect(measureCard).toBeVisible();
+    await expect(measureCard).toContainText('140 cm');
+    await expect(measureCard).toContainText('120 cm');
+
+    const acceptBtn = page.locator(
+      '[data-testid="foreman-accept-thinker:measure-conflict:proj-baeckerei:thinker-seed-t-measure:thinker-seed-k-measure:cm"]'
+    );
+    const snoozeBtn = page.locator(
+      '[data-testid="foreman-snooze-thinker:measure-conflict:proj-baeckerei:thinker-seed-t-measure:thinker-seed-k-measure:cm"]'
+    );
+    const dismissBtn = page.locator(
+      '[data-testid="foreman-dismiss-thinker:measure-conflict:proj-baeckerei:thinker-seed-t-measure:thinker-seed-k-measure:cm"]'
+    );
+    for (const btn of [acceptBtn, snoozeBtn, dismissBtn]) {
+      const box = await btn.boundingBox();
+      expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
+    }
+
+    // Später (Snooze 4h) auf Maßkonflikt -> Zähler sinkt auf 2
+    await snoozeBtn.click();
+    await expect(page.locator('[data-testid="foreman-inbox-count"]')).toHaveText('2');
+
+    // Nein (dauerhaft stummschalten) auf Check 3 (erledigte Aufgabe vs. offener Einkauf) -> Zähler sinkt auf 1
+    await page
+      .locator('[data-testid="foreman-dismiss-thinker:cart-task:proj-baeckerei:thinker-seed-c-done"]')
+      .click();
+    await expect(page.locator('[data-testid="foreman-inbox-count"]')).toHaveText('1');
+
+    // Ja (Doppelten Einkaufsposten bereinigen) auf Check 1 -> Posteingang leert sich komplett
+    await page
+      .locator('[data-testid="foreman-accept-thinker:dedupe-cart:proj-baeckerei:silikon-kartusche"]')
+      .click();
+    await expect(page.locator('[data-testid="foreman-inbox-header"]')).toHaveCount(0);
+
+    // Reload -> Snooze & Dismiss bleiben persistent unterdrückt
+    await page.waitForTimeout(250);
+    await page.reload();
+    await page.waitForLoadState('domcontentloaded');
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    await page.locator('button:has-text("Bäckerei")').first().click();
+    await expect(page.locator('[data-testid="foreman-inbox-header"]')).toHaveCount(0);
+
+    // 5. „Nebenbei-Murmel“-Autopilot in Deep Research testen
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    await page.locator('div[role="toolbar"][aria-label="Schnellzugriff"] button:has-text("Deep Research")').click();
+    await expect(page.locator('h3:has-text("Deep Research")')).toBeVisible();
+
+    const topicInput = page.locator('textarea[placeholder*="DVGW G 607"]');
+    await topicInput.fill('DVGW G 607 Prüfung Pizzaofen');
+
+    const murmurBtn = page.locator('[data-testid="btn-murmur-research"]');
+    await expect(murmurBtn).toBeVisible();
+    const murmurBox = await murmurBtn.boundingBox();
+    expect(murmurBox?.height ?? 0).toBeGreaterThanOrEqual(44);
+    await murmurBtn.click();
+
+    // Ruhiger Honig-Gold-Hinweis erscheint sofort, UI bleibt bedienbar
+    const murmurNotice = page.locator('[data-testid="murmur-background-notice"]');
+    await expect(murmurNotice).toBeVisible();
+    await expect(murmurNotice).toContainText('Vorarbeiter prüft im Hintergrund');
+    await assertNoHorizontalOverflow(page, 'Station 19 – Nebenbei prüfen ausgelöst');
+
+    // Zurück in die Projektansicht (Bäckerei -> Tasks/Gesamt) und entstandene Freigabekarte prüfen
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    await page.locator('button:has-text("Bäckerei")').first().click();
+
+    const researchInboxHeader = page.locator('[data-testid="foreman-inbox-header"]');
+    await expect(researchInboxHeader).toBeVisible({ timeout: 8000 });
+    await researchInboxHeader.click();
+
+    const researchCard = page.locator('[data-testid^="foreman-proposal-card-murmur:"]').first();
+    await expect(researchCard).toBeVisible();
+    await expect(researchCard).toContainText('Nebenbei-Prüfung');
+    await assertNoHorizontalOverflow(page, 'Station 19 – Murmel-Freigabekarte sichtbar');
+
+    await researchCard.locator('[data-testid^="foreman-accept-murmur:"]').click();
+    await expect(page.locator('[data-testid="foreman-inbox-header"]')).toHaveCount(0);
+    await assertNoHorizontalOverflow(page, 'Station 19 – Abschluss');
+  });
 });

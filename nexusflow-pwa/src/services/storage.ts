@@ -24,7 +24,9 @@ import {
   KnowledgeKind,
   VoiceProvider,
   ScannedReceipt,
-  ScannedReceiptItem
+  ScannedReceiptItem,
+  ForemanProposal,
+  ForemanProposalAction
 } from '../types';
 
 export type { FullBackupV2, BackupImportResult, ProjectImportResult };
@@ -54,7 +56,9 @@ export const STORAGE_KEYS = {
   THUMB_HUB_POSITION: 'banditos_thumb_hub_position_v1',
   AMBIENT_LIGHT_MODE: 'banditos_ambient_light_mode_v1',
   SCANNED_RECEIPTS: 'banditos_scanned_receipts_v1',
-  SAVED_DOSSIERS: 'banditos_saved_dossiers_v1'
+  SAVED_DOSSIERS: 'banditos_saved_dossiers_v1',
+  FOREMAN_PROPOSALS: 'banditos_foreman_proposals_v1',
+  DISMISSED_THINKER_IDS: 'banditos_dismissed_thinker_ids_v1'
 } as const;
 
 // In-Memory-Cache für verzögerungsfreie synchrone UI-Abfragen
@@ -438,7 +442,9 @@ export async function migrateLocalStorageToIndexedDB(): Promise<void> {
     STORAGE_KEYS.THUMB_HUB_POSITION,
     STORAGE_KEYS.AMBIENT_LIGHT_MODE,
     STORAGE_KEYS.SCANNED_RECEIPTS,
-    STORAGE_KEYS.SAVED_DOSSIERS
+    STORAGE_KEYS.SAVED_DOSSIERS,
+    STORAGE_KEYS.FOREMAN_PROPOSALS,
+    STORAGE_KEYS.DISMISSED_THINKER_IDS
   ];
 
   for (const key of keysToMigrate) {
@@ -865,6 +871,8 @@ export const DEFAULT_USER_PREFS: BanditUserPreferences = {
   shareTargetEnabled: true,
   wakeLockEnabled: true,
   receiptForemanEnabled: true,
+  silentThinkerEnabled: true,
+  murmurAutopilotEnabled: true,
   quickCommands: [
     'Gib mir ein kurzes 3-Punkte-Briefing für dieses Projekt',
     'Welche Materialien fehlen noch im Einkaufswagen?',
@@ -944,6 +952,14 @@ export function normalizeUserPrefs(
       typeof src.receiptForemanEnabled === 'boolean'
         ? src.receiptForemanEnabled
         : DEFAULT_USER_PREFS.receiptForemanEnabled,
+    silentThinkerEnabled:
+      typeof src.silentThinkerEnabled === 'boolean'
+        ? src.silentThinkerEnabled
+        : DEFAULT_USER_PREFS.silentThinkerEnabled,
+    murmurAutopilotEnabled:
+      typeof src.murmurAutopilotEnabled === 'boolean'
+        ? src.murmurAutopilotEnabled
+        : DEFAULT_USER_PREFS.murmurAutopilotEnabled,
     quickCommands: Array.isArray(src.quickCommands)
       ? src.quickCommands
       : DEFAULT_USER_PREFS.quickCommands,
@@ -1065,6 +1081,120 @@ export function saveSavedDossiers(dossiers: SavedDossierItem[]): void {
   saveIdbItem(STORAGE_KEYS.SAVED_DOSSIERS, dossiers);
 }
 
+// ── Vorarbeiter-Vorschläge & Stiller Mitdenker (Welle 4 / Ticket 4.2) ───────
+
+function normalizeForemanProposalAction(raw: any): ForemanProposalAction | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const validTypes: ForemanProposalAction['type'][] = [
+    'add-cart',
+    'add-task',
+    'add-knowledge',
+    'dedupe-cart',
+    'mark-cart-bought'
+  ];
+  const type = validTypes.includes(raw.type) ? (raw.type as ForemanProposalAction['type']) : null;
+  if (!type) return null;
+  const rawPayload = raw.payload && typeof raw.payload === 'object' ? raw.payload : {};
+  return {
+    type,
+    label: String(raw.label || 'Übernehmen'),
+    projectId: String(raw.projectId || ''),
+    payload: {
+      ...(typeof rawPayload.title === 'string' ? { title: rawPayload.title } : {}),
+      ...(typeof rawPayload.quantity === 'string' ? { quantity: rawPayload.quantity } : {}),
+      ...(typeof rawPayload.notes === 'string' ? { notes: rawPayload.notes } : {}),
+      ...(typeof rawPayload.content === 'string' ? { content: rawPayload.content } : {}),
+      ...(Array.isArray(rawPayload.removeCartItemIds)
+        ? { removeCartItemIds: rawPayload.removeCartItemIds.map((id: any) => String(id)) }
+        : {}),
+      ...(typeof rawPayload.cartItemId === 'string' ? { cartItemId: rawPayload.cartItemId } : {})
+    }
+  };
+}
+
+export function normalizeForemanProposals(raw: unknown): ForemanProposal[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((entry) => entry && typeof entry === 'object')
+    .map((entry: any, idx: number): ForemanProposal => {
+      const kind =
+        entry.kind === 'thinker-contradiction' ? 'thinker-contradiction' : 'murmur-research';
+      const status =
+        entry.status === 'snoozed' || entry.status === 'accepted' || entry.status === 'dismissed'
+          ? entry.status
+          : 'pending';
+      const actions = Array.isArray(entry.actions)
+        ? entry.actions
+            .map(normalizeForemanProposalAction)
+            .filter((a: ForemanProposalAction | null): a is ForemanProposalAction => Boolean(a))
+        : [];
+      return {
+        id: String(entry.id || `proposal-${Date.now()}-${idx}`),
+        kind,
+        projectId: String(entry.projectId || ''),
+        title: String(entry.title || 'Vorarbeiter-Vorschlag'),
+        summary: String(entry.summary || ''),
+        ...(typeof entry.detail === 'string' && entry.detail ? { detail: entry.detail } : {}),
+        status,
+        createdAt: typeof entry.createdAt === 'string' && entry.createdAt ? entry.createdAt : formatNow(),
+        ...(typeof entry.snoozedUntil === 'string' && entry.snoozedUntil
+          ? { snoozedUntil: entry.snoozedUntil }
+          : {}),
+        actions
+      };
+    });
+}
+
+export function normalizeDismissedThinkerIds(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  for (const item of raw) {
+    const clean = String(item || '').trim();
+    if (clean) seen.add(clean);
+  }
+  return Array.from(seen);
+}
+
+export function loadForemanProposals(): ForemanProposal[] {
+  const raw = getIdbItemSync<ForemanProposal[]>(STORAGE_KEYS.FOREMAN_PROPOSALS, []);
+  return normalizeForemanProposals(raw);
+}
+
+export async function loadForemanProposalsAsync(): Promise<ForemanProposal[]> {
+  const raw = await loadIdbItem<ForemanProposal[]>(STORAGE_KEYS.FOREMAN_PROPOSALS, []);
+  return normalizeForemanProposals(raw);
+}
+
+export function saveForemanProposals(list: ForemanProposal[]): Promise<void> {
+  const normalized = normalizeForemanProposals(list);
+  const p = saveIdbItem(STORAGE_KEYS.FOREMAN_PROPOSALS, normalized);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('banditos:foreman-proposals-updated', { detail: normalized }));
+  }
+  return p;
+}
+
+export function loadDismissedThinkerIds(): string[] {
+  const raw = getIdbItemSync<string[]>(STORAGE_KEYS.DISMISSED_THINKER_IDS, []);
+  return normalizeDismissedThinkerIds(raw);
+}
+
+export async function loadDismissedThinkerIdsAsync(): Promise<string[]> {
+  const raw = await loadIdbItem<string[]>(STORAGE_KEYS.DISMISSED_THINKER_IDS, []);
+  return normalizeDismissedThinkerIds(raw);
+}
+
+export function saveDismissedThinkerIds(ids: string[]): Promise<void> {
+  const normalized = normalizeDismissedThinkerIds(ids);
+  const p = saveIdbItem(STORAGE_KEYS.DISMISSED_THINKER_IDS, normalized);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(
+      new CustomEvent('banditos:dismissed-thinker-updated', { detail: normalized })
+    );
+  }
+  return p;
+}
+
 // ── Pizza-Katalog & POS-Slots (Paket 3) ─────────────────────────────────────
 
 export const PIZZA_CATALOG_KEY = 'banditos_pizza_catalog_v1';
@@ -1182,6 +1312,8 @@ export async function downloadFullBackupV2(snapshot: AppStateSnapshot): Promise<
     aiChat,
     scannedReceipts,
     savedDossiers,
+    foremanProposals,
+    dismissedThinkerIds,
     pizzaCatalog,
     posSlots,
     doughCalcDefaults
@@ -1192,6 +1324,8 @@ export async function downloadFullBackupV2(snapshot: AppStateSnapshot): Promise<
     loadIdbItem<any>(STORAGE_KEYS.AI_CHAT, []),
     loadIdbItem<SavedScannedReceipt[]>(STORAGE_KEYS.SCANNED_RECEIPTS, []),
     loadIdbItem<SavedDossierItem[]>(STORAGE_KEYS.SAVED_DOSSIERS, []),
+    loadIdbItem<ForemanProposal[]>(STORAGE_KEYS.FOREMAN_PROPOSALS, []),
+    loadIdbItem<string[]>(STORAGE_KEYS.DISMISSED_THINKER_IDS, []),
     loadIdbItem<PizzaCatalogItem[]>(PIZZA_CATALOG_KEY, DEFAULT_PIZZA_CATALOG),
     loadIdbItem<PosPizzaSlot[]>(POS_SLOTS_KEY, []),
     loadIdbItem<DoughCalcDefaults>(DOUGH_CALC_DEFAULTS_KEY, DEFAULT_DOUGH_CALC_DEFAULTS),
@@ -1209,6 +1343,8 @@ export async function downloadFullBackupV2(snapshot: AppStateSnapshot): Promise<
     aiChat,
     scannedReceipts,
     savedDossiers,
+    foremanProposals: normalizeForemanProposals(foremanProposals),
+    dismissedThinkerIds: normalizeDismissedThinkerIds(dismissedThinkerIds),
     pizzaCatalog,
     posSlots,
     doughCalcDefaults,
@@ -1280,6 +1416,12 @@ export async function importFullBackupV2(
     if (raw.aiChat) saves.push(saveIdbItem(STORAGE_KEYS.AI_CHAT, raw.aiChat));
     if (Array.isArray(raw.scannedReceipts)) saves.push(saveIdbItem(STORAGE_KEYS.SCANNED_RECEIPTS, raw.scannedReceipts));
     if (Array.isArray(raw.savedDossiers)) saves.push(saveIdbItem(STORAGE_KEYS.SAVED_DOSSIERS, raw.savedDossiers));
+    if (Array.isArray(raw.foremanProposals)) {
+      saves.push(saveForemanProposals(raw.foremanProposals));
+    }
+    if (Array.isArray(raw.dismissedThinkerIds)) {
+      saves.push(saveDismissedThinkerIds(raw.dismissedThinkerIds));
+    }
     if (Array.isArray(raw.pizzaCatalog) && raw.pizzaCatalog.length > 0) {
       saves.push(saveIdbItem(PIZZA_CATALOG_KEY, raw.pizzaCatalog));
     } else {

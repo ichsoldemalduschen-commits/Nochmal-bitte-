@@ -10,6 +10,7 @@ import {
   BanditUserPreferences,
   CartItem,
   DomainType,
+  ForemanProposal,
   KnowledgeItem,
   KnowledgeKind,
   Project,
@@ -43,6 +44,12 @@ import {
   saveThumbHubPosition,
   loadAmbientLightMode,
   saveAmbientLightMode,
+  loadForemanProposals,
+  loadForemanProposalsAsync,
+  saveForemanProposals,
+  loadDismissedThinkerIds,
+  loadDismissedThinkerIdsAsync,
+  saveDismissedThinkerIds,
   STORAGE_KEYS
 } from './services/storage';
 import {
@@ -139,6 +146,8 @@ export default function App() {
   const [companionIsProcessing, setCompanionIsProcessing] = useState(false);
   const [companionIsSpeaking, setCompanionIsSpeaking] = useState(false);
   const [prefs, setPrefs] = useState<BanditUserPreferences>(loadUserPrefs);
+  const [foremanProposals, setForemanProposals] = useState<ForemanProposal[]>(loadForemanProposals);
+  const [dismissedThinkerIds, setDismissedThinkerIds] = useState<string[]>(loadDismissedThinkerIds);
   const [forceSingleViewSeq, setForceSingleViewSeq] = useState(0);
   const skipNextAutoSyncRef = useRef<boolean>(true);
   const autoSyncTimerRef = useRef<number | null>(null);
@@ -292,9 +301,11 @@ export default function App() {
       // 1. Silent IDB migration & request storage persistence BEFORE loading settings
       requestStoragePersistence();
       await migrateLocalStorageToIDB();
-      const [pins, loadedPrefs] = await Promise.all([
+      const [pins, loadedPrefs, loadedProposals, loadedDismissedIds] = await Promise.all([
         loadIdbItem<Record<string, PhotoMeasurePin[]>>(STORAGE_KEYS.PHOTO_PINS, {}),
         loadUserPrefsAsync(),
+        loadForemanProposalsAsync(),
+        loadDismissedThinkerIdsAsync(),
         loadIdbItem(STORAGE_KEYS.CLOUD_SYNC, DEFAULT_CLOUD_CONFIG),
         loadIdbItem(STORAGE_KEYS.AUDIT_SETTINGS, { weeklyAutoAuditEnabled: true, lastRunIso: null }),
         loadIdbItem(STORAGE_KEYS.BLUEPRINTS, [])
@@ -304,6 +315,8 @@ export default function App() {
       }
       if (!cancelled) {
         setPrefs(loadedPrefs);
+        setForemanProposals(loadedProposals);
+        setDismissedThinkerIds(loadedDismissedIds);
       }
 
       // 2. Load persisted app state & unified AI/Voice settings
@@ -349,6 +362,27 @@ export default function App() {
     })();
     return () => {
       cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    const onProposalsUpdated = (ev: Event) => {
+      const detail = (ev as CustomEvent)?.detail;
+      if (Array.isArray(detail)) {
+        setForemanProposals(detail);
+      }
+    };
+    const onDismissedUpdated = (ev: Event) => {
+      const detail = (ev as CustomEvent)?.detail;
+      if (Array.isArray(detail)) {
+        setDismissedThinkerIds(detail);
+      }
+    };
+    window.addEventListener('banditos:foreman-proposals-updated', onProposalsUpdated);
+    window.addEventListener('banditos:dismissed-thinker-updated', onDismissedUpdated);
+    return () => {
+      window.removeEventListener('banditos:foreman-proposals-updated', onProposalsUpdated);
+      window.removeEventListener('banditos:dismissed-thinker-updated', onDismissedUpdated);
     };
   }, []);
 
@@ -1033,6 +1067,212 @@ export default function App() {
       }
     });
     notify(`${matches.length} Artikel im Einkaufswagen abgehakt ✓`);
+  };
+
+  const handleParkForemanProposal = (proposal: ForemanProposal) => {
+    setForemanProposals((prev) => {
+      const next = [proposal, ...prev.filter((p) => p.id !== proposal.id)];
+      void saveForemanProposals(next);
+      return next;
+    });
+  };
+
+  const handleSnoozeForemanProposal = (proposal: ForemanProposal) => {
+    const snoozedUntil = new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString();
+    setForemanProposals((prev) => {
+      const exists = prev.some((p) => p.id === proposal.id);
+      const next = exists
+        ? prev.map((p) =>
+            p.id === proposal.id ? { ...p, status: 'snoozed' as const, snoozedUntil } : p
+          )
+        : [{ ...proposal, status: 'snoozed' as const, snoozedUntil }, ...prev];
+      void saveForemanProposals(next);
+      return next;
+    });
+    notify('Für 4 Stunden zurückgestellt.');
+  };
+
+  const handleDismissForemanProposal = (proposal: ForemanProposal) => {
+    if (proposal.kind === 'thinker-contradiction') {
+      setDismissedThinkerIds((prev) => {
+        if (prev.includes(proposal.id)) return prev;
+        const next = [...prev, proposal.id];
+        void saveDismissedThinkerIds(next);
+        return next;
+      });
+      setForemanProposals((prev) => {
+        if (!prev.some((p) => p.id === proposal.id)) return prev;
+        const next = prev.filter((p) => p.id !== proposal.id);
+        void saveForemanProposals(next);
+        return next;
+      });
+    } else {
+      setForemanProposals((prev) => {
+        const next = prev.map((p) =>
+          p.id === proposal.id ? { ...p, status: 'dismissed' as const } : p
+        );
+        void saveForemanProposals(next);
+        return next;
+      });
+    }
+    notify('Vorschlag verworfen.');
+  };
+
+  const handleAcceptForemanProposal = (proposal: ForemanProposal) => {
+    const ts = formatNow();
+    const stamp = Date.now();
+    const prevProjectsSnapshot = state.projects.map((p) => ({
+      ...p,
+      tasks: [...p.tasks],
+      cart: [...p.cart],
+      knowledge: [...(p.knowledge || [])]
+    }));
+    const prevProposalsSnapshot = [...foremanProposals];
+    const prevDismissedSnapshot = [...dismissedThinkerIds];
+
+    setState((prev) => ({
+      ...prev,
+      projects: prev.projects.map((p) => {
+        const projActions = proposal.actions.filter((a) => (a.projectId || proposal.projectId) === p.id);
+        if (projActions.length === 0) return p;
+
+        let nextTasks = [...p.tasks];
+        let nextCart = [...p.cart];
+        let nextKnowledge = [...(p.knowledge || [])];
+
+        projActions.forEach((act, idx) => {
+          if (act.type === 'dedupe-cart') {
+            const removeSet = new Set(act.payload.removeCartItemIds || []);
+            if (removeSet.size > 0) {
+              nextCart = nextCart.filter((c) => !removeSet.has(c.id));
+            }
+          } else if (act.type === 'mark-cart-bought') {
+            const targetId = act.payload.cartItemId;
+            if (targetId) {
+              nextCart = nextCart.map((c) =>
+                c.id === targetId
+                  ? {
+                      ...c,
+                      completed: true,
+                      boughtAt: c.boughtAt || new Date().toISOString(),
+                      lastModified: ts,
+                      changeReason: 'Vorarbeiter-Abgleich'
+                    }
+                  : c
+              );
+            }
+          } else if (act.type === 'add-task') {
+            const taskTitle = (act.payload.title || proposal.title).trim();
+            if (taskTitle) {
+              nextTasks = [
+                {
+                  id: `t-foreman-${stamp}-${idx}`,
+                  title: taskTitle,
+                  completed: false,
+                  priority: 'Mittel',
+                  estimatedMinutes: 25,
+                  dayBlock: null,
+                  reminderAt: '',
+                  aiTouched: true,
+                  lastModified: ts,
+                  changeReason: act.payload.notes || 'Vorarbeiter-Freigabe',
+                  source: 'Vorarbeiter',
+                  customMeta: {}
+                },
+                ...nextTasks
+              ];
+            }
+          } else if (act.type === 'add-cart') {
+            const itemTitle = (act.payload.title || proposal.title).trim();
+            if (itemTitle) {
+              nextCart = [
+                {
+                  id: `c-foreman-${stamp}-${idx}`,
+                  title: itemTitle,
+                  quantity: act.payload.quantity || '1x',
+                  price: '',
+                  completed: false,
+                  aiTouched: true,
+                  lastModified: ts,
+                  changeReason: act.payload.notes || 'Vorarbeiter-Freigabe',
+                  source: 'Vorarbeiter',
+                  procurementCheck: buildProcurementCheck(itemTitle),
+                  customMeta: {}
+                },
+                ...nextCart
+              ];
+            }
+          } else if (act.type === 'add-knowledge') {
+            const kTitle = enforceMaxSixWords(
+              act.payload.title || proposal.title,
+              'Vorarbeiter-Beleg'
+            );
+            nextKnowledge = [
+              {
+                id: `k-foreman-${stamp}-${idx}`,
+                kind: 'reference',
+                title: kTitle,
+                content: act.payload.content || proposal.detail || proposal.summary,
+                attachments: [],
+                lastModified: ts,
+                changeReason: act.payload.notes || 'Vorarbeiter-Freigabe',
+                source: 'Vorarbeiter',
+                aiTouched: true,
+                customMeta: {}
+              },
+              ...nextKnowledge
+            ];
+          }
+        });
+
+        return {
+          ...p,
+          tasks: nextTasks,
+          cart: nextCart,
+          knowledge: nextKnowledge
+        };
+      })
+    }));
+
+    if (proposal.kind === 'murmur-research') {
+      setForemanProposals((prev) => {
+        const next = prev.map((p) =>
+          p.id === proposal.id ? { ...p, status: 'accepted' as const } : p
+        );
+        void saveForemanProposals(next);
+        return next;
+      });
+    } else {
+      // Auch bei Prüf-Aufgabe oder direkter Annahme nicht sofort wieder einblenden
+      setDismissedThinkerIds((prev) => {
+        if (prev.includes(proposal.id)) return prev;
+        const next = [...prev, proposal.id];
+        void saveDismissedThinkerIds(next);
+        return next;
+      });
+      setForemanProposals((prev) => {
+        if (!prev.some((p) => p.id === proposal.id)) return prev;
+        const next = prev.filter((p) => p.id !== proposal.id);
+        void saveForemanProposals(next);
+        return next;
+      });
+    }
+
+    registerExternalUndo({
+      message: 'Vorarbeiter-Vorschlag übernommen',
+      undo: () => {
+        setState((prev) => ({
+          ...prev,
+          projects: prevProjectsSnapshot
+        }));
+        setForemanProposals(prevProposalsSnapshot);
+        void saveForemanProposals(prevProposalsSnapshot);
+        setDismissedThinkerIds(prevDismissedSnapshot);
+        void saveDismissedThinkerIds(prevDismissedSnapshot);
+        notify('Freigabe rückgängig gemacht.');
+      }
+    });
+    notify('Vorarbeiter-Vorschlag übernommen ✓');
   };
 
   const handleReplaceFullStateFromCloud = (newState: AppStateSnapshot) => {
@@ -1904,6 +2144,12 @@ export default function App() {
               isFloatingCartOpen={floatingCartOpen}
               prefs={prefs}
               onUpdatePrefs={handleUpdatePrefs}
+              foremanProposals={foremanProposals}
+              dismissedThinkerIds={dismissedThinkerIds}
+              onAcceptForemanProposal={handleAcceptForemanProposal}
+              onSnoozeForemanProposal={handleSnoozeForemanProposal}
+              onDismissForemanProposal={handleDismissForemanProposal}
+              onParkForemanProposal={handleParkForemanProposal}
               forceSingleViewSeq={forceSingleViewSeq}
               ambientLightMode={state.ambientLightMode || 'shimmer'}
               onSaveDossierToProject={handleSaveDossierToProject}
@@ -2011,6 +2257,8 @@ export default function App() {
                 skipNextAutoSyncRef.current = true;
                 setState(snap);
                 void loadUserPrefsAsync().then(setPrefs);
+                void loadForemanProposalsAsync().then(setForemanProposals);
+                void loadDismissedThinkerIdsAsync().then(setDismissedThinkerIds);
                 notify('Backup geladen.');
               }}
               onUploadProjectLogo={async (projId, file) => {

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Bell, Receipt, Scale, Webhook } from 'lucide-react';
+import { Bell, BrainCircuit, Receipt, Scale, Sparkles, Webhook } from 'lucide-react';
 import { BanditUserPreferences, THEME } from '../../types';
 import { requestPushNotificationPermission } from '../../services/cloudSyncAndPush';
 import {
@@ -188,6 +188,50 @@ export const AutomationSection: React.FC<AutomationSectionProps> = ({
         icon={<Receipt className="w-4 h-4 text-[#14B8A6] shrink-0" />}
         ariaLabel="Beleg- & Rechnungs-Vorarbeiter umschalten"
         testId="toggle-receipt-foreman"
+      />
+
+      {/* Stiller Mitdenker */}
+      <ZentraleToggleRow
+        title="Stiller Mitdenker (Widerspruchs-Wächter)"
+        description="Erkennt im Hintergrund doppelte offene Einkäufe, Maß-/Technik-Widersprüche zwischen Aufgaben & Wissen sowie offene Einkäufe zu erledigten Aufgaben."
+        checked={prefs.silentThinkerEnabled !== false}
+        onToggle={() => {
+          const next = !(prefs.silentThinkerEnabled !== false);
+          onUpdatePrefs({ silentThinkerEnabled: next });
+          onNotify(
+            next
+              ? 'Stiller Mitdenker aktiviert.'
+              : 'Stiller Mitdenker ausgeblendet.'
+          );
+        }}
+        onLabel="An"
+        offLabel="Aus"
+        tone="honey"
+        icon={<BrainCircuit className="w-4 h-4 text-[#E5A93C] shrink-0" />}
+        ariaLabel="Stillen Mitdenker umschalten"
+        testId="toggle-silent-thinker"
+      />
+
+      {/* Nebenbei-Murmel-Autopilot */}
+      <ZentraleToggleRow
+        title="„Nebenbei-Murmel“-Autopilot (Hintergrund-Recherche)"
+        description="Ermöglicht in Deep Research das asynchrone Prüfen im Hintergrund und legt Ergebnisse als ruhige Ja/Nein/Später-Freigabekarte ab."
+        checked={prefs.murmurAutopilotEnabled !== false}
+        onToggle={() => {
+          const next = !(prefs.murmurAutopilotEnabled !== false);
+          onUpdatePrefs({ murmurAutopilotEnabled: next });
+          onNotify(
+            next
+              ? '„Nebenbei-Murmel“-Autopilot aktiviert.'
+              : '„Nebenbei-Murmel“-Autopilot ausgeblendet.'
+          );
+        }}
+        onLabel="An"
+        offLabel="Aus"
+        tone="honey"
+        icon={<Sparkles className="w-4 h-4 text-[#E5A93C] shrink-0" />}
+        ariaLabel="Nebenbei-Murmel-Autopilot umschalten"
+        testId="toggle-murmur-autopilot"
       />
 
       {/* Smart Home / Home Assistant (Prinzip der geschlossenen Schublade) */}

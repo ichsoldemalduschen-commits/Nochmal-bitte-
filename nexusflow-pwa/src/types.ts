@@ -32,6 +32,8 @@ export interface BanditUserPreferences {
   shareTargetEnabled?: boolean;
   wakeLockEnabled?: boolean;
   receiptForemanEnabled?: boolean;
+  silentThinkerEnabled?: boolean;
+  murmurAutopilotEnabled?: boolean;
   quickCommands: string[];
   activeFocusTaskId: string | null;
   activeFocusTaskTitle: string | null;
@@ -338,9 +340,41 @@ export interface FullBackupV2 {
   aiChat: any;
   scannedReceipts: ScannedReceipt[];
   savedDossiers: any[];
+  foremanProposals?: ForemanProposal[];
+  dismissedThinkerIds?: string[];
   pizzaCatalog: PizzaCatalogItem[];
   posSlots: PosPizzaSlot[];
   doughCalcDefaults: DoughCalcDefaults;
+}
+
+export type ForemanProposalKind = 'murmur-research' | 'thinker-contradiction';
+export type ForemanProposalStatus = 'pending' | 'snoozed' | 'accepted' | 'dismissed';
+
+export interface ForemanProposalAction {
+  type: 'add-cart' | 'add-task' | 'add-knowledge' | 'dedupe-cart' | 'mark-cart-bought';
+  label: string;
+  projectId: string;
+  payload: {
+    title?: string;
+    quantity?: string;
+    notes?: string;
+    content?: string;
+    removeCartItemIds?: string[];
+    cartItemId?: string;
+  };
+}
+
+export interface ForemanProposal {
+  id: string;
+  kind: ForemanProposalKind;
+  projectId: string;
+  title: string;
+  summary: string;
+  detail?: string;
+  status: ForemanProposalStatus;
+  createdAt: string;
+  snoozedUntil?: string;
+  actions: ForemanProposalAction[];
 }
 
 export interface BackupImportResult {

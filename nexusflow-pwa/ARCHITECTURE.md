@@ -163,7 +163,7 @@ Die gesamte Einstellungs-Ansicht heißt für den Nutzer **„Zentrale"** (intern
 | 1 | Projekte & Werkzeuge (`ProjectsSection.tsx`) | `projects` | Projektkarten (390px-Fix: nur Farbpunkt + voller Name + Pfeil), Gesamt-Übersicht (`overviewEnabled`), Vorschriften-Wächter (`legalWatchEnabled`), Bild-Tausch, Farb-Presets, Lifecycle, Domain, Module, Plugins, JSON-Export, Archiv, 2-Stufen-Reset-Schutz |
 | 2 | Fokus, Bedienung & Smartphone (`FocusAndSmartphoneSection.tsx`) | `focus` | ADHS-Helfer (+25 %-Puffer separat von Vibration), echte `uiDensity`-`rem`-Skalierung (`compact` 15 px / `standard` 16 px / `large` 17 px via `data-density`), 3-Stufen-Hintergrundbeleuchtung, `organicMotion`, `hapticsEnabled`, `cartOpenMode` (Schwebend vs. Tab), `flipCoverAutoDetect`, `realityCheckEnabled`, `SelfCheckHistoryPanel` (zugeklappt), Tagesplaner & `.ics` |
 | 3 | KI & Stimme „Gisela" (`AiAndVoiceSection.tsx`) | `ai` | Gemini API-Key & Modellwahl, direkter Start-Modus (`activeAiMode`: `⚡ Sprech (Flash)` ↔ `🧠 Research (Pro)`), KI-Antwortstil & Quick-Commands, Azure Speech + Gisela-Test + `continuousListening` + `autoModeDetection` |
-| 4 | Erinnerungen, Vorarbeiter & Smart Home (`AutomationSection.tsx`) | `automation` | Proaktive Erinnerungen (`remindersEnabled`), separater System-Push-Schalter (`reminderSystemPushEnabled`), Browser-Push-Freigabe, Vorschriften-Wächter (`AUDIT_SETTINGS`), Beleg- & Rechnungs-Vorarbeiter (`receiptForemanEnabled`), Smart Home / Home Assistant (`smartHomeEnabled` als geschlossene Schublade) |
+| 4 | Erinnerungen, Vorarbeiter & Smart Home (`AutomationSection.tsx`) | `automation` | Proaktive Erinnerungen (`remindersEnabled`), separater System-Push-Schalter (`reminderSystemPushEnabled`), Browser-Push-Freigabe, Vorschriften-Wächter (`AUDIT_SETTINGS`), Beleg- & Rechnungs-Vorarbeiter (`receiptForemanEnabled`), Stiller Mitdenker (`silentThinkerEnabled`), „Nebenbei-Murmel“-Autopilot (`murmurAutopilotEnabled`), Smart Home / Home Assistant (`smartHomeEnabled` als geschlossene Schublade) |
 | 5 | Daten, Backup & System (`SystemAndBackupSection.tsx`, `CloudSyncPanel.tsx`) | `system` | Cloud-Synchronisation (URL, Token, `autoSyncOnChange` mit 5s-Debounce & Pull/Hydration-Loop-Schutz, Hochladen/Herunterladen), Voll-Backup v2 inkl. `BanditUserPreferences`, Projekt-JSON-Import, CSV-Export, Vorlagen-Tresor (`Blueprints` inkl. Tasks/Cart-Übernahme & Löschen) |
 
 **Verbindliche Toggle-Regel (`ZentraleToggleRow`):** Jede neue Einstellung erhält einen einheitlichen Ein-/Ausschalter (`min-h-[44px]`, `ZentraleToggleRow`), bleibt abwärtskompatibel in IndexedDB (`BanditUserPreferences` in `storage.ts`, ohne lose `localStorage`-Keys) und blendet optionale Detail-Felder im Aus-Zustand nach dem Prinzip der geschlossenen Schublade aus.
@@ -181,7 +181,7 @@ Für jede künftige Änderung gilt ein verbindliches E2E-Qualitätsgate auf mobi
 - **Befehl:** `npm run verify` im Verzeichnis `nexusflow-pwa` (führt `npm run build && npm run test:guard` aus).
 - **Pflicht vor jedem Git-Push:**
   1. `npm run build` muss fehlerfrei durchlaufen.
-  2. Playwright Mobile-Guard (`tests/mobile-guard.spec.ts`) muss alle **18 Stationen** (Start & Kopfleiste, NavigationDrawer, TasksView, CartView, KnowledgeView, Block D & VoiceModal, Zentrale mit allen 5 Bereichen, Deep-Links, Werkzeuge/POS, Wissen-Lösch-Undo & konsolidiertes Modal, Sammel-Tasks/`subTasks`, proaktive Erinnerungen, unsichtbare 3-Modi-Erkennung, Sprach-KI Rundum-Sanierung, Zentrale v2 5-Bereiche-Shell, Toggle-Offensive inkl. `uiDensity = large`, IDB-Reload-Persistenz & Smart-Home-Schublade, Smartphone-Verfügbarkeit Stufe A inkl. App-Shortcuts, Share-Target & Wake-Lock-Toggles, Beleg- & Rechnungs-Vorarbeiter inkl. Zentrale-Schalter, Dubletten-Check, 1-Tipp-Abgleich & Steuerberater-CSV) zu 100 % grün durchlaufen.
+  2. Playwright Mobile-Guard (`tests/mobile-guard.spec.ts`) muss alle **19 Stationen** (inkl. Stiller Mitdenker & „Nebenbei-Murmel“-Autopilot in Station 19) zu 100 % grün durchlaufen.
   3. Strikte Wächter: 0 ungefangene `pageerror`-Exceptions, 0 unberechtigte `console.error`-Meldungen, 0 horizontale Viewport-Überläufe (`document.documentElement.scrollWidth <= window.innerWidth + 1`).
 
 ---
@@ -326,3 +326,15 @@ Beide Werkzeuge besitzen oben rechts einen ruhigen `⚙`-Button (`min-h-[44px] m
   - Persistenter Schalter `receiptForemanEnabled` (Default `true`) in Zentrale Bereich 4; im Aus-Zustand bleiben alle 3 Vorarbeiter-Karten nach dem Prinzip der geschlossenen Schublade ausgeblendet.
   - Abwärtskompatibles `ScannedReceipt`-Datenmodell inkl. Projekt-, Kategorie-, MwSt-Zuordnung und PDF-Upload (`accept="image/*,application/pdf"`).
   - E2E-Absicherung auf 390×844 px in **Station 18** (`tests/mobile-guard.spec.ts`).
+
+---
+
+## 20  Welle 4 / Ticket 4.2 – Stiller Mitdenker & „Nebenbei-Murmel“-Autopilot
+
+- **Reines Analyse-Modul (`src/services/silentThinker.ts`):**
+  - `analyzeProjectConsistency(project, dismissedIds)` erkennt maximal 3 priorisierte Hinweise für das aktive Projekt: doppelte offene Einkaufsartikel (`dedupe-cart`), Maß-/Technik-Widersprüche zwischen offenen Tasks & Wissen (`cm`, `mm`, `m`, `kg`, `V`, `W`, `kW`, `A`, `L` bei gemeinsamem Kern-Schlagwort ≥ 5 Zeichen) sowie offene Einkaufsartikel zu bereits erledigten Aufgaben (`mark-cart-bought`).
+  - `buildProposalFromResearchResult` überführt Deep-Research-Ergebnisse in strukturierte `ForemanProposal`-Einträge (`murmur-research`).
+- **Ruhiger Vorarbeiter-Posteingang & Hintergrund-Recherche (`ForemanInboxCard.tsx`, `DeepResearchView.tsx`):**
+  - Standardmäßig zugeklappte Kopfzeile (`min-h-[44px]`, `#191C22`, 3-px-Honig-Gold-Streifen `#E5A93C`); bei 0 offenen Vorschlägen oder deaktivierten Schaltern bleibt die Bühne zu 100 % leer.
+  - Ruhige Ja / Später (4 h Snooze) / Nein (permanente Stummschaltung über `DISMISSED_THINKER_IDS`) Freigabekarten inkl. 4-Sekunden-Rückgängig-Leiste.
+  - Zwei persistente Zentrale-Schalter in Bereich 4 (`silentThinkerEnabled`, `murmurAutopilotEnabled`, inkl. IDB-Stores `FOREMAN_PROPOSALS` / `DISMISSED_THINKER_IDS` & Voll-Backup v2) sowie E2E-Absicherung in **Station 19**.

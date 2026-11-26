@@ -14,6 +14,19 @@ try {
 
 export default defineConfig({
   base: '/Nochmal-bitte-/',
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            if (id.includes('lucide-react')) return 'vendor-icons';
+            if (id.includes('react')) return 'vendor-react';
+            return 'vendor';
+          }
+        }
+      }
+    }
+  },
   define: {
     __BUILD_TIMESTAMP__: JSON.stringify(buildTimestamp),
     __BUILD_COMMIT__: JSON.stringify(buildCommit)
