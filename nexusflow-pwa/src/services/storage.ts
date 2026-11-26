@@ -39,6 +39,7 @@ export const STORAGE_KEYS = {
   AZURE_SPEECH_KEY: 'banditos_azure_speech_key_v1',
   AZURE_SPEECH_REGION: 'banditos_azure_speech_region_v1',
   ACTIVE_AI_MODE: 'banditos_active_ai_mode_v1',
+  CONTINUOUS_LISTENING: 'banditos_continuous_listening_v1',
   FIRED_REMINDERS: 'banditos_fired_reminders_v4',
   THUMB_HUB_ENABLED: 'banditos_thumb_hub_enabled_v1',
   THUMB_HUB_POSITION: 'banditos_thumb_hub_position_v1',
@@ -206,6 +207,7 @@ export async function migrateLocalStorageToIndexedDB(): Promise<void> {
     STORAGE_KEYS.AZURE_SPEECH_KEY,
     STORAGE_KEYS.AZURE_SPEECH_REGION,
     STORAGE_KEYS.ACTIVE_AI_MODE,
+    STORAGE_KEYS.CONTINUOUS_LISTENING,
     STORAGE_KEYS.FIRED_REMINDERS,
     STORAGE_KEYS.THUMB_HUB_ENABLED,
     STORAGE_KEYS.THUMB_HUB_POSITION,
@@ -463,13 +465,22 @@ export function saveActiveAiMode(mode: 'flash' | 'research'): void {
   void saveIdbItem(STORAGE_KEYS.ACTIVE_AI_MODE, mode);
 }
 
+export function getContinuousListening(): boolean {
+  return getIdbItemSync<boolean>(STORAGE_KEYS.CONTINUOUS_LISTENING, true);
+}
+
+export function saveContinuousListening(enabled: boolean): void {
+  void saveIdbItem(STORAGE_KEYS.CONTINUOUS_LISTENING, enabled);
+}
+
 export const DEFAULT_AI_VOICE_SETTINGS: AiVoiceSettings = {
   ttsEnabled: true,
   voiceProvider: 'azure-gisela',
   azureSpeechKey: '',
   azureSpeechRegion: 'germanywestcentral',
   preferredModelMode: 'SMART_PRO',
-  activeAiMode: 'flash'
+  activeAiMode: 'flash',
+  continuousListening: true
 };
 
 /**
@@ -486,7 +497,8 @@ export async function loadAiVoiceSettings(
     azureSpeechKey,
     azureSpeechRegion,
     preferredModelMode,
-    rawActiveAiMode
+    rawActiveAiMode,
+    continuousListening
   ] = await Promise.all([
     loadIdbItem<boolean>(
       STORAGE_KEYS.TTS_ENABLED,
@@ -511,6 +523,10 @@ export async function loadAiVoiceSettings(
     loadIdbItem<string>(
       STORAGE_KEYS.ACTIVE_AI_MODE,
       snapSettings?.activeAiMode ?? DEFAULT_AI_VOICE_SETTINGS.activeAiMode
+    ),
+    loadIdbItem<boolean>(
+      STORAGE_KEYS.CONTINUOUS_LISTENING,
+      snapSettings?.continuousListening ?? DEFAULT_AI_VOICE_SETTINGS.continuousListening
     )
   ]);
 
@@ -526,7 +542,8 @@ export async function loadAiVoiceSettings(
       typeof preferredModelMode === 'string' && preferredModelMode.trim()
         ? preferredModelMode
         : 'SMART_PRO',
-    activeAiMode: rawActiveAiMode === 'research' ? 'research' : 'flash'
+    activeAiMode: rawActiveAiMode === 'research' ? 'research' : 'flash',
+    continuousListening: typeof continuousListening === 'boolean' ? continuousListening : true
   };
 }
 
@@ -540,7 +557,8 @@ export async function saveAiVoiceSettings(settings: AiVoiceSettings): Promise<vo
     saveIdbItem(STORAGE_KEYS.AZURE_SPEECH_KEY, settings.azureSpeechKey),
     saveIdbItem(STORAGE_KEYS.AZURE_SPEECH_REGION, settings.azureSpeechRegion),
     saveIdbItem(STORAGE_KEYS.PREFERRED_MODEL, settings.preferredModelMode),
-    saveIdbItem(STORAGE_KEYS.ACTIVE_AI_MODE, settings.activeAiMode)
+    saveIdbItem(STORAGE_KEYS.ACTIVE_AI_MODE, settings.activeAiMode),
+    saveIdbItem(STORAGE_KEYS.CONTINUOUS_LISTENING, settings.continuousListening)
   ]);
 }
 

@@ -15,6 +15,7 @@ export interface AiVoiceSettings {
   azureSpeechRegion: string;
   preferredModelMode: PreferredModelMode;
   activeAiMode: QuickAiMode;
+  continuousListening: boolean;
 }
 
 export const THEME = {

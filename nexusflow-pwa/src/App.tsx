@@ -22,6 +22,7 @@ import { INITIAL_APP_SNAPSHOT } from './data/pizzaBanditTsaSeed';
 import {
   DEFAULT_AI_VOICE_SETTINGS,
   downloadStateBackupJson,
+  downloadFullBackupV2,
   formatNow,
   loadAiVoiceSettings,
   loadPersistedState,
@@ -105,6 +106,7 @@ export default function App() {
   const [voiceModalOpen, setVoiceModalOpen] = useState(false);
   const [companionStage, setCompanionStage] = useState<1 | 2>(1);
   const [floatingCartOpen, setFloatingCartOpen] = useState(false);
+  const [quickFanOpen, setQuickFanOpen] = useState(false);
   const [deepResearchModalOpen, setDeepResearchModalOpen] = useState(false);
   const [autoStartMicOnOpen, setAutoStartMicOnOpen] = useState(true);
   const [realityModalOpen, setRealityModalOpen] = useState(false);
@@ -119,6 +121,9 @@ export default function App() {
   const [singleFocusOpen, setSingleFocusOpen] = useState(false);
   const [singleFocusTaskId, setSingleFocusTaskId] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [companionIsListening, setCompanionIsListening] = useState(false);
+  const [companionIsProcessing, setCompanionIsProcessing] = useState(false);
+  const [companionIsSpeaking, setCompanionIsSpeaking] = useState(false);
 
   const aiVoiceSettings: AiVoiceSettings = state.aiVoiceSettings || DEFAULT_AI_VOICE_SETTINGS;
   const aiVoiceSettingsRef = useRef<AiVoiceSettings>(aiVoiceSettings);
@@ -141,6 +146,10 @@ export default function App() {
     setCompanionStage(stage);
     setAutoStartMicOnOpen(autoStart);
     setVoiceModalOpen(true);
+  };
+
+  const handleExportFullBackup = () => {
+    downloadFullBackupV2(state).catch(console.warn);
   };
 
   const handleToggleThumbHub = (enabled: boolean) => {
@@ -1659,7 +1668,7 @@ export default function App() {
               }}
               aiVoiceSettings={aiVoiceSettings}
               onUpdateAiVoiceSettings={handleUpdateAiVoiceSettings}
-              onExportFullBackup={() => downloadStateBackupJson(state)}
+              onExportFullBackup={handleExportFullBackup}
               onImportFullBackup={(snap) => {
                 setState(snap);
                 notify('Backup geladen.');
@@ -1709,6 +1718,12 @@ export default function App() {
               onOpenFloatingCart={() => setFloatingCartOpen(true)}
               isCompanionActive={voiceModalOpen}
               isFloatingCartOpen={floatingCartOpen}
+              isFanOpen={quickFanOpen}
+              onToggleFan={setQuickFanOpen}
+              onCloseCompanion={() => setVoiceModalOpen(false)}
+              companionIsListening={companionIsListening}
+              companionIsProcessing={companionIsProcessing}
+              companionIsSpeaking={companionIsSpeaking}
               bottomAiText={bottomAiText}
               onSetBottomAiText={setBottomAiText}
               onSubmitBottomAi={handleBottomAiSubmit}
@@ -1840,27 +1855,7 @@ export default function App() {
             highlight: activeVisualTheme.highlight,
             glow: activeVisualTheme.glow
           }}
-          autoStartMic={autoStartMicOnOpen}
-          activeProjectName={activeProject?.name || BRAND_CONFIG.projects['proj-foodtruck']?.name || 'Pizza Bandit'}
-          projects={state.projects}
-          aiLogs={state.aiLogs}
-          onClose={() => setVoiceModalOpen(false)}
-          onExecuteCommand={handleDistributeVoiceCommand}
-          onAskQuestion={(q, att) =>
-            askQuickAssistantQuestion(
-              q,
-              activeProject?.name || BRAND_CONFIG.projects['proj-foodtruck']?.name || 'Pizza Bandit',
-              state.userApiKey,
-              att
-            )
-          }
-        }}
-        themeColors={{
-          primary: activeVisualTheme.primary,
-          highlight: activeVisualTheme.highlight,
-          glow: activeVisualTheme.glow
-        }}
-        onOpenQuickFan={() => {
+          onOpenQuickFan={() => {
           setVoiceModalOpen(false);
           setQuickFanOpen(true);
         }}

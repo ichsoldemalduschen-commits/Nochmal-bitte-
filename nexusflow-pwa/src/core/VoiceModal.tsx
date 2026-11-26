@@ -36,6 +36,7 @@ import {
   getActiveAiMode,
   getAzureSpeechKey,
   getAzureSpeechRegion,
+  getContinuousListening,
   getIdbItemSync,
   getVoiceProvider,
   saveActiveAiMode,
@@ -108,8 +109,16 @@ export interface VoiceModalProps {
   onSpeakingChange?: (speaking: boolean) => void;
 }
 
+export type VoicePhase = 'IDLE' | 'LISTENING' | 'PROCESSING' | 'SPEAKING' | 'COOLDOWN';
+
 const SILENCE_AUTO_SEND_MS = 5000;
 const API_REQUEST_TIMEOUT_MS = 12000;
+const VOICE_START_DEBOUNCE_MS = 280;
+const ABORT_RETRY_DELAY_MS = 350;
+const MAX_CONSECUTIVE_ABORTS = 3;
+const ECHO_COOLDOWN_MS = 300;
+const BARGE_IN_COOLDOWN_MS = 180;
+const END_DIALOG_REGEX = /\b(danke,?\s*reicht|fertig|stopp|schluss|bis später|pause)\b/i;
 
 function buildCleanTranscriptFromResults(results: any): string {
   const segments: string[] = [];
@@ -179,9 +188,13 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
     return getIdbItemSync<ConversationMessage[]>(STORAGE_KEYS.AI_CHAT, []);
   });
   const [transcript, setTranscript] = useState('');
-  const [isListening, setIsListening] = useState(false);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [voicePhase, setVoicePhase] = useState<VoicePhase>('IDLE');
+  const voicePhaseRef = useRef<VoicePhase>('IDLE');
+  const isListening = voicePhase === 'LISTENING';
+  const isProcessing = voicePhase === 'PROCESSING';
+  const isSpeaking = voicePhase === 'SPEAKING';
+  const isCooldown = voicePhase === 'COOLDOWN';
+
   const [speechNotice, setSpeechNotice] = useState('');
   const [voiceStatusNotice, setVoiceStatusNotice] = useState<string | null>(null);
   const [attachment, setAttachment] = useState<Attachment | null>(null);
@@ -196,7 +209,8 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
     azureSpeechKey: getAzureSpeechKey(),
     azureSpeechRegion: getAzureSpeechRegion(),
     preferredModelMode: getPreferredModelMode(),
-    activeAiMode: localAiMode
+    activeAiMode: localAiMode,
+    continuousListening: getContinuousListening()
   };
   const ttsActive = effectiveSettings.ttsEnabled;
   const aiMode = effectiveSettings.activeAiMode;
@@ -216,10 +230,49 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
     if (stage) setCurrentStage(stage);
   }, [stage]);
 
+  const openRef = useRef(open);
+  openRef.current = open;
+  const sessionActiveRef = useRef(false);
+  const micLockedRef = useRef(false);
+  const lastMicToggleRef = useRef(0);
+  const consecutiveAbortCountRef = useRef(0);
+  const cooldownTimerRef = useRef<number | null>(null);
+  const retryTimerRef = useRef<number | null>(null);
+
   const activeRequestIdRef = useRef(0);
   const activeRequestControllerRef = useRef<AbortController | null>(null);
   const activeTimeoutRef = useRef<number | null>(null);
   const isSendingRef = useRef(false);
+
+  const prefs = loadUserPrefs();
+  const recognitionRef = useRef<any>(null);
+  const transcriptRef = useRef('');
+  const lastSpeechTimestampRef = useRef<number>(0);
+  const autoSendTriggeredRef = useRef(false);
+  const isListeningRef = useRef(false);
+  const scrollEndRef = useRef<HTMLDivElement | null>(null);
+  const headerTouchYRef = useRef<number | null>(null);
+  const stage1TouchYRef = useRef<number | null>(null);
+
+  const setPhase = (next: VoicePhase) => {
+    voicePhaseRef.current = next;
+    setVoicePhase(next);
+    isListeningRef.current = next === 'LISTENING';
+    onListeningChange?.(next === 'LISTENING');
+    onProcessingChange?.(next === 'PROCESSING');
+    onSpeakingChange?.(next === 'SPEAKING');
+  };
+
+  const clearVoiceTimers = () => {
+    if (cooldownTimerRef.current !== null) {
+      window.clearTimeout(cooldownTimerRef.current);
+      cooldownTimerRef.current = null;
+    }
+    if (retryTimerRef.current !== null) {
+      window.clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
+  };
 
   const cancelPendingRequest = () => {
     activeRequestIdRef.current += 1;
@@ -236,17 +289,45 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
       activeRequestControllerRef.current = null;
     }
     isSendingRef.current = false;
-    setIsProcessing(false);
-    onProcessingChange?.(false);
+    micLockedRef.current = false;
+    if (voicePhaseRef.current === 'PROCESSING') {
+      setPhase('IDLE');
+    } else {
+      onProcessingChange?.(false);
+    }
+  };
+
+  const stopMicrophone = () => {
+    isListeningRef.current = false;
+    if (recognitionRef.current) {
+      const rec = recognitionRef.current;
+      recognitionRef.current = null;
+      try {
+        rec.onstart = null;
+        rec.onresult = null;
+        rec.onerror = null;
+        rec.onend = null;
+        rec.stop();
+      } catch {
+        // ignore
+      }
+    }
+    if (voicePhaseRef.current === 'LISTENING') {
+      setPhase('IDLE');
+    } else {
+      onListeningChange?.(false);
+    }
   };
 
   const updateStage = (newStage: 1 | 2 | 0) => {
     if (newStage === 0) {
+      sessionActiveRef.current = false;
+      clearVoiceTimers();
       cancelPendingRequest();
       stopAllSpeech();
-      setIsSpeaking(false);
-      onSpeakingChange?.(false);
       stopMicrophone();
+      micLockedRef.current = false;
+      setPhase('IDLE');
       onClose();
       onStageChange?.(0);
     } else {
@@ -254,16 +335,6 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
       onStageChange?.(newStage);
     }
   };
-
-  const prefs = loadUserPrefs();
-  const recognitionRef = useRef<any>(null);
-  const transcriptRef = useRef('');
-  const lastSpeechTimestampRef = useRef<number>(0);
-  const autoSendTriggeredRef = useRef(false);
-  const isListeningRef = useRef(false);
-  const scrollEndRef = useRef<HTMLDivElement | null>(null);
-  const headerTouchYRef = useRef<number | null>(null);
-  const stage1TouchYRef = useRef<number | null>(null);
 
   useEffect(() => {
     transcriptRef.current = transcript;
@@ -274,32 +345,33 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
     scrollEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, open]);
 
-  const stopMicrophone = () => {
-    isListeningRef.current = false;
-    setIsListening(false);
-    onListeningChange?.(false);
-    if (recognitionRef.current) {
-      try {
-        recognitionRef.current.onend = null;
-        recognitionRef.current.stop();
-      } catch {
-        // ignore
-      }
-      recognitionRef.current = null;
+  const startMicrophoneImmediately = (options?: { bypassDebounce?: boolean }) => {
+    // Harte Half-Duplex-Sperre: während PROCESSING oder SPEAKING oder gesperrtem Mic niemals aufnehmen
+    if (
+      !openRef.current ||
+      micLockedRef.current ||
+      voicePhaseRef.current === 'PROCESSING' ||
+      voicePhaseRef.current === 'SPEAKING'
+    ) {
+      return;
     }
-  };
 
-  const startMicrophoneImmediately = () => {
+    const now = Date.now();
+    if (!options?.bypassDebounce && now - lastMicToggleRef.current < VOICE_START_DEBOUNCE_MS) {
+      return;
+    }
+    lastMicToggleRef.current = now;
+
+    clearVoiceTimers();
     setSpeechNotice('');
     autoSendTriggeredRef.current = false;
     stopAllSpeech();
-    setIsSpeaking(false);
-    onSpeakingChange?.(false);
 
     const SpeechRec =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRec) {
-      setSpeechNotice('Spracherkennung im Browser nicht verfügbar – bitte Textfeld nutzen.');
+      setVoiceStatusNotice('Spracherkennung im Browser nicht verfügbar – bitte Textfeld nutzen.');
+      setPhase('IDLE');
       return;
     }
 
@@ -311,18 +383,31 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
       rec.interimResults = true;
       rec.maxAlternatives = 1;
 
+      let abortedThisSession = false;
       lastSpeechTimestampRef.current = Date.now();
       setRemainingMs(SILENCE_AUTO_SEND_MS);
 
       rec.onstart = () => {
-        isListeningRef.current = true;
-        setIsListening(true);
-        onListeningChange?.(true);
+        if (
+          !openRef.current ||
+          micLockedRef.current ||
+          voicePhaseRef.current === 'PROCESSING' ||
+          voicePhaseRef.current === 'SPEAKING'
+        ) {
+          try {
+            rec.stop();
+          } catch {
+            // ignore
+          }
+          return;
+        }
+        setPhase('LISTENING');
         lastSpeechTimestampRef.current = Date.now();
         triggerHapticFeedback(10);
       };
 
       rec.onresult = (event: any) => {
+        consecutiveAbortCountRef.current = 0;
         lastSpeechTimestampRef.current = Date.now();
         setRemainingMs(SILENCE_AUTO_SEND_MS);
         const cleanSessionText = buildCleanTranscriptFromResults(event.results);
@@ -331,35 +416,142 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
       };
 
       rec.onerror = (event: any) => {
-        if (event?.error === 'no-speech') return;
-        setSpeechNotice(`Mikrofon-Status: ${event?.error || 'Berechtigung prüfen'}`);
-        isListeningRef.current = false;
-        setIsListening(false);
-        onListeningChange?.(false);
+        const errCode = event?.error;
+        if (errCode === 'no-speech') return;
+
+        if (errCode === 'aborted') {
+          abortedThisSession = true;
+          if (recognitionRef.current === rec) recognitionRef.current = null;
+          isListeningRef.current = false;
+
+          if (
+            openRef.current &&
+            sessionActiveRef.current &&
+            !micLockedRef.current &&
+            voicePhaseRef.current !== 'PROCESSING' &&
+            voicePhaseRef.current !== 'SPEAKING'
+          ) {
+            consecutiveAbortCountRef.current += 1;
+            if (consecutiveAbortCountRef.current >= MAX_CONSECUTIVE_ABORTS) {
+              sessionActiveRef.current = false;
+              setPhase('IDLE');
+              setVoiceStatusNotice('Mikrofon pausiert – zum Weiterreden tippen');
+            } else {
+              setPhase('COOLDOWN');
+              if (retryTimerRef.current !== null) {
+                window.clearTimeout(retryTimerRef.current);
+              }
+              retryTimerRef.current = window.setTimeout(() => {
+                retryTimerRef.current = null;
+                if (
+                  openRef.current &&
+                  sessionActiveRef.current &&
+                  !micLockedRef.current &&
+                  voicePhaseRef.current !== 'PROCESSING' &&
+                  voicePhaseRef.current !== 'SPEAKING'
+                ) {
+                  startMicrophoneImmediately({ bypassDebounce: true });
+                }
+              }, ABORT_RETRY_DELAY_MS);
+            }
+          }
+          return;
+        }
+
+        if (recognitionRef.current === rec) recognitionRef.current = null;
+        sessionActiveRef.current = false;
+        setPhase('IDLE');
+        setVoiceStatusNotice(`Mikrofon-Status: ${errCode || 'Berechtigung prüfen'}`);
       };
 
       rec.onend = () => {
-        if (isListeningRef.current && !autoSendTriggeredRef.current) {
-          isListeningRef.current = false;
-          setIsListening(false);
-          onListeningChange?.(false);
+        if (recognitionRef.current === rec) recognitionRef.current = null;
+        if (!abortedThisSession && voicePhaseRef.current === 'LISTENING' && !autoSendTriggeredRef.current) {
+          setPhase('IDLE');
         }
       };
 
       recognitionRef.current = rec;
+      setPhase('LISTENING');
       rec.start();
     } catch {
-      setSpeechNotice('Mikrofon konnte nicht gestartet werden.');
+      setPhase('IDLE');
+      setVoiceStatusNotice('Mikrofon konnte nicht gestartet werden.');
     }
   };
 
+  const handleBargeIn = () => {
+    const now = Date.now();
+    if (now - lastMicToggleRef.current < VOICE_START_DEBOUNCE_MS) return;
+    lastMicToggleRef.current = now;
+
+    clearVoiceTimers();
+    stopAllSpeech();
+    micLockedRef.current = false;
+    sessionActiveRef.current = true;
+    consecutiveAbortCountRef.current = 0;
+    setVoiceStatusNotice(null);
+    setPhase('COOLDOWN');
+
+    cooldownTimerRef.current = window.setTimeout(() => {
+      cooldownTimerRef.current = null;
+      if (
+        openRef.current &&
+        sessionActiveRef.current &&
+        !micLockedRef.current &&
+        voicePhaseRef.current === 'COOLDOWN'
+      ) {
+        startMicrophoneImmediately({ bypassDebounce: true });
+      }
+    }, BARGE_IN_COOLDOWN_MS);
+  };
+
+  const handleManualMicToggle = () => {
+    if (voicePhaseRef.current === 'PROCESSING') return;
+    if (voicePhaseRef.current === 'SPEAKING') {
+      handleBargeIn();
+      return;
+    }
+
+    const now = Date.now();
+    if (now - lastMicToggleRef.current < VOICE_START_DEBOUNCE_MS) return;
+
+    if (voicePhaseRef.current === 'LISTENING') {
+      lastMicToggleRef.current = now;
+      if (transcriptRef.current.trim()) {
+        autoSendTriggeredRef.current = true;
+        void triggerProcess(transcriptRef.current);
+      } else {
+        sessionActiveRef.current = false;
+        clearVoiceTimers();
+        stopMicrophone();
+        setPhase('IDLE');
+      }
+      return;
+    }
+
+    clearVoiceTimers();
+    micLockedRef.current = false;
+    sessionActiveRef.current = true;
+    consecutiveAbortCountRef.current = 0;
+    setVoiceStatusNotice(null);
+    startMicrophoneImmediately();
+  };
+
   useEffect(() => {
+    openRef.current = open;
     if (open) {
       setRemainingMs(SILENCE_AUTO_SEND_MS);
       autoSendTriggeredRef.current = false;
+      consecutiveAbortCountRef.current = 0;
+      micLockedRef.current = false;
+      sessionActiveRef.current = Boolean(autoStartMic);
+
       if (autoStartMic) {
         const timer = window.setTimeout(() => {
-          startMicrophoneImmediately();
+          if (openRef.current && sessionActiveRef.current) {
+            startMicrophoneImmediately();
+          }
         }, 50);
         return () => {
           window.clearTimeout(timer);
@@ -367,17 +559,23 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
         };
       }
     } else {
+      sessionActiveRef.current = false;
+      clearVoiceTimers();
       cancelPendingRequest();
       stopMicrophone();
       stopAllSpeech();
-      setIsSpeaking(false);
-      onSpeakingChange?.(false);
+      micLockedRef.current = false;
+      lastMicToggleRef.current = 0;
+      setPhase('IDLE');
     }
   }, [open, autoStartMic]);
 
   useEffect(() => {
     return () => {
+      sessionActiveRef.current = false;
+      clearVoiceTimers();
       cancelPendingRequest();
+      stopMicrophone();
       stopAllSpeech();
     };
   }, []);
@@ -407,36 +605,64 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
     return () => window.clearInterval(interval);
   }, [open, isListening, isProcessing]);
 
-  const speakAssistantReply = (
-    spokenText: string,
+  const scheduleReListenAfterCooldown = (
     needsClarification: boolean,
+    lastUserText: string,
     requestId: number
   ) => {
-    if (requestId !== activeRequestIdRef.current) return;
+    clearVoiceTimers();
+    const hasEndSignal = END_DIALOG_REGEX.test(lastUserText);
+    const shouldReListen =
+      openRef.current &&
+      sessionActiveRef.current &&
+      !hasEndSignal &&
+      (settingsRef.current.continuousListening || needsClarification);
+
+    if (hasEndSignal) {
+      sessionActiveRef.current = false;
+    }
+
+    if (!shouldReListen) {
+      micLockedRef.current = false;
+      setPhase('IDLE');
+      return;
+    }
+
+    setPhase('COOLDOWN');
+    cooldownTimerRef.current = window.setTimeout(() => {
+      cooldownTimerRef.current = null;
+      if (requestId !== activeRequestIdRef.current || !openRef.current || !sessionActiveRef.current) {
+        micLockedRef.current = false;
+        if (voicePhaseRef.current === 'COOLDOWN') setPhase('IDLE');
+        return;
+      }
+      micLockedRef.current = false;
+      startMicrophoneImmediately({ bypassDebounce: true });
+    }, ECHO_COOLDOWN_MS);
+  };
+
+  const speakAssistantReply = async (
+    spokenText: string,
+    needsClarification: boolean,
+    requestId: number,
+    lastUserText: string
+  ) => {
+    if (requestId !== activeRequestIdRef.current || !openRef.current) return;
+    clearVoiceTimers();
+    stopMicrophone();
+    micLockedRef.current = true;
     stopAllSpeech();
     const currentSettings = settingsRef.current;
 
     if (!currentSettings.ttsEnabled) {
-      setIsSpeaking(false);
-      onSpeakingChange?.(false);
-      if (needsClarification && open) {
-        startMicrophoneImmediately();
-      }
+      scheduleReListenAfterCooldown(needsClarification, lastUserText, requestId);
       return;
     }
 
-    setIsSpeaking(true);
-    onSpeakingChange?.(true);
-    void speakText(
+    setPhase('SPEAKING');
+    const completedNaturally = await speakText(
       spokenText,
-      () => {
-        if (requestId !== activeRequestIdRef.current) return;
-        setIsSpeaking(false);
-        onSpeakingChange?.(false);
-        if (needsClarification && open) {
-          startMicrophoneImmediately();
-        }
-      },
+      undefined,
       (engine, fallbackReason) => {
         if (requestId !== activeRequestIdRef.current) return;
         if (
@@ -453,18 +679,31 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
       },
       currentSettings
     );
+
+    if (requestId !== activeRequestIdRef.current || !openRef.current) return;
+
+    if (!completedNaturally) {
+      if (voicePhaseRef.current === 'SPEAKING') {
+        micLockedRef.current = false;
+        setPhase('IDLE');
+      }
+      return;
+    }
+
+    scheduleReListenAfterCooldown(needsClarification, lastUserText, requestId);
   };
 
   const triggerProcess = async (textToProcess: string) => {
     const clean = textToProcess.trim();
-    if (!clean || isProcessing || isSendingRef.current) return;
+    if (!clean || voicePhaseRef.current === 'PROCESSING' || isSendingRef.current) return;
     isSendingRef.current = true;
     autoSendTriggeredRef.current = true;
 
-    stopAllSpeech();
-    setIsSpeaking(false);
-    onSpeakingChange?.(false);
+    clearVoiceTimers();
+    micLockedRef.current = true;
     stopMicrophone();
+    stopAllSpeech();
+    setPhase('PROCESSING');
     setVoiceStatusNotice(null);
 
     if (activeTimeoutRef.current !== null) {
@@ -484,8 +723,6 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
     activeRequestControllerRef.current = controller;
     let settled = false;
 
-    setIsProcessing(true);
-    onProcessingChange?.(true);
     triggerHapticFeedback([12, 30, 12]);
     const currentAtt = attachment;
     setTranscript('');
@@ -536,10 +773,8 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
         updateStage(2);
       }
 
-      speakAssistantReply(result.spokenText, result.needsClarification, requestId);
-      setIsProcessing(false);
-      onProcessingChange?.(false);
       isSendingRef.current = false;
+      void speakAssistantReply(result.spokenText, result.needsClarification, requestId, clean);
     };
 
     activeTimeoutRef.current = window.setTimeout(() => {
@@ -569,8 +804,8 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
       if (fallbackRes) {
         finalizeWithResult(fallbackRes);
       } else {
-        setIsProcessing(false);
-        onProcessingChange?.(false);
+        micLockedRef.current = false;
+        setPhase('IDLE');
         isSendingRef.current = false;
       }
     }, API_REQUEST_TIMEOUT_MS);
@@ -599,8 +834,8 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
         }
         finalizeWithResult(result);
       } else {
-        setIsProcessing(false);
-        onProcessingChange?.(false);
+        micLockedRef.current = false;
+        setPhase('IDLE');
         isSendingRef.current = false;
       }
     } catch (err) {
@@ -612,8 +847,8 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
       }
       activeRequestControllerRef.current = null;
       console.warn('[VoiceModal] Fehler bei Sprachausführung:', err);
-      setIsProcessing(false);
-      onProcessingChange?.(false);
+      micLockedRef.current = false;
+      setPhase('IDLE');
       isSendingRef.current = false;
     }
   };
@@ -703,28 +938,15 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
             {/* Links: Lebendes Mini-Sechseck (min-h-[44px] min-w-[44px]) */}
             <button
               type="button"
-              onClick={() => {
-                if (isSpeaking) {
-                  stopAllSpeech();
-                  setIsSpeaking(false);
-                  onSpeakingChange?.(false);
-                } else if (isListening) {
-                  if (hasSpokenText) {
-                    autoSendTriggeredRef.current = true;
-                    void triggerProcess(transcript);
-                  } else {
-                    stopMicrophone();
-                  }
-                } else {
-                  startMicrophoneImmediately();
-                }
-              }}
+              onClick={handleManualMicToggle}
               className="w-11 h-11 min-w-[44px] min-h-[44px] rounded-xl flex items-center justify-center relative cursor-pointer active:scale-95 transition shrink-0"
               title={
                 isSpeaking
-                  ? 'Gisela spricht – Antippen zum Stoppen'
+                  ? 'Gisela spricht – Antippen zum Unterbrechen & Weiterreden'
                   : isProcessing
                   ? 'KI denkt...'
+                  : isCooldown
+                  ? 'Kurze Echo-Pause – Mikrofon startet gleich'
                   : isListening
                   ? 'Zuhören aktiv – Antippen zum Beenden/Senden'
                   : 'Mikrofon aktivieren'
@@ -801,6 +1023,15 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                   </div>
                   <div className="text-xs text-white line-clamp-1 mt-0.5">
                     {lastAssistantMsg?.text || 'Sprachausgabe läuft...'}
+                  </div>
+                </div>
+              ) : isCooldown ? (
+                <div>
+                  <div className="text-xs font-bold text-[#14B8A6] truncate">
+                    Bereit zum Weiterreden...
+                  </div>
+                  <div className="text-xs text-[#94A3B8] truncate mt-0.5">
+                    Mikrofon startet gleich automatisch
                   </div>
                 </div>
               ) : lastAction ? (
@@ -995,7 +1226,11 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
             <div className="flex items-center gap-2.5 min-w-0 flex-1">
               <span
                 className={`w-2.5 h-2.5 rounded-full shrink-0 ${
-                  isListening ? 'bg-red-500 animate-ping' : 'bg-[#14B8A6]'
+                  isListening
+                    ? 'bg-[#E5A93C] animate-ping'
+                    : isProcessing
+                    ? 'bg-[#E5A93C]'
+                    : 'bg-[#14B8A6]'
                 }`}
               />
               <div className="min-w-0">
@@ -1065,8 +1300,10 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                   }
                   if (!next) {
                     stopAllSpeech();
-                    setIsSpeaking(false);
-                    onSpeakingChange?.(false);
+                    if (voicePhaseRef.current === 'SPEAKING') {
+                      micLockedRef.current = false;
+                      setPhase('IDLE');
+                    }
                   }
                 }}
                 className={`min-h-[44px] px-2.5 py-1.5 rounded-xl text-xs font-bold border flex items-center gap-1 active:scale-95 transition ${
@@ -1374,22 +1611,13 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
               <button
                 type="button"
                 disabled={isProcessing}
-                onClick={() => {
-                  if (isListening && hasSpokenText) {
-                    autoSendTriggeredRef.current = true;
-                    void triggerProcess(transcript);
-                  } else if (isListening) {
-                    stopMicrophone();
-                  } else {
-                    startMicrophoneImmediately();
-                  }
-                }}
+                onClick={handleManualMicToggle}
                 className="relative w-11 h-11 min-w-[44px] min-h-[44px] rounded-2xl flex items-center justify-center text-white transition-transform duration-300 active:scale-90 shadow-md"
                 style={{
                   backgroundColor: isProcessing
                     ? '#2F363D'
                     : isListening
-                    ? '#EF4444'
+                    ? '#E5A93C'
                     : THEME.accentPrimary
                 }}
                 aria-label="Mikrofon umschalten"

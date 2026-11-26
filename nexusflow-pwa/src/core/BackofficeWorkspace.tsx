@@ -55,6 +55,7 @@ import {
   getActiveAiMode,
   getAzureSpeechKey,
   getAzureSpeechRegion,
+  getContinuousListening,
   getIdbItemSync,
   getTtsEnabled,
   getVoiceProvider,
@@ -63,6 +64,7 @@ import {
   saveAmbientLightMode,
   saveAzureSpeechKey,
   saveAzureSpeechRegion,
+  saveContinuousListening,
   saveIdbItem,
   saveTtsEnabled,
   saveVoiceProvider
@@ -271,7 +273,8 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
     azureSpeechKey: getAzureSpeechKey(),
     azureSpeechRegion: getAzureSpeechRegion(),
     preferredModelMode: getPreferredModelMode(),
-    activeAiMode: getActiveAiMode()
+    activeAiMode: getActiveAiMode(),
+    continuousListening: getContinuousListening()
   };
 
   const handleUpdateAiSettings = (patch: Partial<AiVoiceSettings>) => {
@@ -288,6 +291,7 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
     if (patch.azureSpeechRegion !== undefined) saveAzureSpeechRegion(patch.azureSpeechRegion);
     if (patch.preferredModelMode !== undefined) setPreferredModelMode(patch.preferredModelMode);
     if (patch.activeAiMode !== undefined) saveActiveAiMode(patch.activeAiMode);
+    if (patch.continuousListening !== undefined) saveContinuousListening(patch.continuousListening);
   };
 
   const updatePrefs = (patch: Partial<BanditUserPreferences>) => {
@@ -1470,6 +1474,38 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
                     {giselaTestStatus.message}
                   </div>
                 )}
+              </div>
+
+              {/* Durchgehendes Gespräch (Auto-Re-Listen nach Giselas Antwort) */}
+              <div className="pt-2 border-t border-white/5 flex items-center justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs font-bold text-white">
+                    Durchgehendes Gespräch (Auto-Re-Listen)
+                  </div>
+                  <div className="text-xs text-[#94A3B8]">
+                    Hört nach Giselas Antwort automatisch wieder zu (Stopp per „Danke, reicht“)
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  aria-label="Durchgehendes Gespräch umschalten"
+                  onClick={() => {
+                    const next = !currentAiSettings.continuousListening;
+                    handleUpdateAiSettings({ continuousListening: next });
+                    onNotify(
+                      next
+                        ? 'Durchgehendes Gespräch (Auto-Re-Listen) aktiviert.'
+                        : 'Durchgehendes Gespräch deaktiviert.'
+                    );
+                  }}
+                  className={`min-h-[44px] px-3.5 py-1.5 rounded-xl text-xs font-bold border transition shrink-0 active:scale-95 ${
+                    currentAiSettings.continuousListening
+                      ? 'bg-[#0A9396] text-white border-[#14B8A6]'
+                      : 'bg-[#181A1B] text-[#94A3B8] border-white/10'
+                  }`}
+                >
+                  {currentAiSettings.continuousListening ? 'Aktiv' : 'Aus'}
+                </button>
               </div>
             </div>
           </div>
