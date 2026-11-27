@@ -1,12 +1,29 @@
 import React, { useState } from 'react';
-import { Bell, BrainCircuit, Camera, Clock, Receipt, Scale, Sparkles, Webhook } from 'lucide-react';
-import { BanditUserPreferences, THEME } from '../../types';
+import {
+  Bell,
+  BrainCircuit,
+  Camera,
+  Clock,
+  Plus,
+  Receipt,
+  Scale,
+  ShoppingCart,
+  Sparkles,
+  Trash2,
+  Webhook,
+  Zap
+} from 'lucide-react';
+import { BanditUserPreferences, SmartHomeSwitchItem, THEME } from '../../types';
 import { requestPushNotificationPermission } from '../../services/cloudSyncAndPush';
 import {
   AutoAuditSettings,
   loadAuditSettings,
   saveAuditSettings
 } from '../../services/deepResearchAndScanner';
+import {
+  buildTsaDefaultSwitches,
+  triggerSmartHomeSwitch
+} from '../../services/smartHomeBridge';
 import { ZentraleAccordion, ZentraleToggleRow } from './ZentralePrimitives';
 
 interface AutomationSectionProps {
@@ -20,6 +37,8 @@ interface AutomationSectionProps {
   haEmbedUrl?: string;
   onChangeHaWebhook?: (url: string) => void;
   onChangeHaEmbed?: (url: string) => void;
+  smartHomeSwitches?: SmartHomeSwitchItem[];
+  onUpdateSmartHomeSwitches?: (items: SmartHomeSwitchItem[]) => void;
   onNotify: (msg: string) => void;
 }
 
@@ -37,6 +56,8 @@ export const AutomationSection: React.FC<AutomationSectionProps> = ({
   haEmbedUrl = '',
   onChangeHaWebhook,
   onChangeHaEmbed,
+  smartHomeSwitches = [],
+  onUpdateSmartHomeSwitches,
   onNotify
 }) => {
   const [pushGranted, setPushGranted] = useState<boolean>(
@@ -45,6 +66,49 @@ export const AutomationSection: React.FC<AutomationSectionProps> = ({
       Notification.permission === 'granted'
   );
   const [auditSettings, setAuditSettings] = useState<AutoAuditSettings>(loadAuditSettings);
+  const [newSwitchLabel, setNewSwitchLabel] = useState('');
+  const [newSwitchUrl, setNewSwitchUrl] = useState('');
+  const [newSwitchMethod, setNewSwitchMethod] = useState<'POST' | 'GET'>('POST');
+  const [switchStatusMsg, setSwitchStatusMsg] = useState<string | null>(null);
+
+  const handleAddSmartSwitch = () => {
+    const cleanLabel = newSwitchLabel.trim();
+    const cleanUrl = newSwitchUrl.trim();
+    if (!cleanLabel || !cleanUrl) return;
+    const nextItem: SmartHomeSwitchItem = {
+      id: `sw-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      label: cleanLabel,
+      endpointUrl: cleanUrl,
+      method: newSwitchMethod
+    };
+    onUpdateSmartHomeSwitches?.([...smartHomeSwitches, nextItem]);
+    setNewSwitchLabel('');
+    setNewSwitchUrl('');
+    setNewSwitchMethod('POST');
+    setSwitchStatusMsg(`Schalter „${cleanLabel}“ angelegt.`);
+    onNotify(`Schnellschalter „${cleanLabel}“ gespeichert.`);
+  };
+
+  const handleDeleteSmartSwitch = (id: string) => {
+    onUpdateSmartHomeSwitches?.(smartHomeSwitches.filter((s) => s.id !== id));
+    onNotify('Schnellschalter entfernt.');
+  };
+
+  const handleTestSmartSwitch = async (item: SmartHomeSwitchItem) => {
+    const res = await triggerSmartHomeSwitch(item, haWebhookUrl);
+    const updated = smartHomeSwitches.map((s) =>
+      s.id === item.id ? { ...s, lastTriggeredAt: res.triggeredAt } : s
+    );
+    onUpdateSmartHomeSwitches?.(updated);
+    setSwitchStatusMsg(`${item.label}: ${res.statusText}`);
+  };
+
+  const handleInsertTsaTemplates = () => {
+    const next = buildTsaDefaultSwitches(smartHomeSwitches);
+    onUpdateSmartHomeSwitches?.(next);
+    setSwitchStatusMsg('TSA-Vorlagen eingefügt.');
+    onNotify('TSA-Schnellschalter-Vorlagen eingefügt.');
+  };
 
   const notificationStatusText =
     typeof Notification !== 'undefined'
@@ -342,6 +406,28 @@ export const AutomationSection: React.FC<AutomationSectionProps> = ({
         testId="toggle-general-vision"
       />
 
+      {/* Gastro-Einkaufswagen-Brücke (POS & Teigrechner) */}
+      <ZentraleToggleRow
+        title="Gastro-Einkaufswagen-Brücke (POS & Teigrechner)"
+        description="Ermöglicht 1-Tipp-Verbrauchs- und Zutaten-Abgleich direkt in den Einkaufswagen."
+        checked={prefs.gastroCartBridgeEnabled !== false}
+        onToggle={() => {
+          const next = !(prefs.gastroCartBridgeEnabled !== false);
+          onUpdatePrefs({ gastroCartBridgeEnabled: next });
+          onNotify(
+            next
+              ? 'Gastro-Einkaufswagen-Brücke aktiviert.'
+              : 'Gastro-Einkaufswagen-Brücke ausgeblendet.'
+          );
+        }}
+        onLabel="An"
+        offLabel="Aus"
+        tone="honey"
+        icon={<ShoppingCart className="w-4 h-4 text-[#E5A93C] shrink-0" />}
+        ariaLabel="Gastro-Einkaufswagen-Brücke umschalten"
+        testId="toggle-gastro-cart-bridge"
+      />
+
       {/* Smart Home / Home Assistant (Prinzip der geschlossenen Schublade) */}
       <div className="space-y-2.5">
         <ZentraleToggleRow
@@ -368,7 +454,7 @@ export const AutomationSection: React.FC<AutomationSectionProps> = ({
         />
 
         {prefs.smartHomeEnabled === true && (
-          <div className="p-3.5 rounded-2xl bg-[#242930] border border-white/5 space-y-2.5 animate-fadeIn">
+          <div className="p-3.5 rounded-2xl bg-[#242930] border border-white/5 space-y-3 animate-fadeIn">
             <div className="space-y-1">
               <label className="text-xs text-[#94A3B8] block font-medium">
                 Home-Assistant Webhook URL:
@@ -395,6 +481,116 @@ export const AutomationSection: React.FC<AutomationSectionProps> = ({
                 data-testid="input-ha-embed-url"
                 className="w-full min-w-0 min-h-[44px] px-3.5 py-2 rounded-xl text-xs font-mono bg-[#181A1B] text-[#F1F5F9] border border-white/10 focus:outline-none focus:border-[#14B8A6]"
               />
+            </div>
+
+            {/* Schnellschalter verwalten */}
+            <div className="pt-2 border-t border-white/10 space-y-2.5">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-[#F1F5F9]">
+                  <Zap className="w-4 h-4 text-[#E5A93C] shrink-0" />
+                  <span>Schnellschalter verwalten</span>
+                </div>
+                <button
+                  type="button"
+                  data-testid="btn-insert-tsa-switches"
+                  onClick={handleInsertTsaTemplates}
+                  className="min-h-[44px] px-3 py-1.5 rounded-xl text-xs font-bold bg-[#181A1B] hover:bg-[#22262F] text-[#E5A93C] border border-[#E5A93C]/30 active:scale-95 transition cursor-pointer"
+                >
+                  TSA-Vorlagen einfügen
+                </button>
+              </div>
+
+              {smartHomeSwitches.length > 0 && (
+                <div className="space-y-2">
+                  {smartHomeSwitches.map((sw) => (
+                    <div
+                      key={sw.id}
+                      data-testid={`manage-smart-switch-${sw.id}`}
+                      className="p-2.5 rounded-xl bg-[#181A1B] border border-white/10 space-y-2"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <div className="text-xs font-bold text-[#F1F5F9] break-words">
+                            {sw.label}
+                          </div>
+                          <div className="text-xs font-mono text-[#94A3B8] break-all">
+                            {sw.method} · {sw.endpointUrl}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void handleTestSmartSwitch(sw)}
+                          className="flex-1 min-w-[100px] min-h-[44px] px-3 py-1.5 rounded-xl text-xs font-bold bg-[#242930] hover:bg-[#2A3038] text-[#14B8A6] border border-white/10 active:scale-95 transition cursor-pointer"
+                        >
+                          Testen
+                        </button>
+                        <button
+                          type="button"
+                          aria-label={`Schalter ${sw.label} löschen`}
+                          onClick={() => handleDeleteSmartSwitch(sw.id)}
+                          className="min-h-[44px] min-w-[44px] px-3 py-1.5 rounded-xl text-xs font-semibold bg-[#242930] hover:bg-[#2A3038] text-[#94A3B8] hover:text-[#E5A93C] border border-white/10 flex items-center justify-center gap-1 active:scale-95 transition cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5 shrink-0" />
+                          <span>Löschen</span>
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Neuen Schalter anlegen */}
+              <div className="p-2.5 rounded-xl bg-[#111317] border border-white/10 space-y-2">
+                <input
+                  type="text"
+                  data-testid="input-smart-switch-label"
+                  value={newSwitchLabel}
+                  onChange={(e) => setNewSwitchLabel(e.target.value)}
+                  placeholder="Name (z. B. TSA Arbeitslicht)"
+                  className="w-full min-w-0 min-h-[44px] px-3 py-2 rounded-xl text-xs bg-[#181A1B] text-[#F1F5F9] border border-white/10 focus:outline-none focus:border-[#14B8A6]"
+                />
+                <input
+                  type="text"
+                  data-testid="input-smart-switch-url"
+                  value={newSwitchUrl}
+                  onChange={(e) => setNewSwitchUrl(e.target.value)}
+                  placeholder="URL / Webhook-Pfad (z. B. http://192.168.30.88/relay/0?turn=toggle)"
+                  className="w-full min-w-0 min-h-[44px] px-3 py-2 rounded-xl text-xs font-mono bg-[#181A1B] text-[#F1F5F9] border border-white/10 focus:outline-none focus:border-[#14B8A6]"
+                />
+                <div className="flex flex-wrap gap-2">
+                  <select
+                    aria-label="HTTP-Methode"
+                    data-testid="select-smart-switch-method"
+                    value={newSwitchMethod}
+                    onChange={(e) =>
+                      setNewSwitchMethod(e.target.value === 'GET' ? 'GET' : 'POST')
+                    }
+                    className="min-h-[44px] px-3 py-2 rounded-xl text-xs font-mono bg-[#181A1B] text-[#F1F5F9] border border-white/10"
+                  >
+                    <option value="POST">POST</option>
+                    <option value="GET">GET</option>
+                  </select>
+                  <button
+                    type="button"
+                    data-testid="btn-add-smart-switch"
+                    disabled={!newSwitchLabel.trim() || !newSwitchUrl.trim()}
+                    onClick={handleAddSmartSwitch}
+                    className="flex-1 min-w-[140px] min-h-[44px] px-3 py-2 rounded-xl text-xs font-bold text-white disabled:opacity-50 flex items-center justify-center gap-1.5 active:scale-95 transition cursor-pointer"
+                    style={{ backgroundColor: THEME.accentPrimary }}
+                  >
+                    <Plus className="w-4 h-4 shrink-0" />
+                    <span>Schalter anlegen</span>
+                  </button>
+                </div>
+              </div>
+
+              {switchStatusMsg && (
+                <div className="text-xs font-medium text-[#E5A93C] leading-snug break-words">
+                  {switchStatusMsg}
+                </div>
+              )}
             </div>
           </div>
         )}

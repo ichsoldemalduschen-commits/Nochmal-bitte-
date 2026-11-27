@@ -33,12 +33,13 @@ export const INITIAL_APP_SNAPSHOT: AppStateSnapshot = {
       customLogoUrl: null,
       accentColor: '#14B8A6',
       archived: false,
-      enabledPlugins: ['pos-tap-clicker', 'event-quantity-calc'],
+      enabledPlugins: ['pos-tap-clicker', 'event-quantity-calc', 'haccp-protocol'],
       customMeta: {
         fahrzeugBasis: 'Feuerwehr-TSA (Tragkraftspritzenanhänger)',
         ofenTyp: 'Gas-Kuppelofen 450 °C (50 mbar Gewerbe)',
         shellyIp: '192.168.30.88 (Shelly Plus 2PM)',
-        feuerwehrautoFondsGesamt: 142.5
+        feuerwehrautoFondsGesamt: 142.5,
+        haccpProtocolSeeded: true
       },
       tasks: [
         {

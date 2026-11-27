@@ -2342,4 +2342,151 @@ test.describe('Block C: Mobile-Guard 390×844 px Gesamt-Schutznetz', () => {
     await expect(focusOverlay).toBeHidden();
     await assertNoHorizontalOverflow(page, 'Station 22 – Abschluss');
   });
+
+  test('Station 23 – Gastro- & TSA-Automatik: Einkaufswagen-Brücke, 1-Klick-HACCP-Protokoll & geschlossene Smart-Home-Schnellschalter (390px-Schutz)', async ({ page }) => {
+    await page.goto('./');
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.locator('h1')).toBeVisible({ timeout: 10000 });
+
+    const openExtras = async () => {
+      await page.locator('button[aria-label="Navigation öffnen"]').click();
+      const extrasBtn = page.locator('button:has-text("Werkzeuge"), button:has-text("Extras")').first();
+      await expect(extrasBtn).toBeVisible({ timeout: 5000 });
+      await extrasBtn.click();
+    };
+
+    const openAutomationSection = async () => {
+      await page.locator('button[aria-label="Navigation öffnen"]').click();
+      await page.getByRole('button', { name: 'Zentrale', exact: true }).click();
+      await page.locator('button:has-text("Erinnerungen, Vorarbeiter & Smart Home")').click();
+    };
+
+    // 1. Toggle-Prüfung Bereich 4: gastroCartBridgeEnabled ausschalten -> Reload -> Persistenz -> ExtrasView ausgeblendet
+    await openAutomationSection();
+    const gastroToggle = page.locator('[data-testid="toggle-gastro-cart-bridge"]');
+    await expect(gastroToggle).toBeVisible();
+    await expect(gastroToggle).toContainText('An');
+    expect((await gastroToggle.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+    await gastroToggle.click();
+    await expect(gastroToggle).toContainText('Aus');
+    await page.waitForTimeout(250);
+
+    await page.reload();
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.locator('h1')).toBeVisible({ timeout: 10000 });
+
+    await openAutomationSection();
+    await expect(page.locator('[data-testid="toggle-gastro-cart-bridge"]')).toContainText('Aus');
+    await page.locator('button:has-text("Zurück")').click();
+
+    await openExtras();
+    await expect(page.locator('[aria-label="POS Pizza-Slots"]')).toBeVisible({ timeout: 8000 });
+    await expect(page.locator('[data-testid="pos-restock-bridge"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid="dough-restock-bridge"]')).toHaveCount(0);
+    // Bei smartHomeEnabled = false darf in ExtrasView kein Smart-Home-Panel sichtbar sein
+    await expect(page.locator('[data-testid="smart-home-quick-panel"]')).toHaveCount(0);
+    await assertNoHorizontalOverflow(page, 'Station 23 – Brücken & Smart Home ausgeblendet');
+
+    // Gastro-Brücke wieder einschalten
+    await openAutomationSection();
+    await page.locator('[data-testid="toggle-gastro-cart-bridge"]').click();
+    await expect(page.locator('[data-testid="toggle-gastro-cart-bridge"]')).toContainText('An');
+    await page.waitForTimeout(250);
+    await page.locator('button:has-text("Zurück")').click();
+
+    // 2. Gastro-Einkaufswagen-Brücke End-to-End (POS-Clicker + Dubletten-Schutz im Teigrechner)
+    await openExtras();
+    await expect(page.locator('[data-testid="pos-restock-bridge"]')).toBeVisible();
+    await expect(page.locator('[data-testid="dough-restock-bridge"]')).toBeVisible();
+
+    const firstSlotPlus = page.locator('[data-testid^="pos-slot-"] button[aria-label$="plus"]').first();
+    await firstSlotPlus.click();
+
+    await page.locator('[data-testid="pos-restock-toggle"]').click();
+    const posSubmitBtn = page.locator('[data-testid="pos-restock-submit"]');
+    await expect(posSubmitBtn).toBeVisible();
+    expect((await posSubmitBtn.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+    await posSubmitBtn.click();
+    await expect(page.locator('[data-testid="pos-restock-confirmation"]')).toContainText('auf Einkaufsliste gelegt');
+    await assertNoHorizontalOverflow(page, 'Station 23 – POS Nachorderung ausgelöst');
+
+    // Teigrechner-Abgleich ohne Dubletten prüfen (Mehl, Fior di Latte, Sugo bereits durch POS im Wagen)
+    const doughSyncBtn = page.locator('[data-testid="dough-restock-sync-btn"]');
+    expect((await doughSyncBtn.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+    await doughSyncBtn.click();
+    await expect(page.locator('[data-testid="dough-restock-status"]')).toContainText('bereits im Einkaufswagen');
+
+    // Im Einkaufswagen verifizieren, dass neue Artikel angekommen sind
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    await page.locator('div[role="toolbar"][aria-label="Schnellzugriff"] button:has-text("Einkauf")').click();
+    const floatingCart = page.locator('div[role="dialog"][aria-label="Schwebender Einkaufswagen"]');
+    const cartSection = page.locator('section:has(h3:has-text("Einkaufswagen"))');
+    await expect(cartSection).toContainText('Pizzakartons');
+    await assertNoHorizontalOverflow(page, 'Station 23 – Einkaufswagen nach Gastro-Brücke');
+    if (await floatingCart.isVisible()) {
+      await floatingCart.locator('button[aria-label="Einkaufswagen schließen"]').click();
+      await expect(floatingCart).toBeHidden();
+    }
+
+    // 3. 1-Klick-HACCP-Protokoll End-to-End
+    await openExtras();
+    const haccpPlugin = page.locator('[data-testid="haccp-protocol-plugin"]');
+    await expect(haccpPlugin).toBeVisible();
+
+    await page.locator('[data-testid="haccp-fridge-temp"]').fill('3.5');
+    const checkAllBtn = page.locator('[data-testid="haccp-check-all"]');
+    expect((await checkAllBtn.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+    await checkAllBtn.click();
+
+    const saveHaccpBtn = page.locator('[data-testid="haccp-save-btn"]');
+    expect((await saveHaccpBtn.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+    await saveHaccpBtn.click();
+    await expect(page.locator('[data-testid="haccp-history-list"]')).toContainText('3,5 °C');
+    await assertNoHorizontalOverflow(page, 'Station 23 – HACCP gesichert');
+
+    await page.waitForTimeout(250);
+    await page.reload();
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.locator('h1')).toBeVisible({ timeout: 10000 });
+
+    await openExtras();
+    await expect(page.locator('[data-testid="haccp-protocol-plugin"]')).toBeVisible();
+    const exportCsvBtn = page.locator('[data-testid="haccp-export-csv"]');
+    await expect(exportCsvBtn).toBeVisible();
+    expect((await exportCsvBtn.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+    await page.locator('[data-testid="haccp-history-toggle"]').click();
+    await expect(page.locator('[data-testid="haccp-history-list"]')).toContainText('3,5 °C');
+    await assertNoHorizontalOverflow(page, 'Station 23 – HACCP nach Reload persistent');
+
+    // 4. Smart-Home-Schublade & Schnellschalter End-to-End
+    await openAutomationSection();
+    const smartHomeToggle = page.locator('[data-testid="toggle-smart-home"]');
+    await expect(smartHomeToggle).toContainText('Aus');
+    await smartHomeToggle.click();
+    await expect(smartHomeToggle).toContainText('An');
+
+    await page.locator('[data-testid="input-smart-switch-label"]').fill('TSA Test-Arbeitslicht');
+    await page.locator('[data-testid="input-smart-switch-url"]').fill('http://127.0.0.1:9/relay/0?turn=toggle');
+    await page.locator('[data-testid="btn-add-smart-switch"]').click();
+    await assertNoHorizontalOverflow(page, 'Station 23 – Smart-Home-Schalter angelegt');
+    await page.waitForTimeout(200);
+    await page.locator('button:has-text("Zurück")').click();
+
+    await openExtras();
+    const quickPanel = page.locator('[data-testid="smart-home-quick-panel"]');
+    await expect(quickPanel).toBeVisible();
+    await expect(quickPanel).toContainText('TSA Test-Arbeitslicht');
+    await assertNoHorizontalOverflow(page, 'Station 23 – Smart-Home-QuickPanel in ExtrasView');
+
+    // Smart Home sauber wieder auf AUS stellen (Standard-Ruhezustand)
+    await openAutomationSection();
+    await page.locator('[data-testid="toggle-smart-home"]').click();
+    await expect(page.locator('[data-testid="toggle-smart-home"]')).toContainText('Aus');
+    await page.waitForTimeout(200);
+    await page.locator('button:has-text("Zurück")').click();
+
+    await openExtras();
+    await expect(page.locator('[data-testid="smart-home-quick-panel"]')).toHaveCount(0);
+    await assertNoHorizontalOverflow(page, 'Station 23 – Abschluss');
+  });
 });

@@ -9,14 +9,18 @@
  * - isLocallyOverridden-Indikator (Honig-Gold)
  * - Alle bestehenden Features (Live-Zählen, Trinkgeld-Fonds, Abrechnung, Reset) vollständig erhalten
  */
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  Check,
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
   Flame,
   Minus,
   Plus,
   RotateCcw,
   Settings,
+  ShoppingCart,
   X,
   Save,
   Undo2,
@@ -24,6 +28,7 @@ import {
   PlusCircle
 } from 'lucide-react';
 import { PluginContextProps, PosPizzaSlot, PizzaCatalogItem, THEME } from '../types';
+import { computePosRestockItems } from '../services/gastroInventoryBridge';
 import {
   formatNow,
   loadPizzaCatalog,
@@ -47,8 +52,12 @@ function genId(): string {
 export const PosTapClickerPlugin: React.FC<PluginContextProps> = ({
   project,
   onUpdateProjectMeta,
+  onAddCartItems,
   onRecordEventSale,
-  onNotify
+  onNotify,
+  gastroCartBridgeEnabled,
+  openCartTitles,
+  onAddRestockItemsToCart
 }) => {
   // ── Kern-State ──────────────────────────────────────────────────────────────
   const [eventName, setEventName] = useState('Streetfood Einsatz');
@@ -58,6 +67,9 @@ export const PosTapClickerPlugin: React.FC<PluginContextProps> = ({
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<SettingsTab>('slots');
   const [catalogLoaded, setCatalogLoaded] = useState(false);
+  const [restockOpen, setRestockOpen] = useState(false);
+  const [deselectedRestockIds, setDeselectedRestockIds] = useState<Record<string, boolean>>({});
+  const [restockConfirmation, setRestockConfirmation] = useState<string | null>(null);
 
   // ── Katalog-Edit-State ──────────────────────────────────────────────────────
   const [editingCatalogId, setEditingCatalogId] = useState<string | null>(null);
@@ -88,6 +100,37 @@ export const PosTapClickerPlugin: React.FC<PluginContextProps> = ({
   const grossRevenue = slots.reduce((acc, s) => acc + s.count * s.price, 0);
   const cogsTotal = slots.reduce((acc, s) => acc + s.count * s.unitCost, 0);
   const grossProfit = grossRevenue - cogsTotal;
+
+  const restockSuggestions = useMemo(
+    () => computePosRestockItems(totalPizzas, openCartTitles || []),
+    [totalPizzas, openCartTitles]
+  );
+
+  const selectedRestockItems = restockSuggestions.filter(
+    (item) => !item.alreadyInCart && !deselectedRestockIds[item.id]
+  );
+
+  const handleToggleRestockItem = (id: string) => {
+    setDeselectedRestockIds((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const handleSubmitPosRestock = () => {
+    if (selectedRestockItems.length === 0) {
+      onNotify('Keine neuen Nachorder-Artikel ausgewählt.');
+      return;
+    }
+    const addFn = onAddRestockItemsToCart || onAddCartItems;
+    addFn(
+      selectedRestockItems.map((item) => ({
+        title: item.title,
+        quantity: item.quantity,
+        reason: item.reason
+      }))
+    );
+    const msg = `${selectedRestockItems.length} Verbrauchsartikel auf Einkaufsliste gelegt.`;
+    setRestockConfirmation(msg);
+    onNotify(msg);
+  };
 
   // ── Zähler-Aktionen ─────────────────────────────────────────────────────────
   const updateCount = (slotId: string, delta: number) => {
@@ -646,6 +689,121 @@ export const PosTapClickerPlugin: React.FC<PluginContextProps> = ({
         <CheckCircle2 className="w-4 h-4" />
         1-Klick Event-Abschluss in Backoffice buchen
       </button>
+
+      {/* ── Gastro-Einkaufswagen-Brücke (Verbrauch nachordern) ── */}
+      {gastroCartBridgeEnabled !== false && (
+        <div
+          data-testid="pos-restock-bridge"
+          className="rounded-xl border border-white/10 bg-[#111317] overflow-hidden"
+        >
+          <button
+            type="button"
+            data-testid="pos-restock-toggle"
+            aria-expanded={restockOpen}
+            onClick={() => setRestockOpen((o) => !o)}
+            className="w-full min-h-[44px] px-3 py-2 flex items-center justify-between gap-2 text-xs font-semibold text-[#F1F5F9] cursor-pointer"
+          >
+            <span className="flex items-center gap-2 min-w-0">
+              <ShoppingCart className="w-4 h-4 text-[#E5A93C] shrink-0" />
+              <span className="break-words text-left">Verbrauch nachordern (Einkaufswagen)</span>
+            </span>
+            <span className="flex items-center gap-1.5 shrink-0 font-mono text-[#94A3B8]">
+              <span>
+                {totalPizzas > 0
+                  ? `${restockSuggestions.filter((r) => !r.alreadyInCart).length} offen`
+                  : 'ab 1 Pizza'}
+              </span>
+              {restockOpen ? (
+                <ChevronUp className="w-4 h-4" />
+              ) : (
+                <ChevronDown className="w-4 h-4" />
+              )}
+            </span>
+          </button>
+
+          {restockOpen && (
+            <div className="px-3 pb-3 pt-1 border-t border-white/5 space-y-2">
+              {totalPizzas === 0 ? (
+                <p className="text-xs text-[#94A3B8] leading-snug">
+                  Ab 1 gezählter Pizza werden Mehl, Mozzarella, Tomatensauce und Kartons automatisch berechnet.
+                </p>
+              ) : (
+                <>
+                  <div className="space-y-1.5">
+                    {restockSuggestions.map((item) => {
+                      const checked = !item.alreadyInCart && !deselectedRestockIds[item.id];
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          disabled={item.alreadyInCart}
+                          data-testid={`pos-restock-item-${item.id}`}
+                          onClick={() => handleToggleRestockItem(item.id)}
+                          className={`w-full min-h-[44px] px-2.5 py-2 rounded-lg border flex items-center justify-between gap-2 text-left transition ${
+                            item.alreadyInCart
+                              ? 'bg-[#191C22]/60 border-white/5 opacity-75 cursor-default'
+                              : checked
+                                ? 'bg-[#191C22] border-[#14B8A6]/50 text-[#F1F5F9] cursor-pointer'
+                                : 'bg-[#191C22] border-white/10 text-[#94A3B8] cursor-pointer'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                            <span
+                              className={`w-5 h-5 rounded flex items-center justify-center shrink-0 border ${
+                                item.alreadyInCart
+                                  ? 'bg-[#22262F] border-white/10 text-[#94A3B8]'
+                                  : checked
+                                    ? 'bg-[#14B8A6] border-[#14B8A6] text-[#111317]'
+                                    : 'bg-[#111317] border-white/20 text-transparent'
+                              }`}
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                            </span>
+                            <span className="text-xs font-medium break-words min-w-0">
+                              {item.title}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
+                            <span className="text-xs font-mono text-[#E5A93C]">
+                              {item.quantity}
+                            </span>
+                            {item.alreadyInCart && (
+                              <span className="text-xs px-1.5 py-0.5 rounded bg-[#22262F] text-[#94A3B8]">
+                                Bereits im Wagen
+                              </span>
+                            )}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <button
+                    type="button"
+                    data-testid="pos-restock-submit"
+                    disabled={selectedRestockItems.length === 0}
+                    onClick={handleSubmitPosRestock}
+                    className="w-full min-h-[44px] px-3 py-2 rounded-xl text-xs font-bold text-[#111317] disabled:opacity-50 flex items-center justify-center gap-2 transition active:scale-95 cursor-pointer"
+                    style={{ backgroundColor: '#E5A93C' }}
+                  >
+                    <ShoppingCart className="w-4 h-4 shrink-0" />
+                    <span>Ausgewählte auf Einkaufsliste</span>
+                  </button>
+
+                  {restockConfirmation && (
+                    <div
+                      data-testid="pos-restock-confirmation"
+                      className="text-xs font-medium text-[#E5A93C] leading-snug"
+                    >
+                      {restockConfirmation}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };

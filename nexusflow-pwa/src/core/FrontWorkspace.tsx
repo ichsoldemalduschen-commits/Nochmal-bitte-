@@ -19,6 +19,7 @@ import {
   Project,
   ProjectTabId,
   ReminderRecurrence,
+  SmartHomeSwitchItem,
   TaskItem,
   AmbientLightMode
 } from '../types';
@@ -152,6 +153,9 @@ interface FrontWorkspaceProps {
   onSnoozeForemanProposal?: (proposal: ForemanProposal) => void;
   onDismissForemanProposal?: (proposal: ForemanProposal) => void;
   onParkForemanProposal?: (proposal: ForemanProposal) => void;
+  smartHomeSwitches?: SmartHomeSwitchItem[];
+  haWebhookUrl?: string;
+  onTriggerSmartHomeSwitch?: (switchId: string, triggeredAt: string) => void;
   forceSingleViewSeq?: number;
   onNotify: (msg: string) => void;
 }
@@ -211,6 +215,9 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
   onSnoozeForemanProposal,
   onDismissForemanProposal,
   onParkForemanProposal,
+  smartHomeSwitches = [],
+  haWebhookUrl = '',
+  onTriggerSmartHomeSwitch,
   forceSingleViewSeq = 0,
   ambientLightMode = 'shimmer',
   onSaveDossierToProject,
@@ -761,6 +768,11 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
             <ExtrasView
               activeProject={activeProject}
               activePlugins={activePlugins}
+              gastroCartBridgeEnabled={prefs.gastroCartBridgeEnabled !== false}
+              smartHomeEnabled={prefs.smartHomeEnabled === true}
+              smartHomeSwitches={smartHomeSwitches}
+              haWebhookUrl={haWebhookUrl}
+              onTriggerSmartHomeSwitch={onTriggerSmartHomeSwitch}
               onUpdateProjectMeta={onUpdateProjectMeta}
               onAddCartItems={onAddCartItems}
               onRecordEventSale={onRecordEventSale}

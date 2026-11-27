@@ -18,6 +18,7 @@ import {
   Project,
   ProjectTabId,
   ReminderRecurrence,
+  SmartHomeSwitchItem,
   SubTaskItem,
   TaskItem,
   THEME,
@@ -55,6 +56,9 @@ import {
   loadOfflineAudioMemos,
   loadOfflineAudioMemosAsync,
   saveOfflineAudioMemos,
+  loadSmartHomeSwitches,
+  loadSmartHomeSwitchesAsync,
+  saveSmartHomeSwitches,
   STORAGE_KEYS
 } from './services/storage';
 import {
@@ -156,6 +160,9 @@ export default function App() {
   const [dismissedThinkerIds, setDismissedThinkerIds] = useState<string[]>(loadDismissedThinkerIds);
   const [offlineAudioMemos, setOfflineAudioMemos] = useState<OfflineAudioMemo[]>(
     loadOfflineAudioMemos
+  );
+  const [smartHomeSwitches, setSmartHomeSwitches] = useState<SmartHomeSwitchItem[]>(
+    loadSmartHomeSwitches
   );
   const [forceSingleViewSeq, setForceSingleViewSeq] = useState(0);
   const skipNextAutoSyncRef = useRef<boolean>(true);
@@ -328,17 +335,24 @@ export default function App() {
       // 1. Silent IDB migration & request storage persistence BEFORE loading settings
       requestStoragePersistence();
       await migrateLocalStorageToIDB();
-      const [pins, loadedPrefs, loadedProposals, loadedDismissedIds, loadedAudioMemos] =
-        await Promise.all([
-          loadIdbItem<Record<string, PhotoMeasurePin[]>>(STORAGE_KEYS.PHOTO_PINS, {}),
-          loadUserPrefsAsync(),
-          loadForemanProposalsAsync(),
-          loadDismissedThinkerIdsAsync(),
-          loadOfflineAudioMemosAsync(),
-          loadIdbItem(STORAGE_KEYS.CLOUD_SYNC, DEFAULT_CLOUD_CONFIG),
-          loadIdbItem(STORAGE_KEYS.AUDIT_SETTINGS, { weeklyAutoAuditEnabled: true, lastRunIso: null }),
-          loadIdbItem(STORAGE_KEYS.BLUEPRINTS, [])
-        ]);
+      const [
+        pins,
+        loadedPrefs,
+        loadedProposals,
+        loadedDismissedIds,
+        loadedAudioMemos,
+        loadedSmartSwitches
+      ] = await Promise.all([
+        loadIdbItem<Record<string, PhotoMeasurePin[]>>(STORAGE_KEYS.PHOTO_PINS, {}),
+        loadUserPrefsAsync(),
+        loadForemanProposalsAsync(),
+        loadDismissedThinkerIdsAsync(),
+        loadOfflineAudioMemosAsync(),
+        loadSmartHomeSwitchesAsync(),
+        loadIdbItem(STORAGE_KEYS.CLOUD_SYNC, DEFAULT_CLOUD_CONFIG),
+        loadIdbItem(STORAGE_KEYS.AUDIT_SETTINGS, { weeklyAutoAuditEnabled: true, lastRunIso: null }),
+        loadIdbItem(STORAGE_KEYS.BLUEPRINTS, [])
+      ]);
       if (!cancelled && pins && Object.keys(pins).length > 0) {
         setPhotoPins(pins);
       }
@@ -347,6 +361,7 @@ export default function App() {
         setForemanProposals(loadedProposals);
         setDismissedThinkerIds(loadedDismissedIds);
         setOfflineAudioMemos(loadedAudioMemos);
+        setSmartHomeSwitches(loadedSmartSwitches);
       }
 
       // 2. Load persisted app state & unified AI/Voice settings
@@ -2228,6 +2243,17 @@ export default function App() {
               onSnoozeForemanProposal={handleSnoozeForemanProposal}
               onDismissForemanProposal={handleDismissForemanProposal}
               onParkForemanProposal={handleParkForemanProposal}
+              smartHomeSwitches={smartHomeSwitches}
+              haWebhookUrl={state.haWebhookUrl}
+              onTriggerSmartHomeSwitch={(switchId, triggeredAt) => {
+                setSmartHomeSwitches((prev) => {
+                  const next = prev.map((sw) =>
+                    sw.id === switchId ? { ...sw, lastTriggeredAt: triggeredAt } : sw
+                  );
+                  void saveSmartHomeSwitches(next);
+                  return next;
+                });
+              }}
               forceSingleViewSeq={forceSingleViewSeq}
               ambientLightMode={state.ambientLightMode || 'shimmer'}
               onSaveDossierToProject={handleSaveDossierToProject}
@@ -2297,7 +2323,10 @@ export default function App() {
                   ...p,
                   enabledPlugins: (p.enabledPlugins || []).includes(pluginId)
                     ? (p.enabledPlugins || []).filter((id) => id !== pluginId)
-                    : [...(p.enabledPlugins || []), pluginId]
+                    : [...(p.enabledPlugins || []), pluginId],
+                  ...(pluginId === 'haccp-protocol'
+                    ? { customMeta: { ...p.customMeta, haccpProtocolSeeded: true } }
+                    : {})
                 }))
               }
               onToggleTabForProject={handleToggleTabForProject}
@@ -2330,6 +2359,11 @@ export default function App() {
               onUpdateAiVoiceSettings={handleUpdateAiVoiceSettings}
               prefs={prefs}
               onUpdatePrefs={handleUpdatePrefs}
+              smartHomeSwitches={smartHomeSwitches}
+              onUpdateSmartHomeSwitches={(next) => {
+                setSmartHomeSwitches(next);
+                void saveSmartHomeSwitches(next);
+              }}
               onExportFullBackup={handleExportFullBackup}
               onImportFullBackup={(snap) => {
                 skipNextAutoSyncRef.current = true;
@@ -2338,6 +2372,7 @@ export default function App() {
                 void loadForemanProposalsAsync().then(setForemanProposals);
                 void loadDismissedThinkerIdsAsync().then(setDismissedThinkerIds);
                 void loadOfflineAudioMemosAsync().then(setOfflineAudioMemos);
+                void loadSmartHomeSwitchesAsync().then(setSmartHomeSwitches);
                 notify('Backup geladen.');
               }}
               onUploadProjectLogo={async (projId, file) => {

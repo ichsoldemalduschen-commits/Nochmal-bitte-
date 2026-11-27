@@ -181,7 +181,7 @@ Für jede künftige Änderung gilt ein verbindliches E2E-Qualitätsgate auf mobi
 - **Befehl:** `npm run verify` im Verzeichnis `nexusflow-pwa` (führt `npm run build && npm run test:guard` aus).
 - **Pflicht vor jedem Git-Push:**
   1. `npm run build` muss fehlerfrei durchlaufen.
-  2. Playwright Mobile-Guard (`tests/mobile-guard.spec.ts`) muss alle **22 Stationen** (inkl. Stetiger Begleiter v2 in Station 21 sowie Wacher Begleiter, Antriebs-Würfel & Energie-Tagesplaner in Station 22) zu 100 % grün durchlaufen.
+  2. Playwright Mobile-Guard (`tests/mobile-guard.spec.ts`) muss alle **23 Stationen** (inkl. Stetiger Begleiter v2 in Station 21, Wacher Begleiter / Antriebs-Würfel in Station 22 sowie Gastro-Brücke, 1-Klick-HACCP & Smart-Home-Schnellschalter in Station 23) zu 100 % grün durchlaufen.
   3. Strikte Wächter: 0 ungefangene `pageerror`-Exceptions, 0 unberechtigte `console.error`-Meldungen, 0 horizontale Viewport-Überläufe (`document.documentElement.scrollWidth <= window.innerWidth + 1`).
 
 ---
@@ -387,3 +387,15 @@ Die ehemalige Mono-Komponente `VoiceModal.tsx` (> 2 200 Zeilen) ist verlustfrei 
 - **Energie-Akku-Filter & Schweinehund-Pool (`TasksView.tsx`, `SingleFocusOverlay.tsx`, `FocusAndSmartphoneSection.tsx`, `storage.ts`):**
   - Zwei persistente Zentrale-Schalter in Bereich 2 (`driveDiceEnabled`, `energyPlannerEnabled`, Default `true`) inkl. Voll-Backup-v2- und IDB-Migration.
   - Akku-Filterleiste (`Alle` / `Niedrig` / `Mittel` / `Hoch`), Formular-Chips, `Antriebs-Würfel (Schweinehund-Pool)` im `⋮`-Menü sowie `Andere Aufgabe würfeln` im `SingleFocusOverlay` (`Station 22`).
+
+---
+
+## 24  Welle 5 / Ticket 5.2 – Gastro- & TSA-Automatik
+
+- **Gastro-Lager- & Zutaten-Abgleich (`src/services/gastroInventoryBridge.ts`, `posTapClicker.tsx`, `eventQuantityCalc.tsx`):**
+  - `computePosRestockItems` und `computeDoughRestockItems` berechnen Verbrauchs- bzw. fehlende Zutatenpositionen gegen offene Einkaufsartikel ohne Dubletten (`alreadyInCart`).
+  - Steuerbar über den persistenten Zentrale-Schalter `gastroCartBridgeEnabled` in Bereich 4 (`AutomationSection.tsx`, Default `true`).
+- **1-Klick-HACCP-Protokoll (`src/plugins/haccpProtocol.tsx`, `src/plugins/registry.ts`):**
+  - Isoliertes Plugin (`haccp-protocol`, Default aktiv für `proj-foodtruck` via idempotenter Erst-Migration) mit Kühl-/Saladette-Sollwert-Hinweis in Honig-Gold (`#E5A93C`), 4 Hygiene-Checks, `Alle Standard-Checks ✓`, IDB-Store `HACCP_LOGS` (`banditos_haccp_logs_v1` inkl. Voll-Backup v2) sowie CSV-Export (UTF-8-BOM, `;`, deutsches Komma) und Nachweis-Kopie.
+- **Live-Shelly- & Home-Assistant-Schnellschalter (`src/core/front/SmartHomeQuickPanel.tsx`, `src/services/smartHomeBridge.ts`, `ExtrasView.tsx`, `AutomationSection.tsx`):**
+  - Geschlossene Schublade strikt an `smartHomeEnabled` (Default `false`) gekoppelt; IDB-Store `SMART_HOME_SWITCHES` (`banditos_smart_home_switches_v1` inkl. Voll-Backup v2), Verwaltung inkl. `TSA-Vorlagen einfügen` in Bereich 4 und `fetch` mit 4s-Timeout / `no-cors`-Fallback ohne ungefangene Konsolenfehler (`Station 23`).

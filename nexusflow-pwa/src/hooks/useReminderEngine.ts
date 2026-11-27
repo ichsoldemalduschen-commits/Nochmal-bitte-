@@ -140,16 +140,6 @@ export function useReminderEngine({
         if (proj.archived) continue;
         for (const task of proj.tasks) {
           if (!isReminderDueForWindow(task, now)) continue;
-          const firedKey = `${proj.id}_${task.id}_${task.reminderAt.trim()}_${
-            /^\d{1,2}:\d{2}$/.test(task.reminderAt.trim()) ? dateKey : 'iso'
-          }`;
-          if (notifiedKeysRef.current.has(firedKey)) continue;
-      }
-    } else {
-      for (const proj of projectsRef.current) {
-        if (proj.archived) continue;
-        for (const task of proj.tasks) {
-          if (!isReminderDueForWindow(task, now)) continue;
           const firedKey = `${proj.id}_${task.id}_${task.reminderAt.trim()}_${/^\d{1,2}:\d{2}$/.test(task.reminderAt.trim()) ? dateKey : 'iso'
             }`;
           if (notifiedKeysRef.current.has(firedKey)) continue;

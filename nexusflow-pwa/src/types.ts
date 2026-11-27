@@ -45,6 +45,7 @@ export interface BanditUserPreferences {
   murmurAutopilotEnabled?: boolean;
   generalVisionEnabled?: boolean;
   offlineAudioBufferEnabled?: boolean;
+  gastroCartBridgeEnabled?: boolean;
   companionMessageToolsEnabled?: boolean;
   companionQuickChipsEnabled?: boolean;
   companionStartExpanded?: boolean;
@@ -309,6 +310,11 @@ export interface PluginContextProps {
   onAddInfoCard?: (title: string, content: string) => void;
   onRecordEventSale: (entry: EventSalesLog) => void;
   onNotify: (msg: string) => void;
+  gastroCartBridgeEnabled?: boolean;
+  openCartTitles?: string[];
+  onAddRestockItemsToCart?: (
+    items: Array<{ title: string; quantity: string; price?: string; reason?: string }>
+  ) => void;
 }
 
 export interface PluginDefinition {
@@ -361,9 +367,37 @@ export interface FullBackupV2 {
   dismissedThinkerIds?: string[];
   visionCaptures?: VisionCaptureItem[];
   offlineAudioMemos?: OfflineAudioMemo[];
+  haccpLogs?: HaccpLogEntry[];
+  smartHomeSwitches?: SmartHomeSwitchItem[];
   pizzaCatalog: PizzaCatalogItem[];
   posSlots: PosPizzaSlot[];
   doughCalcDefaults: DoughCalcDefaults;
+}
+
+export interface HaccpLogEntry {
+  id: string;
+  projectId: string;
+  dateISO: string; // YYYY-MM-DD
+  timestamp: string;
+  eventLabel: string;
+  fridgeTempC?: number | null;
+  saladetteTempC?: number | null;
+  hotWaterOk: boolean;
+  checks: {
+    surfacesSanitized: boolean;
+    handwashReady: boolean;
+    coolingChainOk: boolean;
+    endCleaningDone: boolean;
+  };
+  notes?: string;
+}
+
+export interface SmartHomeSwitchItem {
+  id: string;
+  label: string;
+  endpointUrl: string;
+  method: 'POST' | 'GET';
+  lastTriggeredAt?: string;
 }
 
 export type ForemanProposalKind = 'murmur-research' | 'thinker-contradiction';
