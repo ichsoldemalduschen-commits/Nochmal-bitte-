@@ -7,7 +7,7 @@ import { HaccpProtocolPlugin } from './haccpProtocol';
 export const PLUGIN_REGISTRY: PluginDefinition[] = [
   {
     id: 'pos-tap-clicker',
-    name: 'Pizza Bandit Live-Verkaufs-Clicker (POS)',
+    name: 'Live-Verkaufs-Clicker (POS)',
     shortLabel: 'Live-POS Clicker',
     description:
       '4 Pizza-Sorten mit Einzelpreis & Wareneinsatz + Feuerwehrauto-Fonds Trinkgeld-Zähler + 1-Klick Event-Abschluss.',

@@ -1,4 +1,6 @@
 import { AiExecutedAction } from '../../types';
+import { getActiveBrandMeta } from '../../config/brandConfig';
+import { loadUserPrefs } from '../../services/storage';
 
 export interface ExportableChatMessage {
   role: 'user' | 'assistant';
@@ -27,8 +29,9 @@ export function formatChatAsMarkdown(
   messages: ExportableChatMessage[],
   projectName: string
 ): string {
+  const appName = getActiveBrandMeta(loadUserPrefs().starterProfile).appName;
   const header = [
-    '# BANDIT.OS Begleiter-Verlauf',
+    `# ${appName} Begleiter-Verlauf`,
     '',
     `- **Projekt:** ${projectName}`,
     `- **Exportiert:** ${formatExportTimestamp()}`,
@@ -71,7 +74,8 @@ export function formatChatAsPlainText(
   messages: ExportableChatMessage[],
   projectName: string
 ): string {
-  const lines: string[] = [`BANDIT.OS Verlauf – ${projectName}`, `Stand: ${formatExportTimestamp()}`, ''];
+  const appName = getActiveBrandMeta(loadUserPrefs().starterProfile).appName;
+  const lines: string[] = [`${appName} Verlauf – ${projectName}`, `Stand: ${formatExportTimestamp()}`, ''];
 
   if (messages.length === 0) {
     lines.push('Keine Nachrichten im Verlauf.');

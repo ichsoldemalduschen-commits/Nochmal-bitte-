@@ -5,6 +5,7 @@ import { ProjectAvatar } from '../components/RaccoonAvatar';
 
 interface Flip7Props {
   activeProject?: Project;
+  fallbackProjectName?: string;
   topTasks: Array<{ projectId: string; projectName: string; task: TaskItem }>;
   onToggleTask: (projectId: string, taskId: string) => void;
   onOpenVoice: () => void;
@@ -13,11 +14,14 @@ interface Flip7Props {
 
 export const Flip7CoverView: React.FC<Flip7Props> = ({
   activeProject,
+  fallbackProjectName,
   topTasks,
   onToggleTask,
   onOpenVoice,
   onExitCoverMode
 }) => {
+  const resolvedProjectName =
+    activeProject?.name || topTasks[0]?.projectName || fallbackProjectName || 'Mein Projekt';
   return (
     <div
       className="min-h-screen flex flex-col items-center justify-center p-4 select-none"
@@ -36,11 +40,11 @@ export const Flip7CoverView: React.FC<Flip7Props> = ({
           <div className="flex items-center gap-2 min-w-0">
             <ProjectAvatar project={activeProject} sizeClass="w-7 h-7" />
             <div className="min-w-0">
-              <span className="text-[10px] uppercase tracking-wider text-[#14B8A6] font-bold block">
+              <span className="text-xs uppercase tracking-wider text-[#14B8A6] font-bold block">
                 Flip 7 Cover-Modus
               </span>
               <span className="text-xs font-bold text-white truncate block">
-                {activeProject?.name || 'Pizza Bandit'}
+                {resolvedProjectName}
               </span>
             </div>
           </div>
@@ -62,14 +66,14 @@ export const Flip7CoverView: React.FC<Flip7Props> = ({
           </div>
           <div className="text-left">
             <span className="block text-sm font-bold leading-tight">Sprachbefehl / Notiz</span>
-            <span className="block text-[10px] text-[#E5E7EB]/80 font-normal">
+            <span className="block text-xs text-[#E5E7EB]/80 font-normal">
               Antippen oder Alt + S
             </span>
           </div>
         </button>
 
         <div className="space-y-1.5">
-          <span className="text-[10px] font-bold uppercase tracking-wider text-[#9CA3AF] block">
+          <span className="text-xs font-bold uppercase tracking-wide text-[#9CA3AF] block">
             Top 3 offene Punkte (Sofort abhaken):
           </span>
           {topTasks.length === 0 ? (
@@ -89,7 +93,7 @@ export const Flip7CoverView: React.FC<Flip7Props> = ({
                 />
                 <div className="min-w-0 flex-1">
                   <p className="text-xs font-semibold text-white truncate">{task.title}</p>
-                  <span className="text-[9px] text-[#14B8A6] block">{projectName}</span>
+                  <span className="text-xs text-[#14B8A6] truncate block">{projectName}</span>
                 </div>
                 {task.aiTouched && (
                   <span

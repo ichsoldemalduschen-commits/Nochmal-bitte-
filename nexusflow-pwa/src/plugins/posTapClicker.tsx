@@ -156,7 +156,7 @@ export const PosTapClickerPlugin: React.FC<PluginContextProps> = ({
     onRecordEventSale({
       id: `sale-${Date.now()}`,
       timestamp: formatNow(),
-      eventName: eventName.trim() || 'Pizza Bandit Event',
+      eventName: eventName.trim() || 'Aktuelles Event',
       projectId: project.id,
       totalPizzas,
       grossRevenue,
@@ -594,7 +594,7 @@ export const PosTapClickerPlugin: React.FC<PluginContextProps> = ({
                 </span>
                 {slot.isLocallyOverridden && (
                   <span
-                    className="text-[11px] text-[#E5A93C] border border-[#E5A93C]/30 rounded px-1 leading-4"
+                    className="text-xs text-[#E5A93C] border border-[#E5A93C]/30 rounded px-1.5 leading-5"
                     title="Lokal fürs Event angepasst"
                     aria-label="Event-Anpassung aktiv"
                   >

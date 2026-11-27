@@ -1687,6 +1687,36 @@ export async function saveDoughCalcDefaults(defaults: DoughCalcDefaults): Promis
 
 // ── Vollständiges Backup v2 ──────────────────────────────────────────────────
 
+async function readOptionalBackupStore<T>(key: string, fallback: T): Promise<T> {
+  try {
+    const val = await get<T>(key);
+    if (val !== undefined && val !== null) {
+      return val;
+    }
+  } catch {
+    // IDB read error
+  }
+  if (memoryCache.has(key)) {
+    const cached = memoryCache.get(key);
+    if (cached !== undefined && cached !== null) {
+      return cached as T;
+    }
+  }
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw !== null) {
+      try {
+        return JSON.parse(raw) as T;
+      } catch {
+        return raw as unknown as T;
+      }
+    }
+  } catch {
+    // LS read error
+  }
+  return fallback;
+}
+
 export async function downloadFullBackupV2(snapshot: AppStateSnapshot): Promise<FullBackupV2> {
   const [
     rawUserPrefs,
@@ -1703,7 +1733,14 @@ export async function downloadFullBackupV2(snapshot: AppStateSnapshot): Promise<
     smartHomeSwitches,
     pizzaCatalog,
     posSlots,
-    doughCalcDefaults
+    doughCalcDefaults,
+    auditWatchlist,
+    auditSettings,
+    cloudSync,
+    resolvedAiVoiceSettings,
+    thumbHubEnabled,
+    thumbHubPosition,
+    ambientLightMode
   ] = await Promise.all([
     loadIdbItem<Partial<BanditUserPreferences>>(STORAGE_KEYS.USER_PREFS, DEFAULT_USER_PREFS),
     loadIdbItem<any>(STORAGE_KEYS.BLUEPRINTS, []),
@@ -1720,6 +1757,19 @@ export async function downloadFullBackupV2(snapshot: AppStateSnapshot): Promise<
     loadIdbItem<PizzaCatalogItem[]>(PIZZA_CATALOG_KEY, DEFAULT_PIZZA_CATALOG),
     loadIdbItem<PosPizzaSlot[]>(POS_SLOTS_KEY, []),
     loadIdbItem<DoughCalcDefaults>(DOUGH_CALC_DEFAULTS_KEY, DEFAULT_DOUGH_CALC_DEFAULTS),
+    readOptionalBackupStore<unknown>(STORAGE_KEYS.AUDIT_WATCHLIST, undefined),
+    readOptionalBackupStore<unknown>(STORAGE_KEYS.AUDIT_SETTINGS, undefined),
+    readOptionalBackupStore<unknown>(STORAGE_KEYS.CLOUD_SYNC, undefined),
+    loadAiVoiceSettings(snapshot),
+    readOptionalBackupStore<boolean | undefined>(STORAGE_KEYS.THUMB_HUB_ENABLED, snapshot.thumbHubEnabled),
+    readOptionalBackupStore<'left' | 'center' | 'right' | undefined>(
+      STORAGE_KEYS.THUMB_HUB_POSITION,
+      snapshot.thumbHubPosition
+    ),
+    readOptionalBackupStore<AmbientLightMode | undefined>(
+      STORAGE_KEYS.AMBIENT_LIGHT_MODE,
+      snapshot.ambientLightMode
+    )
   ]);
 
   const userPrefs = normalizeUserPrefs(rawUserPrefs);
@@ -1727,7 +1777,13 @@ export async function downloadFullBackupV2(snapshot: AppStateSnapshot): Promise<
   const backup: FullBackupV2 = {
     backupVersion: 2,
     exportedAt: new Date().toISOString(),
-    appState: snapshot,
+    appState: {
+      ...snapshot,
+      aiVoiceSettings: resolvedAiVoiceSettings,
+      ...(typeof thumbHubEnabled === 'boolean' ? { thumbHubEnabled } : {}),
+      ...(thumbHubPosition ? { thumbHubPosition } : {}),
+      ...(ambientLightMode ? { ambientLightMode } : {})
+    },
     userPrefs,
     blueprints,
     photoPins,
@@ -1743,6 +1799,9 @@ export async function downloadFullBackupV2(snapshot: AppStateSnapshot): Promise<
     pizzaCatalog,
     posSlots,
     doughCalcDefaults,
+    ...(auditWatchlist !== undefined ? { auditWatchlist } : {}),
+    ...(auditSettings !== undefined ? { auditSettings } : {}),
+    ...(cloudSync !== undefined ? { cloudSync } : {})
   };
 
   const dateStr = new Date().toISOString().slice(0, 10);
@@ -1750,7 +1809,8 @@ export async function downloadFullBackupV2(snapshot: AppStateSnapshot): Promise<
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `bandit-os-vollbackup-${dateStr}.json`;
+  const brandSlug = userPrefs.starterProfile === 'neutral' ? 'focus-os' : 'bandit-os';
+  a.download = `${brandSlug}-vollbackup-${dateStr}.json`;
   a.click();
   URL.revokeObjectURL(url);
 
@@ -1872,6 +1932,24 @@ export async function importFullBackupV2(
     }
     if (Array.isArray(raw.smartHomeSwitches)) {
       saves.push(saveSmartHomeSwitches(raw.smartHomeSwitches));
+    }
+    if (Array.isArray(raw.auditWatchlist)) {
+      saves.push(saveIdbItem(STORAGE_KEYS.AUDIT_WATCHLIST, raw.auditWatchlist));
+    }
+    if (raw.auditSettings && typeof raw.auditSettings === 'object') {
+      saves.push(saveIdbItem(STORAGE_KEYS.AUDIT_SETTINGS, raw.auditSettings));
+    }
+    if (raw.cloudSync && typeof raw.cloudSync === 'object') {
+      saves.push(saveIdbItem(STORAGE_KEYS.CLOUD_SYNC, raw.cloudSync));
+    }
+    if (typeof mergedState.thumbHubEnabled === 'boolean') {
+      saves.push(saveIdbItem(STORAGE_KEYS.THUMB_HUB_ENABLED, mergedState.thumbHubEnabled));
+    }
+    if (mergedState.thumbHubPosition) {
+      saves.push(saveIdbItem(STORAGE_KEYS.THUMB_HUB_POSITION, mergedState.thumbHubPosition));
+    }
+    if (mergedState.ambientLightMode) {
+      saves.push(saveIdbItem(STORAGE_KEYS.AMBIENT_LIGHT_MODE, mergedState.ambientLightMode));
     }
     if (Array.isArray(raw.pizzaCatalog) && raw.pizzaCatalog.length > 0) {
       saves.push(saveIdbItem(PIZZA_CATALOG_KEY, raw.pizzaCatalog));

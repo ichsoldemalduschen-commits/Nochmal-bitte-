@@ -393,6 +393,9 @@ export interface FullBackupV2 {
   pizzaCatalog: PizzaCatalogItem[];
   posSlots: PosPizzaSlot[];
   doughCalcDefaults: DoughCalcDefaults;
+  auditWatchlist?: unknown;
+  auditSettings?: unknown;
+  cloudSync?: unknown;
 }
 
 export interface HaccpLogEntry {

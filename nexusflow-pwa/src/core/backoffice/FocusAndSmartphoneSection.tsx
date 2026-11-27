@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Brain, ChevronDown, ChevronUp, Compass, HeartHandshake } from 'lucide-react';
 import { AmbientLightMode, BanditUserPreferences, DayBlockId, Project, SelfCheckEntry, THEME } from '../../types';
+import { getActiveBrandMeta } from '../../config/brandConfig';
 import { exportDayPlanIcs } from '../../services/exportBridge';
 import { SelfCheckHistoryPanel } from '../../plugins/mindfulChecks';
 import { ZentraleAccordion, ZentraleToggleRow } from './ZentralePrimitives';
@@ -475,7 +476,7 @@ export const FocusAndSmartphoneSection: React.FC<FocusAndSmartphoneSectionProps>
         />
 
         <ZentraleToggleRow
-          title="Geteilte Inhalte annehmen (Teilen → BANDIT.OS)"
+          title={`Geteilte Inhalte annehmen (Teilen → ${getActiveBrandMeta(prefs.starterProfile).appName})`}
           description="Übernimmt geteilte Texte oder Links aus anderen Apps direkt in das Eingabefeld"
           checked={prefs.shareTargetEnabled !== false}
           onToggle={() =>

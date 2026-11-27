@@ -25,7 +25,7 @@ import {
   THEME,
   VoiceInteractionMode
 } from './types';
-import { BRAND_CONFIG, NEUTRAL_BRAND_META } from './config/brandConfig';
+import { BRAND_CONFIG, NEUTRAL_BRAND_META, getActiveBrandMeta } from './config/brandConfig';
 import { DESIGN_TOKENS } from './config/designTokens';
 import { UNDO_TOAST_MS } from './config/runtimeConfig';
 import { INITIAL_APP_SNAPSHOT } from './data/pizzaBanditTsaSeed';
@@ -181,6 +181,7 @@ export default function App() {
   const [forceSingleViewSeq, setForceSingleViewSeq] = useState(0);
   const skipNextAutoSyncRef = useRef<boolean>(true);
   const autoSyncTimerRef = useRef<number | null>(null);
+  const activeBrandMeta = getActiveBrandMeta(prefs.starterProfile);
 
   const handleUpdatePrefs = (patch: Partial<BanditUserPreferences>) => {
     setPrefs((prev) => {
@@ -432,9 +433,9 @@ export default function App() {
     if (typeof document === 'undefined') return;
     document.title =
       prefs.starterProfile === 'neutral'
-        ? `${NEUTRAL_BRAND_META.appName} • ${NEUTRAL_BRAND_META.subtitle}`
-        : 'NexusFlow • Pizza Bandit & Workflow PWA';
-  }, [prefs.starterProfile]);
+        ? `${activeBrandMeta.appName} • ${activeBrandMeta.subtitle}`
+        : `NexusFlow • ${activeBrandMeta.appName} & Workflow PWA`;
+  }, [prefs.starterProfile, activeBrandMeta]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1816,7 +1817,8 @@ export default function App() {
     attachment: Attachment | null,
     autoUpscaledToPro?: boolean
   ) => {
-    const defaultProjId = BRAND_CONFIG.defaultProjectId;
+    const defaultProjId =
+      state.projects.find((p) => !p.archived)?.id || activeBrandMeta.defaultProjectId;
     const timestamp = formatNow();
     const nowIso = new Date().toISOString();
     const executedActions: AiExecutedAction[] = [];
@@ -1826,7 +1828,7 @@ export default function App() {
       inspectAndQueueCriticalTopic(
         rawText,
         firstTargetProjectId,
-        activeProject?.name || BRAND_CONFIG.projects['proj-foodtruck']?.name || 'Pizza Bandit',
+        activeProject?.name || state.projects[0]?.name || activeBrandMeta.defaultProjectName,
         state.projects
       );
     }
@@ -2050,7 +2052,7 @@ export default function App() {
 
   const getEffectiveDefaultProjectId = () => {
     const activeProjects = state.projects.filter((p) => !p.archived);
-    const defaultProjId = BRAND_CONFIG.defaultProjectId;
+    const defaultProjId = activeBrandMeta.defaultProjectId;
     return (!activeProject || activeProject.archived)
       ? (activeProjects.find((p) => p.id === defaultProjId)?.id || activeProjects[0]?.id || defaultProjId)
       : activeProject.id;
@@ -2259,6 +2261,7 @@ export default function App() {
       <>
         <Flip7CoverView
           activeProject={activeProject}
+          fallbackProjectName={state.projects[0]?.name || activeBrandMeta.defaultProjectName}
           topTasks={topThreeOpenTasks}
           onToggleTask={(projId, taskId) => {
             const ts = formatNow();
@@ -2282,7 +2285,9 @@ export default function App() {
           offlineAudioBufferEnabled={prefs.offlineAudioBufferEnabled !== false}
           companionMessageToolsEnabled={prefs.companionMessageToolsEnabled !== false}
           companionQuickChipsEnabled={prefs.companionQuickChipsEnabled !== false}
-          activeProjectId={activeProject?.id || BRAND_CONFIG.defaultProjectId}
+          activeProjectId={
+            activeProject?.id || state.projects[0]?.id || activeBrandMeta.defaultProjectId
+          }
           userApiKey={state.userApiKey}
           offlineAudioMemos={offlineAudioMemos}
           onUpdateOfflineAudioMemos={(next) => {
@@ -2291,10 +2296,7 @@ export default function App() {
           }}
           initialPrefillText={voicePrefillText}
           activeProjectName={
-            activeProject?.name ||
-            (prefs.starterProfile === 'neutral'
-              ? NEUTRAL_BRAND_META.appName
-              : BRAND_CONFIG.projects['proj-foodtruck']?.name || 'Pizza Bandit')
+            activeProject?.name || state.projects[0]?.name || activeBrandMeta.defaultProjectName
           }
           projects={state.projects}
           aiVoiceSettings={aiVoiceSettings}
@@ -2661,7 +2663,7 @@ export default function App() {
           )}
         </main>
 
-        {/* UNTERE BANDIT.OS STEUERUNG: Sechskant-Daumenmodul (hinter Feature-Flag) ODER Klassische Leiste */}
+        {/* UNTERE HAUPTSTEUERUNG: Sechskant-Daumenmodul (hinter Feature-Flag) ODER Klassische Leiste */}
         {!isBackoffice && (
           state.thumbHubEnabled !== false ? (
             <HexThumbHub
@@ -2806,7 +2808,13 @@ export default function App() {
             setActiveProjectTab('cart');
             setForceSingleViewSeq((s) => s + 1);
           }}
-          activeProject={activeProject || state.projects[0] || (BRAND_CONFIG.projects['proj-foodtruck'] as unknown as Project)}
+          activeProject={
+            activeProject ||
+            state.projects[0] ||
+            (prefs.starterProfile === 'neutral'
+              ? createNeutralStarterProjects()[0]
+              : (BRAND_CONFIG.projects[BRAND_CONFIG.defaultProjectId] as unknown as Project))
+          }
           allProjects={state.projects}
           themeColors={{
             primary: activeVisualTheme.primary,
@@ -2855,7 +2863,9 @@ export default function App() {
         offlineAudioBufferEnabled={prefs.offlineAudioBufferEnabled !== false}
         companionMessageToolsEnabled={prefs.companionMessageToolsEnabled !== false}
         companionQuickChipsEnabled={prefs.companionQuickChipsEnabled !== false}
-        activeProjectId={activeProject?.id || BRAND_CONFIG.defaultProjectId}
+        activeProjectId={
+          activeProject?.id || state.projects[0]?.id || activeBrandMeta.defaultProjectId
+        }
         userApiKey={state.userApiKey}
         offlineAudioMemos={offlineAudioMemos}
         onUpdateOfflineAudioMemos={(next) => {
@@ -2864,10 +2874,7 @@ export default function App() {
         }}
         initialPrefillText={voicePrefillText}
         activeProjectName={
-          activeProject?.name ||
-          (prefs.starterProfile === 'neutral'
-            ? NEUTRAL_BRAND_META.appName
-            : BRAND_CONFIG.projects['proj-foodtruck']?.name || 'Pizza Bandit')
+          activeProject?.name || state.projects[0]?.name || activeBrandMeta.defaultProjectName
         }
         projects={state.projects}
         aiVoiceSettings={aiVoiceSettings}
@@ -2930,6 +2937,7 @@ export default function App() {
           open={deepResearchModalOpen}
           projects={state.projects}
           activeProject={activeProject}
+          starterProfile={prefs.starterProfile === 'neutral' ? 'neutral' : 'bandit'}
           userApiKey={state.userApiKey}
           fullState={state}
           themeColors={{

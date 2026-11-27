@@ -1,6 +1,6 @@
 import { AppStateSnapshot, Project, ReminderRecurrence, TaskItem } from '../types';
-import { BRAND_CONFIG } from '../config/brandConfig';
-import { STORAGE_KEYS, getIdbItemSync, saveIdbItem, triggerHapticFeedback } from './storage';
+import { BRAND_CONFIG, getActiveBrandMeta } from '../config/brandConfig';
+import { STORAGE_KEYS, getIdbItemSync, loadUserPrefs, saveIdbItem, triggerHapticFeedback } from './storage';
 
 export interface CloudSyncConfig {
   enabled: boolean;
@@ -21,7 +21,12 @@ export const DEFAULT_CLOUD_CONFIG: CloudSyncConfig = {
 };
 
 export function loadCloudConfig(): CloudSyncConfig {
-  return getIdbItemSync<CloudSyncConfig>(STORAGE_KEYS.CLOUD_SYNC, DEFAULT_CLOUD_CONFIG);
+  const prefs = loadUserPrefs();
+  const brandMeta = getActiveBrandMeta(prefs.starterProfile);
+  return getIdbItemSync<CloudSyncConfig>(STORAGE_KEYS.CLOUD_SYNC, {
+    ...DEFAULT_CLOUD_CONFIG,
+    workspaceId: brandMeta.defaultWorkspaceId
+  });
 }
 
 export function saveCloudConfig(cfg: CloudSyncConfig): void {
@@ -52,7 +57,7 @@ export async function pushStateToCloud(
     }
 
     const payload = {
-      workspaceId: cfg.workspaceId || BRAND_CONFIG.defaultWorkspaceId,
+      workspaceId: cfg.workspaceId || getActiveBrandMeta(loadUserPrefs().starterProfile).defaultWorkspaceId,
       updatedAt: new Date().toISOString(),
       snapshot: state
     };
@@ -112,7 +117,8 @@ export async function pullStateFromCloud(): Promise<{
       : data?.snapshot;
 
     if (!incoming || !Array.isArray(incoming.projects)) {
-      return { ok: false, message: 'Keine gültigen BANDIT.OS Projektdaten in der Cloud gefunden.' };
+      const appName = getActiveBrandMeta(loadUserPrefs().starterProfile).appName;
+      return { ok: false, message: `Keine gültigen ${appName} Projektdaten in der Cloud gefunden.` };
     }
 
     const nowStr = new Date().toLocaleString('de-DE');
@@ -259,7 +265,8 @@ export async function triggerDesktopReminderNotification(
   if (typeof window === 'undefined' || !('Notification' in window)) return;
   if (Notification.permission !== 'granted') return;
 
-  const title = `BANDIT.OS • ${projectName}`;
+  const appName = getActiveBrandMeta(loadUserPrefs().starterProfile).appName;
+  const title = `${appName} • ${projectName}`;
   const options: NotificationOptions = {
     body: taskTitle,
     icon: './pwa-192x192.png'
@@ -302,10 +309,11 @@ export function buildGoogleCalendarTemplateUrl(
       .replace(/[-:]/g, '')
       .replace(/\.\d{3}/, '');
 
+  const appName = getActiveBrandMeta(loadUserPrefs().starterProfile).appName;
   const params = new URLSearchParams({
     action: 'TEMPLATE',
     text: `[${projectName}] ${task.title}`,
-    details: `BANDIT.OS Projekt: ${projectName}\nPriorität: ${task.priority}\nGeplante Dauer: ${
+    details: `${appName} Projekt: ${projectName}\nPriorität: ${task.priority}\nGeplante Dauer: ${
       task.estimatedMinutes || 30
     } Min.`,
     dates: `${fmt(start)}/${fmt(end)}`

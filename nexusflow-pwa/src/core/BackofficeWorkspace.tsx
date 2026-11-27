@@ -13,7 +13,7 @@ import {
   SmartHomeSwitchItem,
   THEME
 } from '../types';
-import { NEUTRAL_BRAND_META } from '../config/brandConfig';
+import { getActiveBrandMeta } from '../config/brandConfig';
 import {
   loadAmbientLightMode,
   loadUserPrefs,
@@ -90,7 +90,7 @@ interface BackofficeWorkspaceProps {
 }
 
 /**
- * Schlanke Orchestrator-Shell der BANDIT.OS Zentrale (5 standardmäßig zugeklappte Bereiche).
+ * Schlanke Orchestrator-Shell der Zentrale (5 standardmäßig zugeklappte Bereiche).
  */
 export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
   projects,
@@ -190,14 +190,10 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
       >
         <div className="min-w-0 flex-1">
           <h2 className="text-sm font-extrabold uppercase tracking-wider text-white">
-            {prefs.starterProfile === 'neutral'
-              ? NEUTRAL_BRAND_META.zentraleTitle
-              : 'BANDIT.OS Zentrale'}
+            {getActiveBrandMeta(prefs.starterProfile).zentraleTitle}
           </h2>
           <p className="text-xs text-[#94A3B8]">
-            {prefs.starterProfile === 'neutral'
-              ? NEUTRAL_BRAND_META.zentraleSubtitle
-              : 'Projekte, Fokus, KI, Automation & System'}
+            {getActiveBrandMeta(prefs.starterProfile).zentraleSubtitle}
           </p>
         </div>
         <button

@@ -178,9 +178,9 @@ Die gesamte Einstellungs-Ansicht heißt für den Nutzer **„Zentrale"** (intern
 
 Für jede künftige Änderung gilt ein verbindliches E2E-Qualitätsgate auf mobilem Viewport (**390×844 px**):
 
-- **Befehl:** `npm run verify` im Verzeichnis `nexusflow-pwa` (führt `npm run build && npm run test:guard` aus).
+- **Befehl:** `npm run verify` im Verzeichnis `nexusflow-pwa` (führt `node scripts/self-check.mjs && tsc && vite build && node scripts/self-check.mjs --dist && playwright test` aus).
 - **Pflicht vor jedem Git-Push:**
-  1. `npm run build` muss fehlerfrei durchlaufen.
+  1. `node scripts/self-check.mjs` (Pre-Build) und `npm run build` sowie `--dist`-Chunk-Check müssen fehlerfrei durchlaufen.
   2. Playwright Mobile-Guard (`tests/mobile-guard.spec.ts`) muss alle **26 Stationen** (inkl. Stetiger Begleiter v2 in Station 21, Wacher Begleiter / Antriebs-Würfel in Station 22, Gastro-Brücke, 1-Klick-HACCP & Smart-Home-Schnellschalter in Station 23, Komfort-Politur in Station 24, Taktil-Politur & opt-in A+C-Jetzt-Vorbühne in Station 25 sowie BYOK-Erststart-Assistent & neutrales Starter-Profil in Station 26) zu 100 % grün durchlaufen.
   3. Strikte Wächter: 0 ungefangene `pageerror`-Exceptions, 0 unberechtigte `console.error`-Meldungen, 0 horizontale Viewport-Überläufe (`document.documentElement.scrollWidth <= window.innerWidth + 1`).
 
@@ -431,3 +431,24 @@ Die ehemalige Mono-Komponente `VoiceModal.tsx` (> 2 200 Zeilen) ist verlustfrei 
   - Schritt 1 (Profil & Ruhe mit Datenverlust-Schutz), Schritt 2 (Gemini API-Key & eingeklappter Azure-Bereich, offline ohne Key nutzbar), Schritt 3 (Sechseck-Parkplatz & Begleiter-Start), jederzeit überspringbar (`Überspringen`) und per `window.history.replaceState` unter Erhalt von `?mode=cover` bereinigt.
 - **Zentrale Bereich 5 & Station 26 (`SystemAndBackupSection.tsx`, `storage.ts`, `tests/mobile-guard.spec.ts`):**
   - Persistenter Schalter `byokStarterToolsEnabled` (Default `true`, IDB & Voll-Backup v2) für den manuellen Assistenten-Aufruf, den neutralen Export (`downloadNeutralStarterBackupJson()` → `focus-os-neutral-starter.json`) und den 2-Stufen-gesicherten Profil-Wechsel (`Station 26`).
+
+---
+
+## 26  Verpflichtendes Selbst-Check-Protokoll vor jedem Commit
+
+Vor jedem Commit und Push laufen in `nexusflow-pwa` automatisch über `npm run verify` (`scripts/self-check.mjs`) **8 harte Prüfregeln**, ergänzt um die manuelle Diff-Sichtprüfung:
+
+| # | Regel | Modus | Zweck |
+|---|---|---|---|
+| 1 | Kein doppeltes `BanditUserPreferences`-Interface | Pre-Build | Single Source of Truth ausschließlich in `src/types.ts` |
+| 2 | Voll-Backup-v2-Vollständigkeit | Pre-Build | Jeder Key in `STORAGE_KEYS` (außer Snapshot-Hauptkey `STATE` und flüchtigem `FIRED_REMINDERS`) muss in `downloadFullBackupV2` **und** `importFullBackupV2` abgedeckt sein |
+| 3 | Keine hardcoded Projekt-IDs | Pre-Build | `'proj-foodtruck'` / `'proj-baeckerei'` ausschließlich in `brandConfig.ts`, `pizzaBanditTsaSeed.ts`, `neutralStarterSeed.ts` und der Migrations-Funktion von `storage.ts` |
+| 4 | Keine BYOK-Marken-Leaks | Pre-Build | `'Pizza Bandit'` und `'BANDIT.OS'` ausschließlich in `brandConfig.ts` und `pizzaBanditTsaSeed.ts` (Kern-UI nutzt `getActiveBrandMeta`) |
+| 5 | Design-DNA-Wächter (Fonts < 12 px) | Pre-Build | Verbietet `text-[8px]` bis `text-[11px]` in `src/` |
+| 6 | Alarm-Rot-Wächter | Pre-Build | Prüft `red-400/500/600` und `#EF4444` gegen explizite Allowlist destruktiver Lösch-Komponenten |
+| 7 | Repo-Hygiene | Pre-Build | Verhindert versehentliche Commit-, Merge- oder Output-Hilfsdateien (`commit*.txt`, `merge*.txt`, `output.txt`) |
+| 8 | Chunk-Größen-Wächter (`--dist`) | Post-Build | Garantiert alle `.js`-Chunks in `dist/assets/` < **900 KB** (Schutz vor der 1-MiB-Grenze unter Windows-`esbuild`) |
+
+**Manuelle Diff-Pflichtprüfung vor Commit (`git diff`):**
+1. **Prinzip der geschlossenen Schublade:** Jede deaktivierte Option blendet zugehörige Detail-UI vollständig aus und stoppt Hintergrund-Timer/-Effekte.
+2. **Bühnen-Kollisions-Check (390 × 844 px):** Keine Z-Index-Überdeckungen oder vertikalen Quetschungen zwischen Vorbühne, Begleiter, Fächer, Erinnerungs-Banner und schwebendem Einkaufswagen.

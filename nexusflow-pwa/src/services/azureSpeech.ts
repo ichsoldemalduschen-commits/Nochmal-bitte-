@@ -1,10 +1,12 @@
 import { AiVoiceSettings } from '../types';
+import { getActiveBrandMeta } from '../config/brandConfig';
 import { TTS_PLAYBACK_WATCHDOG_MIN_MS } from '../config/runtimeConfig';
 import {
   getAzureSpeechKey,
   getAzureSpeechRegion,
   getTtsEnabled,
-  getVoiceProvider
+  getVoiceProvider,
+  loadUserPrefs
 } from './storage';
 
 let sharedAudioElement: HTMLAudioElement | null = null;
@@ -336,7 +338,7 @@ export function speakText(
         'Ocp-Apim-Subscription-Key': key,
         'Content-Type': 'application/ssml+xml',
         'X-Microsoft-OutputFormat': 'audio-24khz-48kbitrate-mono-mp3',
-        'User-Agent': 'BANDIT.OS'
+        'User-Agent': getActiveBrandMeta(loadUserPrefs().starterProfile).appName
       },
       body: ssml,
       signal: controller.signal
@@ -475,7 +477,7 @@ export async function testGiselaVoice(
         'Ocp-Apim-Subscription-Key': cleanKey,
         'Content-Type': 'application/ssml+xml',
         'X-Microsoft-OutputFormat': 'audio-24khz-48kbitrate-mono-mp3',
-        'User-Agent': 'BANDIT.OS'
+        'User-Agent': getActiveBrandMeta(loadUserPrefs().starterProfile).appName
       },
       body: ssml,
       signal: controller.signal
