@@ -13,6 +13,7 @@ import {
   SmartHomeSwitchItem,
   THEME
 } from '../types';
+import { NEUTRAL_BRAND_META } from '../config/brandConfig';
 import {
   loadAmbientLightMode,
   loadUserPrefs,
@@ -82,6 +83,9 @@ interface BackofficeWorkspaceProps {
   onClearAiLogs?: () => void;
   smartHomeSwitches?: SmartHomeSwitchItem[];
   onUpdateSmartHomeSwitches?: (items: SmartHomeSwitchItem[]) => void;
+  onOpenByokOnboarding?: () => void;
+  onSwitchToNeutralStarter?: () => void;
+  onExportNeutralStarterJson?: () => void;
   onNotify: (msg: string) => void;
 }
 
@@ -135,6 +139,9 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
   onClearAiLogs,
   smartHomeSwitches = [],
   onUpdateSmartHomeSwitches,
+  onOpenByokOnboarding,
+  onSwitchToNeutralStarter,
+  onExportNeutralStarterJson,
   onNotify
 }) => {
   const [openSection, setOpenSection] = useState<ZentraleSectionId | null>(
@@ -183,10 +190,14 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
       >
         <div className="min-w-0 flex-1">
           <h2 className="text-sm font-extrabold uppercase tracking-wider text-white">
-            BANDIT.OS Zentrale
+            {prefs.starterProfile === 'neutral'
+              ? NEUTRAL_BRAND_META.zentraleTitle
+              : 'BANDIT.OS Zentrale'}
           </h2>
           <p className="text-xs text-[#94A3B8]">
-            Projekte, Fokus, KI, Automation &amp; System
+            {prefs.starterProfile === 'neutral'
+              ? NEUTRAL_BRAND_META.zentraleSubtitle
+              : 'Projekte, Fokus, KI, Automation & System'}
           </p>
         </div>
         <button
@@ -284,6 +295,9 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
         onApplyBlueprint={onApplyBlueprint}
         onImportFullBackup={onImportFullBackup}
         onReplaceFullStateFromCloud={onReplaceFullStateFromCloud}
+        onOpenByokOnboarding={onOpenByokOnboarding}
+        onSwitchToNeutralStarter={onSwitchToNeutralStarter}
+        onExportNeutralStarterJson={onExportNeutralStarterJson}
         onNotify={onNotify}
       />
 

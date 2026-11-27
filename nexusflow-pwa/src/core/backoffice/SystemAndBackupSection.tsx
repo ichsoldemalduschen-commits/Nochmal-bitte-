@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ChevronDown, ChevronUp, Database, Download, FileUp, History, Trash2, Upload, X } from 'lucide-react';
+import { ChevronDown, ChevronUp, Database, Download, FileUp, History, RefreshCw, Sparkles, Trash2, Upload, X } from 'lucide-react';
 import { AppStateSnapshot, BanditUserPreferences, EventSalesLog, Project, THEME } from '../../types';
 import {
   STORAGE_KEYS,
@@ -49,6 +49,9 @@ interface SystemAndBackupSectionProps {
   onApplyBlueprint?: (projectId: string, blueprint: BlueprintTemplate) => void;
   onImportFullBackup: (snapshot: AppStateSnapshot) => void;
   onReplaceFullStateFromCloud?: (snapshot: AppStateSnapshot) => void;
+  onOpenByokOnboarding?: () => void;
+  onSwitchToNeutralStarter?: () => void;
+  onExportNeutralStarterJson?: () => void;
   onNotify: (msg: string) => void;
 }
 
@@ -69,11 +72,15 @@ export const SystemAndBackupSection: React.FC<SystemAndBackupSectionProps> = ({
   onApplyBlueprint,
   onImportFullBackup,
   onReplaceFullStateFromCloud,
+  onOpenByokOnboarding,
+  onSwitchToNeutralStarter,
+  onExportNeutralStarterJson,
   onNotify
 }) => {
   const activeProjects = projects.filter((p) => !p.archived);
   const [aiLogsOpen, setAiLogsOpen] = useState(false);
   const [confirmClearLogs, setConfirmClearLogs] = useState(false);
+  const [confirmNeutralSwitch, setConfirmNeutralSwitch] = useState(false);
   const aiLogs = Array.isArray(fullState?.aiLogs) ? fullState.aiLogs : [];
 
   const [blueprints, setBlueprints] = useState<BlueprintTemplate[]>(() =>
@@ -598,6 +605,124 @@ export const SystemAndBackupSection: React.FC<SystemAndBackupSectionProps> = ({
                         </div>
                       )}
                     </>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── BYOK & Open-Source-Starter ── */}
+      {prefs && onUpdatePrefs && (
+        <div className="space-y-3">
+          <div className="text-xs font-extrabold uppercase tracking-wider text-[#94A3B8] px-1 pt-1">
+            BYOK &amp; Open-Source-Starter
+          </div>
+
+          <ZentraleToggleRow
+            title="BYOK-Starter & Erststart-Assistent anzeigen"
+            description="Blendet den 3-Schritte-Assistenten, den neutralen Starter-Export und den Profil-Wechsel ein."
+            checked={prefs.byokStarterToolsEnabled !== false}
+            onToggle={() => {
+              const next = !(prefs.byokStarterToolsEnabled !== false);
+              onUpdatePrefs({ byokStarterToolsEnabled: next });
+              if (!next) {
+                setConfirmNeutralSwitch(false);
+              }
+              onNotify(
+                next
+                  ? 'BYOK-Starter & Erststart-Werkzeuge eingeblendet.'
+                  : 'BYOK-Starter & Erststart-Werkzeuge ausgeblendet.'
+              );
+            }}
+            onLabel="An"
+            offLabel="Aus"
+            tone="honey"
+            icon={<Sparkles className="w-4 h-4 text-[#E5A93C] shrink-0" />}
+            testId="toggle-byok-starter"
+          />
+
+          {prefs.byokStarterToolsEnabled !== false && (
+            <div
+              data-testid="byok-starter-drawer"
+              className="p-3.5 rounded-2xl bg-[#242930] border border-white/5 space-y-2.5"
+            >
+              <div className="flex flex-wrap gap-2">
+                {onOpenByokOnboarding && (
+                  <button
+                    type="button"
+                    data-testid="btn-open-byok-onboarding"
+                    onClick={onOpenByokOnboarding}
+                    className="flex-1 min-w-[170px] min-h-[44px] py-2 px-3 rounded-xl text-xs font-bold text-white flex items-center justify-center gap-2 active:scale-95 transition cursor-pointer bandit-pressable"
+                    style={{ backgroundColor: THEME.accentPrimary }}
+                  >
+                    <Sparkles className="w-4 h-4 shrink-0" />
+                    <span>Erststart-Assistent öffnen</span>
+                  </button>
+                )}
+
+                {onExportNeutralStarterJson && (
+                  <button
+                    type="button"
+                    data-testid="btn-export-neutral-starter"
+                    onClick={onExportNeutralStarterJson}
+                    className="flex-1 min-w-[170px] min-h-[44px] py-2 px-3 rounded-xl text-xs font-semibold bg-[#181A1B] text-[#F1F5F9] border border-white/10 flex items-center justify-center gap-2 active:scale-95 transition cursor-pointer bandit-pressable"
+                  >
+                    <Download className="w-4 h-4 text-[#14B8A6] shrink-0" />
+                    <span>Neutrale Starter-JSON exportieren</span>
+                  </button>
+                )}
+              </div>
+
+              {onSwitchToNeutralStarter && (
+                <div className="pt-0.5">
+                  {!confirmNeutralSwitch ? (
+                    <button
+                      type="button"
+                      data-testid="btn-switch-neutral-starter"
+                      onClick={() => setConfirmNeutralSwitch(true)}
+                      className="w-full min-h-[44px] py-2 px-3 rounded-xl text-xs font-bold border flex items-center justify-center gap-2 active:scale-95 transition cursor-pointer bandit-pressable"
+                      style={{
+                        backgroundColor: '#181A1B',
+                        color: '#E5A93C',
+                        borderColor: 'rgba(229,169,60,0.35)'
+                      }}
+                    >
+                      <RefreshCw className="w-4 h-4 shrink-0" />
+                      <span>Auf neutrales Starter-Profil wechseln</span>
+                    </button>
+                  ) : (
+                    <div
+                      role="alert"
+                      data-testid="confirm-neutral-starter-alert"
+                      className="p-3 rounded-2xl border border-[#E5A93C]/40 bg-[#E5A93C]/10 space-y-2.5 animate-fadeIn"
+                    >
+                      <div className="text-xs font-semibold text-[#E5A93C] leading-snug break-words">
+                        Ersetzt alle aktuellen Projekte durch das neutrale Starter-Profil (Arbeit &amp; Privat) – wirklich ausführen?
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          data-testid="btn-cancel-neutral-switch"
+                          onClick={() => setConfirmNeutralSwitch(false)}
+                          className="flex-1 min-w-[110px] min-h-[44px] px-3 py-2 rounded-xl text-xs font-bold bg-[#181A1B] text-[#F1F5F9] border border-white/15 active:scale-95 transition cursor-pointer"
+                        >
+                          Abbrechen
+                        </button>
+                        <button
+                          type="button"
+                          data-testid="btn-confirm-neutral-switch"
+                          onClick={() => {
+                            setConfirmNeutralSwitch(false);
+                            onSwitchToNeutralStarter();
+                          }}
+                          className="flex-1 min-w-[130px] min-h-[44px] px-3 py-2 rounded-xl text-xs font-bold bg-[#E5A93C] text-[#111317] active:scale-95 transition cursor-pointer"
+                        >
+                          Ja, wechseln
+                        </button>
+                      </div>
+                    </div>
                   )}
                 </div>
               )}

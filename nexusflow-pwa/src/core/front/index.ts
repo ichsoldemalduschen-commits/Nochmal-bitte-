@@ -20,5 +20,10 @@ export {
   type SmartHomeQuickPanelProps
 } from './SmartHomeQuickPanel';
 export { ChangeLogAccordion } from './ChangeLogAccordion';
+export {
+  ByokOnboardingModal,
+  type ByokOnboardingModalProps,
+  type ByokOnboardingResult
+} from './ByokOnboardingModal';
 
 

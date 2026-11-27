@@ -56,6 +56,10 @@ export interface BanditUserPreferences {
   aiLogsViewerEnabled?: boolean;
   // Welle 6 / Ticket 6.1b: Opt-in A+C-Jetzt-Vorbühne
   nowStageEnabled?: boolean;
+  // Welle 6 / Ticket 6.2: BYOK- & Open-Source-Starter-Basis
+  starterProfile?: 'bandit' | 'neutral';
+  onboardingCompleted?: boolean;
+  byokStarterToolsEnabled?: boolean;
   quickCommands: string[];
   activeFocusTaskId: string | null;
   activeFocusTaskTitle: string | null;

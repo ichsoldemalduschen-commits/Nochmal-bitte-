@@ -1,4 +1,5 @@
 import { get, set } from 'idb-keyval';
+import { createNeutralStarterSnapshot } from './neutralStarterSeed';
 import {
   AiLogEntry,
   AiVoiceSettings,
@@ -968,6 +969,9 @@ export const DEFAULT_USER_PREFS: BanditUserPreferences = {
   changeHistoryEnabled: true,
   aiLogsViewerEnabled: false,
   nowStageEnabled: false,
+  starterProfile: 'bandit',
+  onboardingCompleted: true,
+  byokStarterToolsEnabled: true,
   quickCommands: [
     'Gib mir ein kurzes 3-Punkte-Briefing für dieses Projekt',
     'Welche Materialien fehlen noch im Einkaufswagen?',
@@ -1122,6 +1126,15 @@ export function normalizeUserPrefs(
       typeof src.nowStageEnabled === 'boolean'
         ? src.nowStageEnabled
         : DEFAULT_USER_PREFS.nowStageEnabled,
+    starterProfile: src.starterProfile === 'neutral' ? 'neutral' : 'bandit',
+    onboardingCompleted:
+      typeof src.onboardingCompleted === 'boolean'
+        ? src.onboardingCompleted
+        : DEFAULT_USER_PREFS.onboardingCompleted,
+    byokStarterToolsEnabled:
+      typeof src.byokStarterToolsEnabled === 'boolean'
+        ? src.byokStarterToolsEnabled
+        : DEFAULT_USER_PREFS.byokStarterToolsEnabled,
     quickCommands: Array.isArray(src.quickCommands)
       ? src.quickCommands
       : DEFAULT_USER_PREFS.quickCommands,
@@ -1742,6 +1755,50 @@ export async function downloadFullBackupV2(snapshot: AppStateSnapshot): Promise<
   URL.revokeObjectURL(url);
 
   return backup;
+}
+
+/**
+ * Erstellt und lädt eine saubere, komplett personenfreie Starter-JSON (`focus-os-neutral-starter.json`) herunter.
+ */
+export function buildNeutralStarterBackupV2(): FullBackupV2 {
+  return {
+    backupVersion: 2,
+    exportedAt: new Date().toISOString(),
+    appState: createNeutralStarterSnapshot(),
+    userPrefs: {
+      ...DEFAULT_USER_PREFS,
+      starterProfile: 'neutral',
+      onboardingCompleted: false,
+      byokStarterToolsEnabled: true
+    },
+    blueprints: [],
+    photoPins: {},
+    aiChat: [],
+    scannedReceipts: [],
+    savedDossiers: [],
+    foremanProposals: [],
+    dismissedThinkerIds: [],
+    visionCaptures: [],
+    offlineAudioMemos: [],
+    haccpLogs: [],
+    smartHomeSwitches: [],
+    pizzaCatalog: [],
+    posSlots: [],
+    doughCalcDefaults: { ...DEFAULT_DOUGH_CALC_DEFAULTS }
+  };
+}
+
+export function downloadNeutralStarterBackupJson(): void {
+  const backup = buildNeutralStarterBackupV2();
+  const blob = new Blob([JSON.stringify(backup, null, 2)], {
+    type: 'application/json;charset=utf-8'
+  });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'focus-os-neutral-starter.json';
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 export async function importFullBackupV2(

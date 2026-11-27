@@ -2736,4 +2736,123 @@ test.describe('Block C: Mobile-Guard 390×844 px Gesamt-Schutznetz', () => {
     await expect(page.locator('#item-card-tsa-bg5-t1')).toBeVisible();
     await assertNoHorizontalOverflow(page, 'Station 25 – Abschluss');
   });
+
+  test('Station 26 – BYOK-/Open-Source-Basis: Neutraler Erststart (?starter=neutral), 3-Schritte-Assistent, Persistenz nach Reload & Zentrale Bereich 5 toggle-byok-starter (390px-Schutz)', async ({ page, browser }) => {
+    // ── Teil A: Neutraler BYOK-Erststart (?starter=neutral) ──
+    await page.goto('./?starter=neutral');
+    await page.waitForLoadState('domcontentloaded');
+
+    const modal = page.locator('[data-testid="byok-onboarding-modal"]');
+    await expect(modal).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('[data-testid="onboarding-step-indicator"]')).toContainText('Schritt 1 von 3');
+
+    // ?starter=neutral wurde sauber aus der URL entfernt
+    await expect.poll(() => page.url()).not.toContain('starter=neutral');
+
+    const skipBtn = page.locator('[data-testid="onboarding-skip-btn"]');
+    const neutralCard = page.locator('[data-testid="onboarding-profile-neutral"]');
+    const keepCard = page.locator('[data-testid="onboarding-profile-keep"]');
+    const nextBtn = page.locator('[data-testid="onboarding-next-btn"]');
+    for (const btn of [skipBtn, neutralCard, keepCard, nextBtn]) {
+      await expect(btn).toBeVisible();
+      expect((await btn.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+    }
+    await assertNoHorizontalOverflow(page, 'Station 26 – BYOK Assistent Schritt 1');
+
+    // Schritt 1 -> Neutrales Starter-Profil -> Weiter zu Schritt 2
+    await neutralCard.click();
+    await nextBtn.click();
+    await expect(page.locator('[data-testid="onboarding-step-indicator"]')).toContainText('Schritt 2 von 3');
+    await assertNoHorizontalOverflow(page, 'Station 26 – BYOK Assistent Schritt 2');
+
+    // Schritt 2 -> Weiter ohne API-Key zu Schritt 3
+    await page.locator('[data-testid="onboarding-next-btn"]').click();
+    await expect(page.locator('[data-testid="onboarding-step-indicator"]')).toContainText('Schritt 3 von 3');
+
+    const finishBtn = page.locator('[data-testid="onboarding-finish-btn"]');
+    const posLeftBtn = page.locator('[data-testid="onboarding-pos-left"]');
+    await expect(finishBtn).toBeVisible();
+    expect((await finishBtn.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+    expect((await posLeftBtn.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+    await assertNoHorizontalOverflow(page, 'Station 26 – BYOK Assistent Schritt 3');
+
+    // Einrichtung abschließen -> Assistent schließt, neutrales Projekt "Arbeit" aktiv
+    await finishBtn.click();
+    await expect(modal).toBeHidden();
+
+    const headerTitle = page.locator('h1');
+    await expect(headerTitle).toBeVisible({ timeout: 10000 });
+    await expect(headerTitle).toContainText('Arbeit');
+    await expect(headerTitle).not.toContainText('Pizza Bandit');
+    await assertNoHorizontalOverflow(page, 'Station 26 – Neutrales Profil Arbeit aktiv');
+
+    // Reload -> Assistent darf NICHT erneut aufpoppen
+    await page.waitForTimeout(250);
+    await page.reload();
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.locator('h1')).toContainText('Arbeit', { timeout: 10000 });
+    await expect(page.locator('[data-testid="byok-onboarding-modal"]')).toHaveCount(0);
+    await assertNoHorizontalOverflow(page, 'Station 26 – Neutrales Profil nach Reload');
+
+    // ── Teil B: Zentrale Bereich 5 (frischer Standard-Kontext) ──
+    const stdContext = await browser.newContext({
+      baseURL: 'http://localhost:4173/Nochmal-bitte-/',
+      viewport: { width: 390, height: 844 },
+      isMobile: true,
+      hasTouch: true
+    });
+    const stdPage = await stdContext.newPage();
+    attachGlobalErrorWatchers(stdPage, capturedErrors);
+
+    try {
+      await stdPage.goto('./');
+      await stdPage.waitForLoadState('domcontentloaded');
+      await expect(stdPage.locator('h1')).toContainText('Pizza Bandit', { timeout: 10000 });
+      await expect(stdPage.locator('[data-testid="byok-onboarding-modal"]')).toHaveCount(0);
+
+      // Zentrale Bereich 5 öffnen
+      await stdPage.locator('button[aria-label="Navigation öffnen"]').click();
+      await stdPage.getByRole('button', { name: 'Zentrale', exact: true }).click();
+      await stdPage.locator('button:has-text("Daten, Backup & System")').click();
+
+      const byokToggle = stdPage.locator('[data-testid="toggle-byok-starter"]');
+      await expect(byokToggle).toBeVisible();
+      await expect(byokToggle).toHaveAttribute('aria-checked', 'true');
+      await expect(byokToggle).toContainText('An');
+      expect((await byokToggle.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+
+      const openOnboardingBtn = stdPage.locator('[data-testid="btn-open-byok-onboarding"]');
+      await expect(openOnboardingBtn).toBeVisible();
+      expect((await openOnboardingBtn.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+
+      // Assistent manuell öffnen -> scrollWidth <= 390 -> Überspringen schließt ohne Datenänderung
+      await openOnboardingBtn.click();
+      const stdModal = stdPage.locator('[data-testid="byok-onboarding-modal"]');
+      await expect(stdModal).toBeVisible();
+      await assertNoHorizontalOverflow(stdPage, 'Station 26 – Manueller BYOK Assistent offen');
+
+      await stdPage.locator('[data-testid="onboarding-skip-btn"]').click();
+      await expect(stdModal).toBeHidden();
+
+      // toggle-byok-starter auf AUS -> Button verschwindet (geschlossene Schublade)
+      await byokToggle.click();
+      await expect(byokToggle).toHaveAttribute('aria-checked', 'false');
+      await expect(byokToggle).toContainText('Aus');
+      await expect(stdPage.locator('[data-testid="btn-open-byok-onboarding"]')).toHaveCount(0);
+      await assertNoHorizontalOverflow(stdPage, 'Station 26 – BYOK Schublade geschlossen');
+
+      // Wieder auf AN -> Button wieder sichtbar
+      await byokToggle.click();
+      await expect(byokToggle).toHaveAttribute('aria-checked', 'true');
+      await expect(byokToggle).toContainText('An');
+      await expect(stdPage.locator('[data-testid="btn-open-byok-onboarding"]')).toBeVisible();
+
+      // Zurück zur Hauptansicht -> bestehendes Projekt unverändert
+      await stdPage.locator('button:has-text("Zurück")').click();
+      await expect(stdPage.locator('h1')).toContainText('Pizza Bandit');
+      await assertNoHorizontalOverflow(stdPage, 'Station 26 – Abschluss');
+    } finally {
+      await stdContext.close();
+    }
+  });
 });

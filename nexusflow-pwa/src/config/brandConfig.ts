@@ -16,6 +16,22 @@ export interface BrandProjectConfig {
   systemPromptContext: string;
 }
 
+export interface NeutralBrandMeta {
+  appName: string;
+  subtitle: string;
+  zentraleTitle: string;
+  zentraleSubtitle: string;
+  defaultProjectId: string;
+}
+
+export const NEUTRAL_BRAND_META: NeutralBrandMeta = {
+  appName: 'FOCUS.OS',
+  subtitle: 'Sprachgeführtes externes Gedächtnis (BYOK)',
+  zentraleTitle: 'FOCUS.OS Zentrale',
+  zentraleSubtitle: 'Projekte, Fokus, KI, Automation & System',
+  defaultProjectId: 'proj-work'
+};
+
 export interface BrandConfig {
   appName: string;
   defaultProjectId: string;
