@@ -79,6 +79,7 @@ interface BackofficeWorkspaceProps {
   onUpdateAiVoiceSettings?: (patch: Partial<AiVoiceSettings>) => void;
   prefs?: BanditUserPreferences;
   onUpdatePrefs?: (patch: Partial<BanditUserPreferences>) => void;
+  onClearAiLogs?: () => void;
   smartHomeSwitches?: SmartHomeSwitchItem[];
   onUpdateSmartHomeSwitches?: (items: SmartHomeSwitchItem[]) => void;
   onNotify: (msg: string) => void;
@@ -131,6 +132,7 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
   onUpdateAiVoiceSettings,
   prefs: prefsProp,
   onUpdatePrefs: onUpdatePrefsProp,
+  onClearAiLogs,
   smartHomeSwitches = [],
   onUpdateSmartHomeSwitches,
   onNotify
@@ -274,6 +276,9 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
         projects={projects}
         eventSalesLogs={eventSalesLogs}
         fullState={fullState}
+        prefs={prefs}
+        onUpdatePrefs={updatePrefs}
+        onClearAiLogs={onClearAiLogs}
         onUpdateProject={onUpdateProject}
         onSaveScratchpadToProject={onSaveScratchpadToProject}
         onApplyBlueprint={onApplyBlueprint}

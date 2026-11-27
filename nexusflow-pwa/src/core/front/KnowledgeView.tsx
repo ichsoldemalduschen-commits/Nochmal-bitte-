@@ -19,13 +19,17 @@ import {
   KnowledgeKind,
   Project
 } from '../../types';
-import { speakText, stopSpeaking, triggerHapticFeedback } from '../../services/aiRouter';
+import { speakText, stopAllSpeech, stopSpeaking, triggerHapticFeedback, unlockAudioPlayback } from '../../services/aiRouter';
+import { extractKnowledgeBlocks } from '../../services/knowledgeBlocks';
+import { ChangeLogAccordion } from './ChangeLogAccordion';
 import { ThemeColors } from './FrontHeader';
 
 interface KnowledgeViewProps {
   activeProject: Project;
   allProjects: Project[];
   themeColors: ThemeColors;
+  knowledgeStepReadAloudEnabled?: boolean;
+  changeHistoryEnabled?: boolean;
   searchQuery: string;
   highlightedItemId: string | null;
   userApiKey?: string;
@@ -68,6 +72,8 @@ export const KnowledgeView: React.FC<KnowledgeViewProps> = ({
   activeProject,
   allProjects,
   themeColors,
+  knowledgeStepReadAloudEnabled = true,
+  changeHistoryEnabled = true,
   searchQuery,
   highlightedItemId: _highlightedItemId,
   userApiKey,
@@ -89,6 +95,7 @@ export const KnowledgeView: React.FC<KnowledgeViewProps> = ({
   const [knowledgeFilter, setKnowledgeFilter] = useState<'ALL' | 'explanation' | 'info'>('ALL');
   const [openKnowledge, setOpenKnowledge] = useState<Record<string, boolean>>({});
   const [speakingKnowledgeId, setSpeakingKnowledgeId] = useState<string | null>(null);
+  const [speakingBlockKey, setSpeakingBlockKey] = useState<string | null>(null);
   const [isAddingKnowledge, setIsAddingKnowledge] = useState(false);
   const [newKnowledgeKind, setNewKnowledgeKind] = useState<KnowledgeKind>('explanation');
   const [newKnowledgeTitle, setNewKnowledgeTitle] = useState('');
@@ -113,16 +120,35 @@ export const KnowledgeView: React.FC<KnowledgeViewProps> = ({
   }, [projectKnowledge, knowledgeFilter, searchQuery]);
 
   const handleSpeakKnowledge = (item: KnowledgeItem) => {
+    setSpeakingBlockKey(null);
     if (speakingKnowledgeId === item.id) {
-      stopSpeaking();
+      stopAllSpeech();
       setSpeakingKnowledgeId(null);
       return;
     }
+    unlockAudioPlayback();
     stopSpeaking();
     setSpeakingKnowledgeId(item.id);
     triggerHapticFeedback(12);
     speakText(`${item.title}.\n${item.content}`, () => {
       setSpeakingKnowledgeId(null);
+    });
+  };
+
+  const handleSpeakBlock = (itemId: string, blockIdx: number, blockText: string) => {
+    const key = `${itemId}:${blockIdx}`;
+    setSpeakingKnowledgeId(null);
+    if (speakingBlockKey === key) {
+      stopAllSpeech();
+      setSpeakingBlockKey(null);
+      return;
+    }
+    unlockAudioPlayback();
+    stopAllSpeech();
+    setSpeakingBlockKey(key);
+    triggerHapticFeedback(12);
+    speakText(blockText, () => {
+      setSpeakingBlockKey((current) => (current === key ? null : current));
     });
   };
 
@@ -359,6 +385,8 @@ export const KnowledgeView: React.FC<KnowledgeViewProps> = ({
           const isOpen = !!openKnowledge[item.id];
           const isEditing = editingKnowledgeId === item.id;
           const isSpeaking = speakingKnowledgeId === item.id;
+          const readableBlocks =
+            knowledgeStepReadAloudEnabled !== false ? extractKnowledgeBlocks(item) : [];
 
           return (
             <div
@@ -458,9 +486,64 @@ export const KnowledgeView: React.FC<KnowledgeViewProps> = ({
                     </div>
                   ) : (
                     <>
-                      <div className="text-sm text-[#F1F5F9] leading-relaxed whitespace-pre-line py-2">
-                        {item.content}
-                      </div>
+                      {readableBlocks.length >= 2 ? (
+                        <div
+                          data-testid={`knowledge-step-blocks-${item.id}`}
+                          className="space-y-2 py-2"
+                        >
+                          {readableBlocks.map((block, idx) => {
+                            const blockKey = `${item.id}:${idx}`;
+                            const isBlockSpeaking = speakingBlockKey === blockKey;
+                            return (
+                              <div
+                                key={blockKey}
+                                className="rounded-xl bg-[#191C22] border border-white/5 p-3 flex items-start justify-between gap-2.5"
+                              >
+                                <div className="text-sm text-[#F1F5F9] leading-relaxed break-words min-w-0 flex-1">
+                                  {block}
+                                </div>
+                                <button
+                                  type="button"
+                                  data-testid={`knowledge-step-read-${item.id}-${idx}`}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleSpeakBlock(item.id, idx, block);
+                                  }}
+                                  className={`min-h-[44px] px-3 rounded-xl text-xs font-semibold flex items-center gap-1.5 border shrink-0 active:scale-95 transition cursor-pointer ${
+                                    isBlockSpeaking
+                                      ? 'text-white border-white/25 animate-pulse'
+                                      : 'bg-[#111317] hover:bg-[#22262F] text-[#14B8A6] hover:text-white border-white/10'
+                                  }`}
+                                  style={
+                                    isBlockSpeaking ? { backgroundColor: themeColors.primary } : {}
+                                  }
+                                  aria-label={
+                                    isBlockSpeaking
+                                      ? `Vorlesen von Punkt ${idx + 1} stoppen`
+                                      : `Punkt ${idx + 1} vorlesen`
+                                  }
+                                >
+                                  {isBlockSpeaking ? (
+                                    <>
+                                      <VolumeX className="w-4 h-4 shrink-0" />
+                                      <span>Stopp</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Volume2 className="w-4 h-4 shrink-0" />
+                                      <span>Vorlesen</span>
+                                    </>
+                                  )}
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div className="text-sm text-[#F1F5F9] leading-relaxed whitespace-pre-line py-2">
+                          {item.content}
+                        </div>
+                      )}
 
                       {/* KI-Bestätigung falls aiTouched in Honig-Gold */}
                       {item.aiTouched && (
@@ -599,6 +682,13 @@ export const KnowledgeView: React.FC<KnowledgeViewProps> = ({
                           />
                         </label>
                       </div>
+
+                      {/* Änderungs-Chronologie (standardmäßig zugeklappt) */}
+                      {changeHistoryEnabled !== false &&
+                        Array.isArray(item.changeLog) &&
+                        item.changeLog.length > 0 && (
+                          <ChangeLogAccordion itemId={item.id} entries={item.changeLog} />
+                        )}
 
                       {/* In anderes Projekt verschieben */}
                       {allProjects.filter((p) => !p.archived && p.id !== activeProject.id).length > 0 && (

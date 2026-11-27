@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Database, Download, FileUp, Upload, X } from 'lucide-react';
-import { AppStateSnapshot, EventSalesLog, Project, THEME } from '../../types';
+import { ChevronDown, ChevronUp, Database, Download, FileUp, History, Trash2, Upload, X } from 'lucide-react';
+import { AppStateSnapshot, BanditUserPreferences, EventSalesLog, Project, THEME } from '../../types';
 import {
   STORAGE_KEYS,
   downloadFullBackupV2,
@@ -12,7 +12,7 @@ import {
 } from '../../services/storage';
 import { exportSalesLogsCsv } from '../../services/exportBridge';
 import { CloudSyncPanel } from './CloudSyncPanel';
-import { ZentraleAccordion } from './ZentralePrimitives';
+import { ZentraleAccordion, ZentraleToggleRow } from './ZentralePrimitives';
 
 export interface BlueprintTemplate {
   id: string;
@@ -41,6 +41,9 @@ interface SystemAndBackupSectionProps {
   projects: Project[];
   eventSalesLogs: EventSalesLog[];
   fullState?: AppStateSnapshot;
+  prefs?: BanditUserPreferences;
+  onUpdatePrefs?: (patch: Partial<BanditUserPreferences>) => void;
+  onClearAiLogs?: () => void;
   onUpdateProject?: (projectId: string, patch: Partial<Project>) => void;
   onSaveScratchpadToProject: (projectId: string, title: string, content: string) => void;
   onApplyBlueprint?: (projectId: string, blueprint: BlueprintTemplate) => void;
@@ -58,6 +61,9 @@ export const SystemAndBackupSection: React.FC<SystemAndBackupSectionProps> = ({
   projects,
   eventSalesLogs,
   fullState,
+  prefs,
+  onUpdatePrefs,
+  onClearAiLogs,
   onUpdateProject,
   onSaveScratchpadToProject,
   onApplyBlueprint,
@@ -66,6 +72,9 @@ export const SystemAndBackupSection: React.FC<SystemAndBackupSectionProps> = ({
   onNotify
 }) => {
   const activeProjects = projects.filter((p) => !p.archived);
+  const [aiLogsOpen, setAiLogsOpen] = useState(false);
+  const [confirmClearLogs, setConfirmClearLogs] = useState(false);
+  const aiLogs = Array.isArray(fullState?.aiLogs) ? fullState.aiLogs : [];
 
   const [blueprints, setBlueprints] = useState<BlueprintTemplate[]>(() =>
     getIdbItemSync<BlueprintTemplate[]>(STORAGE_KEYS.BLUEPRINTS, DEFAULT_BLUEPRINTS)
@@ -434,6 +443,168 @@ export const SystemAndBackupSection: React.FC<SystemAndBackupSectionProps> = ({
           ))}
         </div>
       </div>
+
+      {/* ── Chronologie & KI-Protokoll ── */}
+      {prefs && onUpdatePrefs && (
+        <div className="space-y-3">
+          <div className="text-xs font-extrabold uppercase tracking-wider text-[#94A3B8] px-1 pt-1">
+            Chronologie &amp; KI-Protokoll
+          </div>
+
+          <ZentraleToggleRow
+            title="Änderungs-Chronologie in Einträgen anzeigen"
+            description="Zeigt eine zugeklappte Änderungs-Chronologie (Du / KI) in bearbeiteten Aufgaben und Wissenseinträgen."
+            checked={prefs.changeHistoryEnabled !== false}
+            onToggle={() => {
+              const next = !(prefs.changeHistoryEnabled !== false);
+              onUpdatePrefs({ changeHistoryEnabled: next });
+              onNotify(
+                next
+                  ? 'Änderungs-Chronologie in Einträgen aktiviert.'
+                  : 'Änderungs-Chronologie ausgeblendet.'
+              );
+            }}
+            onLabel="An"
+            offLabel="Aus"
+            testId="toggle-change-history"
+          />
+
+          <ZentraleToggleRow
+            title="KI-Protokoll (aiLogs) in der Zentrale einsehbar"
+            description="Schaltet eine zugeklappte Einsicht in die lokal protokollierten KI-Aktionen frei."
+            checked={prefs.aiLogsViewerEnabled === true}
+            onToggle={() => {
+              const next = !(prefs.aiLogsViewerEnabled === true);
+              onUpdatePrefs({ aiLogsViewerEnabled: next });
+              if (!next) {
+                setAiLogsOpen(false);
+                setConfirmClearLogs(false);
+              }
+              onNotify(
+                next ? 'KI-Protokoll-Einsicht aktiviert.' : 'KI-Protokoll-Einsicht ausgeblendet.'
+              );
+            }}
+            onLabel="An"
+            offLabel="Aus"
+            tone="honey"
+            icon={<History className="w-4 h-4 text-[#E5A93C] shrink-0" />}
+            testId="toggle-ai-logs-viewer"
+          />
+
+          {prefs.aiLogsViewerEnabled === true && (
+            <div
+              data-testid="ai-logs-viewer-card"
+              className="rounded-2xl bg-[#242930] border border-white/5 overflow-hidden"
+            >
+              <button
+                type="button"
+                aria-expanded={aiLogsOpen}
+                data-testid="toggle-ai-logs-accordion"
+                onClick={() => setAiLogsOpen((v) => !v)}
+                className="w-full min-h-[44px] px-3.5 py-2.5 flex items-center justify-between gap-2 text-left active:bg-white/5 transition cursor-pointer"
+              >
+                <span className="text-xs font-bold text-[#F1F5F9] min-w-0 break-words">
+                  KI-Protokoll ({aiLogs.length}{' '}
+                  {aiLogs.length === 1 ? 'Eintrag' : 'Einträge'})
+                </span>
+                {aiLogsOpen ? (
+                  <ChevronUp className="w-4 h-4 text-[#94A3B8] shrink-0" />
+                ) : (
+                  <ChevronDown className="w-4 h-4 text-[#94A3B8] shrink-0" />
+                )}
+              </button>
+
+              {aiLogsOpen && (
+                <div
+                  data-testid="ai-logs-viewer-list"
+                  className="px-3.5 pb-3.5 pt-2 border-t border-white/5 space-y-2.5"
+                >
+                  {aiLogs.length === 0 ? (
+                    <p className="text-xs text-[#94A3B8]">
+                      Noch keine KI-Protokolle vorhanden.
+                    </p>
+                  ) : (
+                    <>
+                      <div className="space-y-2 max-h-64 overflow-y-auto">
+                        {aiLogs.slice(0, 30).map((log) => (
+                          <div
+                            key={log.id}
+                            className="p-2.5 rounded-xl bg-[#181A1B] border border-white/5 space-y-1"
+                          >
+                            <div className="flex items-center justify-between gap-2 flex-wrap">
+                              <span className="text-xs font-mono text-[#94A3B8]">
+                                {log.timestamp}
+                              </span>
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                {(log.engineUsed || log.engine) && (
+                                  <span className="text-xs font-mono px-2 py-0.5 rounded bg-[#242930] text-[#14B8A6] border border-white/5">
+                                    {log.engineUsed || log.engine}
+                                  </span>
+                                )}
+                                {log.undone && (
+                                  <span className="text-xs font-semibold px-2 py-0.5 rounded bg-[#E5A93C]/15 text-[#E5A93C] border border-[#E5A93C]/30">
+                                    Zurückgenommen
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            <div className="text-xs text-[#F1F5F9] leading-snug break-words">
+                              {log.summary || log.rawInput}
+                            </div>
+                            {Array.isArray(log.actions) && log.actions.length > 0 && (
+                              <div className="text-xs text-[#94A3B8] leading-snug break-words">
+                                {log.actions.map((a) => a.shortCheckableTitle).join(' · ')}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+
+                      {onClearAiLogs && (
+                        <div className="pt-1 flex items-center justify-end gap-2 flex-wrap">
+                          {confirmClearLogs ? (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => setConfirmClearLogs(false)}
+                                className="min-h-[44px] px-3 rounded-xl text-xs font-semibold text-[#94A3B8] hover:text-white bg-[#181A1B] border border-white/10 cursor-pointer"
+                              >
+                                Abbrechen
+                              </button>
+                              <button
+                                type="button"
+                                data-testid="btn-confirm-clear-ai-logs"
+                                onClick={() => {
+                                  onClearAiLogs();
+                                  setConfirmClearLogs(false);
+                                }}
+                                className="min-h-[44px] px-3.5 rounded-xl text-xs font-bold text-[#111317] cursor-pointer"
+                                style={{ backgroundColor: '#E5A93C' }}
+                              >
+                                Ja, Protokoll leeren
+                              </button>
+                            </>
+                          ) : (
+                            <button
+                              type="button"
+                              data-testid="btn-clear-ai-logs"
+                              onClick={() => setConfirmClearLogs(true)}
+                              className="min-h-[44px] px-3.5 rounded-xl text-xs font-semibold bg-[#181A1B] text-[#E5A93C] border border-[#E5A93C]/30 flex items-center gap-1.5 active:scale-95 transition cursor-pointer"
+                            >
+                              <Trash2 className="w-4 h-4 shrink-0" />
+                              <span>Protokoll leeren</span>
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </ZentraleAccordion>
   );
 };

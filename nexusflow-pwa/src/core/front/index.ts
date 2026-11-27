@@ -18,5 +18,6 @@ export {
   SmartHomeQuickPanel,
   type SmartHomeQuickPanelProps
 } from './SmartHomeQuickPanel';
+export { ChangeLogAccordion } from './ChangeLogAccordion';
 
 

@@ -152,6 +152,20 @@ export const FocusAndSmartphoneSection: React.FC<FocusAndSmartphoneSectionProps>
           offLabel="Aus"
           testId="toggle-energy-planner"
         />
+
+        <ZentraleToggleRow
+          title="Erweiterte Task-Felder (Priorität, Dauer & Tagesblock)"
+          description="Zeigt beim Bearbeiten und Anlegen von Aufgaben Chips für Priorität, Minuten und Tagesblock."
+          checked={prefs.taskExtendedMetaEnabled !== false}
+          onToggle={() =>
+            onUpdatePrefs({
+              taskExtendedMetaEnabled: !(prefs.taskExtendedMetaEnabled !== false)
+            })
+          }
+          onLabel="An"
+          offLabel="Aus"
+          testId="toggle-task-extended-meta"
+        />
       </div>
 
       {/* ── Optik & Darstellung ── */}

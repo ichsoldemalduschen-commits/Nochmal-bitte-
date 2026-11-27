@@ -161,10 +161,10 @@ Die gesamte Einstellungs-Ansicht heißt für den Nutzer **„Zentrale"** (intern
 | Nr | Bereich (`src/core/backoffice/`) | `ZentraleSectionId` | Inhalt |
 |---|---|---|---|
 | 1 | Projekte & Werkzeuge (`ProjectsSection.tsx`) | `projects` | Projektkarten (390px-Fix: nur Farbpunkt + voller Name + Pfeil), Gesamt-Übersicht (`overviewEnabled`), Vorschriften-Wächter (`legalWatchEnabled`), Bild-Tausch, Farb-Presets, Lifecycle, Domain, Module, Plugins, JSON-Export, Archiv, 2-Stufen-Reset-Schutz |
-| 2 | Fokus, Bedienung & Smartphone (`FocusAndSmartphoneSection.tsx`) | `focus` | ADHS-Helfer (+25 %-Puffer separat von Vibration), echte `uiDensity`-`rem`-Skalierung (`compact` 15 px / `standard` 16 px / `large` 17 px via `data-density`), 3-Stufen-Hintergrundbeleuchtung, `organicMotion`, `hapticsEnabled`, `cartOpenMode` (Schwebend vs. Tab), `flipCoverAutoDetect`, `realityCheckEnabled`, `SelfCheckHistoryPanel` (zugeklappt), Tagesplaner & `.ics` |
-| 3 | KI & Stimme „Gisela" (`AiAndVoiceSection.tsx`) | `ai` | Gemini API-Key & Modellwahl, direkter Start-Modus (`activeAiMode`: `⚡ Sprech (Flash)` ↔ `🧠 Research (Pro)`), KI-Antwortstil & Quick-Commands, Azure Speech + Gisela-Test + `continuousListening` + `autoModeDetection` + Offline-Audio-Puffer (`offlineAudioBufferEnabled`) |
+| 2 | Fokus, Bedienung & Smartphone (`FocusAndSmartphoneSection.tsx`) | `focus` | ADHS-Helfer (+25 %-Puffer separat von Vibration), Antriebs-Würfel (`driveDiceEnabled`), Energie-Planer (`energyPlannerEnabled`), erweiterte Task-Felder (`taskExtendedMetaEnabled`), echte `uiDensity`-`rem`-Skalierung (`compact` 15 px / `standard` 16 px / `large` 17 px via `data-density`), 3-Stufen-Hintergrundbeleuchtung, `organicMotion`, `hapticsEnabled`, `cartOpenMode` (Schwebend vs. Tab), `flipCoverAutoDetect`, `realityCheckEnabled`, `SelfCheckHistoryPanel` (zugeklappt), Tagesplaner & `.ics` |
+| 3 | KI & Stimme „Gisela" (`AiAndVoiceSection.tsx`) | `ai` | Gemini API-Key & Modellwahl, direkter Start-Modus (`activeAiMode`: `⚡ Sprech (Flash)` ↔ `🧠 Research (Pro)`), KI-Antwortstil & Quick-Commands, Azure Speech + Gisela-Test + `continuousListening` + `autoModeDetection` + Offline-Audio-Puffer (`offlineAudioBufferEnabled`) + Einzelpunkt-Vorlesen (`knowledgeStepReadAloudEnabled`) |
 | 4 | Erinnerungen, Vorarbeiter & Smart Home (`AutomationSection.tsx`) | `automation` | Proaktive Erinnerungen (`remindersEnabled`), separater System-Push-Schalter (`reminderSystemPushEnabled`), Browser-Push-Freigabe, Vorschriften-Wächter (`AUDIT_SETTINGS`), Beleg- & Rechnungs-Vorarbeiter (`receiptForemanEnabled`), Stiller Mitdenker (`silentThinkerEnabled`), „Nebenbei-Murmel“-Autopilot (`murmurAutopilotEnabled`), Allgemeine Bild-Vision (`generalVisionEnabled`), Smart Home / Home Assistant (`smartHomeEnabled` als geschlossene Schublade) |
-| 5 | Daten, Backup & System (`SystemAndBackupSection.tsx`, `CloudSyncPanel.tsx`) | `system` | Cloud-Synchronisation (URL, Token, `autoSyncOnChange` mit 5s-Debounce & Pull/Hydration-Loop-Schutz, Hochladen/Herunterladen), Voll-Backup v2 inkl. `BanditUserPreferences`, Projekt-JSON-Import, CSV-Export, Vorlagen-Tresor (`Blueprints` inkl. Tasks/Cart-Übernahme & Löschen) |
+| 5 | Daten, Backup & System (`SystemAndBackupSection.tsx`, `CloudSyncPanel.tsx`) | `system` | Cloud-Synchronisation (URL, Token, `autoSyncOnChange` mit 5s-Debounce & Pull/Hydration-Loop-Schutz, Hochladen/Herunterladen), Voll-Backup v2 inkl. `BanditUserPreferences`, Projekt-JSON-Import, CSV-Export, Vorlagen-Tresor (`Blueprints` inkl. Tasks/Cart-Übernahme & Löschen), Änderungs-Chronologie (`changeHistoryEnabled`) & zugeklappte `aiLogs`-Einsicht (`aiLogsViewerEnabled`) |
 
 **Verbindliche Toggle-Regel (`ZentraleToggleRow`):** Jede neue Einstellung erhält einen einheitlichen Ein-/Ausschalter (`min-h-[44px]`, `ZentraleToggleRow`), bleibt abwärtskompatibel in IndexedDB (`BanditUserPreferences` in `storage.ts`, ohne lose `localStorage`-Keys) und blendet optionale Detail-Felder im Aus-Zustand nach dem Prinzip der geschlossenen Schublade aus.
 
@@ -181,7 +181,7 @@ Für jede künftige Änderung gilt ein verbindliches E2E-Qualitätsgate auf mobi
 - **Befehl:** `npm run verify` im Verzeichnis `nexusflow-pwa` (führt `npm run build && npm run test:guard` aus).
 - **Pflicht vor jedem Git-Push:**
   1. `npm run build` muss fehlerfrei durchlaufen.
-  2. Playwright Mobile-Guard (`tests/mobile-guard.spec.ts`) muss alle **23 Stationen** (inkl. Stetiger Begleiter v2 in Station 21, Wacher Begleiter / Antriebs-Würfel in Station 22 sowie Gastro-Brücke, 1-Klick-HACCP & Smart-Home-Schnellschalter in Station 23) zu 100 % grün durchlaufen.
+  2. Playwright Mobile-Guard (`tests/mobile-guard.spec.ts`) muss alle **24 Stationen** (inkl. Stetiger Begleiter v2 in Station 21, Wacher Begleiter / Antriebs-Würfel in Station 22, Gastro-Brücke, 1-Klick-HACCP & Smart-Home-Schnellschalter in Station 23 sowie Komfort-Politur in Station 24) zu 100 % grün durchlaufen.
   3. Strikte Wächter: 0 ungefangene `pageerror`-Exceptions, 0 unberechtigte `console.error`-Meldungen, 0 horizontale Viewport-Überläufe (`document.documentElement.scrollWidth <= window.innerWidth + 1`).
 
 ---
@@ -399,3 +399,17 @@ Die ehemalige Mono-Komponente `VoiceModal.tsx` (> 2 200 Zeilen) ist verlustfrei 
   - Isoliertes Plugin (`haccp-protocol`, Default aktiv für `proj-foodtruck` via idempotenter Erst-Migration) mit Kühl-/Saladette-Sollwert-Hinweis in Honig-Gold (`#E5A93C`), 4 Hygiene-Checks, `Alle Standard-Checks ✓`, IDB-Store `HACCP_LOGS` (`banditos_haccp_logs_v1` inkl. Voll-Backup v2) sowie CSV-Export (UTF-8-BOM, `;`, deutsches Komma) und Nachweis-Kopie.
 - **Live-Shelly- & Home-Assistant-Schnellschalter (`src/core/front/SmartHomeQuickPanel.tsx`, `src/services/smartHomeBridge.ts`, `ExtrasView.tsx`, `AutomationSection.tsx`):**
   - Geschlossene Schublade strikt an `smartHomeEnabled` (Default `false`) gekoppelt; IDB-Store `SMART_HOME_SWITCHES` (`banditos_smart_home_switches_v1` inkl. Voll-Backup v2), Verwaltung inkl. `TSA-Vorlagen einfügen` in Bereich 4 und `fetch` mit 4s-Timeout / `no-cors`-Fallback ohne ungefangene Konsolenfehler (`Station 23`).
+
+---
+
+## 25  Welle 6 / Ticket 6.1 – Komfort-Politur (Task-Edit-Metadaten, Einzelpunkt-Vorlesen, Chronologie & `aiLogs`-Einsicht)
+
+- **Erweiterte Task-Edit-Metadaten (`TasksView.tsx`, `FocusAndSmartphoneSection.tsx`, `App.tsx`):**
+  - Bearbeiten- und (optional eingeklapptes) Neu-Anlegen-Formular ergänzen Priorität (`Hoch` / `Mittel` / `Niedrig`), geschätzte Dauer (`5`/`15`/`30`/`60 min` + freies Minutenfeld) sowie `dayBlock` (`Ohne`, `Morgens`, `Mittags`, `Nachmittags`, `Abends`).
+  - Steuerbar über `taskExtendedMetaEnabled` (Bereich 2, Default `true`).
+- **Einzelpunkt-Vorlesen bei Wissen & Abläufen (`src/services/knowledgeBlocks.ts`, `KnowledgeView.tsx`, `AiAndVoiceSection.tsx`):**
+  - Zerlegt mehrteilige Einträge (≥ 2 Punkte/Schritte/Absätze) in ruhige Karten mit eigenem `Vorlesen`/`Stopp`-Knopf (`min-h-[44px]`) über die bestehende Gisela-/Browser-TTS-Brücke; `StepByStepAudioGuide` bleibt unverändert.
+  - Steuerbar über `knowledgeStepReadAloudEnabled` (Bereich 3, Default `true`).
+- **Änderungs-Chronologie & zugeklappte `aiLogs`-Einsicht (`ChangeLogAccordion.tsx`, `SystemAndBackupSection.tsx`, `types.ts`, `storage.ts`):**
+  - `TaskItem` und `KnowledgeItem` speichern `updatedAt` und max. 10 `ChangeLogEntry`-Einträge (`Du` / `KI` + `JetBrains Mono`-Zeitstempel), angezeigt in einer standardmäßig zugeklappten `Chronologie (N)`-Zeile (steuerbar über `changeHistoryEnabled`, Bereich 5, Default `true`).
+  - Opt-in-Einsicht in `AppStateSnapshot.aiLogs` über `aiLogsViewerEnabled` (Bereich 5, Default `false` – geschlossene Schublade) mit zugeklappter Protokoll-Liste und `Protokoll leeren`-Bestätigung (`Station 24`).

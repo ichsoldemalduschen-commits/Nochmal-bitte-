@@ -9,6 +9,7 @@ import {
   BanditUserPreferences,
   CartItem,
   CustomMeta,
+  DayBlockId,
   DomainType,
   EnergyLevel,
   EventSalesLog,
@@ -101,7 +102,7 @@ interface FrontWorkspaceProps {
     assemblyGroup?: string,
     reminderAt?: string,
     reminderRecurrence?: ReminderRecurrence,
-    extra?: { energyLevel?: EnergyLevel; isHurdleTask?: boolean }
+    extra?: { energyLevel?: EnergyLevel; isHurdleTask?: boolean; dayBlock?: DayBlockId }
   ) => void;
   externalUndoAction?: { message: string; undo: () => void } | null;
   onClearExternalUndo?: () => void;
@@ -688,6 +689,8 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
               allProjects={allProjects}
               themeColors={themeColors}
               prefs={prefs}
+              taskExtendedMetaEnabled={prefs.taskExtendedMetaEnabled !== false}
+              changeHistoryEnabled={prefs.changeHistoryEnabled !== false}
               searchQuery={searchQuery}
               highlightedItemId={highlightedItemId}
               onToggleTask={onToggleTask}
@@ -739,6 +742,8 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
               activeProject={activeProject}
               allProjects={allProjects}
               themeColors={themeColors}
+              knowledgeStepReadAloudEnabled={prefs.knowledgeStepReadAloudEnabled !== false}
+              changeHistoryEnabled={prefs.changeHistoryEnabled !== false}
               searchQuery={searchQuery}
               highlightedItemId={highlightedItemId}
               userApiKey={userApiKey}

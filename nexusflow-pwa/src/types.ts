@@ -49,6 +49,11 @@ export interface BanditUserPreferences {
   companionMessageToolsEnabled?: boolean;
   companionQuickChipsEnabled?: boolean;
   companionStartExpanded?: boolean;
+  // Welle 6 / Ticket 6.1: Komfort-Politur
+  taskExtendedMetaEnabled?: boolean;
+  knowledgeStepReadAloudEnabled?: boolean;
+  changeHistoryEnabled?: boolean;
+  aiLogsViewerEnabled?: boolean;
   quickCommands: string[];
   activeFocusTaskId: string | null;
   activeFocusTaskTitle: string | null;
@@ -97,6 +102,12 @@ export interface ProcurementCheckData {
   searchTerm: string;
 }
 
+export interface ChangeLogEntry {
+  at: string; // ISO timestamp
+  actor: 'user' | 'ai';
+  summary: string;
+}
+
 export interface SubTaskItem {
   id: string;
   title: string;
@@ -124,6 +135,8 @@ export interface TaskItem {
   source: string;
   assemblyGroup?: string;
   subTasks?: SubTaskItem[];
+  updatedAt?: string;
+  changeLog?: ChangeLogEntry[];
   customMeta: CustomMeta;
 }
 
@@ -140,6 +153,8 @@ export interface KnowledgeItem {
   changeReason: string;
   source: string;
   aiTouched: boolean;
+  updatedAt?: string;
+  changeLog?: ChangeLogEntry[];
   customMeta: CustomMeta;
 }
 

@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import {
   BanditUserPreferences,
+  DayBlockId,
   EnergyLevel,
   PriorityType,
   Project,
@@ -35,13 +36,34 @@ import { filterTasksByEnergy, rollHurdleTask } from '../../services/adhsDriveEng
 import { triggerHapticFeedback } from '../../services/storage';
 import { DESIGN_TOKENS } from '../../config/designTokens';
 import { CHECK_GLOW_MS } from '../../config/runtimeConfig';
+import { ChangeLogAccordion } from './ChangeLogAccordion';
 import { ThemeColors } from './FrontHeader';
+
+const DAY_BLOCK_OPTIONS: Array<{ id: DayBlockId; label: string; testKey: string }> = [
+  { id: null, label: 'Ohne', testKey: 'none' },
+  { id: 'morning', label: 'Morgens', testKey: 'morning' },
+  { id: 'focus', label: 'Mittags', testKey: 'focus' },
+  { id: 'errands', label: 'Nachmittags', testKey: 'errands' },
+  { id: 'evening', label: 'Abends', testKey: 'evening' }
+];
+
+const DAY_BLOCK_LABEL_MAP: Record<Exclude<DayBlockId, null>, string> = {
+  morning: 'Morgens',
+  focus: 'Mittags',
+  errands: 'Nachmittags',
+  evening: 'Abends'
+};
+
+const PRIORITY_OPTIONS: PriorityType[] = ['Hoch', 'Mittel', 'Niedrig'];
+const DURATION_PRESETS = [5, 15, 30, 60] as const;
 
 interface TasksViewProps {
   activeProject: Project;
   allProjects: Project[];
   themeColors: ThemeColors;
   prefs: BanditUserPreferences;
+  taskExtendedMetaEnabled?: boolean;
+  changeHistoryEnabled?: boolean;
   searchQuery: string;
   highlightedItemId: string | null;
   onToggleTask: (projectId: string, taskId: string) => void;
@@ -56,7 +78,7 @@ interface TasksViewProps {
     assemblyGroup?: string,
     reminderAt?: string,
     reminderRecurrence?: ReminderRecurrence,
-    extra?: { energyLevel?: EnergyLevel; isHurdleTask?: boolean }
+    extra?: { energyLevel?: EnergyLevel; isHurdleTask?: boolean; dayBlock?: DayBlockId }
   ) => void;
   onDeleteTask: (projectId: string, taskId: string) => void;
   onUpdateTask?: (projectId: string, taskId: string, patch: Partial<TaskItem>) => void;
@@ -79,6 +101,8 @@ export const TasksView: React.FC<TasksViewProps> = ({
   allProjects,
   themeColors,
   prefs,
+  taskExtendedMetaEnabled,
+  changeHistoryEnabled,
   searchQuery,
   highlightedItemId,
   onToggleTask,
@@ -108,6 +132,10 @@ export const TasksView: React.FC<TasksViewProps> = ({
   const [newTaskRecurrence, setNewTaskRecurrence] = useState<ReminderRecurrence>('none');
   const [newTaskEnergy, setNewTaskEnergy] = useState<EnergyLevel>('medium');
   const [newTaskHurdle, setNewTaskHurdle] = useState(false);
+  const [newTaskPriority, setNewTaskPriority] = useState<PriorityType>('Mittel');
+  const [newTaskMinutes, setNewTaskMinutes] = useState<number>(25);
+  const [newTaskDayBlock, setNewTaskDayBlock] = useState<DayBlockId>(null);
+  const [showNewTaskExtendedMeta, setShowNewTaskExtendedMeta] = useState(false);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [editTaskTitle, setEditTaskTitle] = useState('');
   const [editTaskGroup, setEditTaskGroup] = useState('');
@@ -115,6 +143,9 @@ export const TasksView: React.FC<TasksViewProps> = ({
   const [editTaskRecurrence, setEditTaskRecurrence] = useState<ReminderRecurrence>('none');
   const [editTaskEnergy, setEditTaskEnergy] = useState<EnergyLevel>('medium');
   const [editTaskHurdle, setEditTaskHurdle] = useState(false);
+  const [editTaskPriority, setEditTaskPriority] = useState<PriorityType>('Mittel');
+  const [editTaskMinutes, setEditTaskMinutes] = useState<number>(15);
+  const [editTaskDayBlock, setEditTaskDayBlock] = useState<DayBlockId>(null);
   const [energyFilter, setEnergyFilter] = useState<EnergyLevel | 'all'>('all');
   const [singleFocusActive, setSingleFocusActive] = useState(false);
   const [expandedActionCards, setExpandedActionCards] = useState<Record<string, boolean>>({});
@@ -148,6 +179,14 @@ export const TasksView: React.FC<TasksViewProps> = ({
 
   const driveDiceEnabled = prefs.driveDiceEnabled !== false;
   const energyPlannerEnabled = prefs.energyPlannerEnabled !== false;
+  const showExtendedMeta =
+    typeof taskExtendedMetaEnabled === 'boolean'
+      ? taskExtendedMetaEnabled
+      : prefs.taskExtendedMetaEnabled !== false;
+  const showChangeHistory =
+    typeof changeHistoryEnabled === 'boolean'
+      ? changeHistoryEnabled
+      : prefs.changeHistoryEnabled !== false;
   const effectiveEnergyFilter: EnergyLevel | 'all' = energyPlannerEnabled ? energyFilter : 'all';
 
   const toggleActionCard = (id: string) => {
@@ -357,6 +396,115 @@ export const TasksView: React.FC<TasksViewProps> = ({
     );
   };
 
+  const renderExtendedMetaPicker = (
+    priorityVal: PriorityType,
+    minutesVal: number,
+    dayBlockVal: DayBlockId,
+    onChangePriority: (p: PriorityType) => void,
+    onChangeMinutes: (m: number) => void,
+    onChangeDayBlock: (b: DayBlockId) => void,
+    prefix: string
+  ) => (
+    <div
+      data-testid={`${prefix}-extended-meta`}
+      className="p-3 rounded-xl bg-[#111317] border border-white/10 space-y-2.5"
+    >
+      <div className="space-y-1.5">
+        <div className="text-xs font-semibold text-[#94A3B8]">Priorität</div>
+        <div className="flex flex-wrap gap-1.5">
+          {PRIORITY_OPTIONS.map((prio) => {
+            const active = priorityVal === prio;
+            return (
+              <button
+                key={prio}
+                type="button"
+                data-testid={`${prefix}-priority-${prio}`}
+                onClick={() => onChangePriority(prio)}
+                className={`min-h-[44px] px-3 py-1.5 rounded-xl text-xs font-semibold border transition active:scale-95 cursor-pointer ${
+                  active
+                    ? 'text-white border-white/30 font-bold'
+                    : 'bg-[#191C22] text-[#94A3B8] hover:text-[#F1F5F9] border-white/10'
+                }`}
+                style={active ? { backgroundColor: themeColors.primary } : {}}
+              >
+                {prio}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="space-y-1.5">
+        <div className="text-xs font-semibold text-[#94A3B8]">Geschätzte Dauer</div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {DURATION_PRESETS.map((mins) => {
+            const active = minutesVal === mins;
+            return (
+              <button
+                key={mins}
+                type="button"
+                data-testid={`${prefix}-duration-${mins}`}
+                onClick={() => onChangeMinutes(mins)}
+                className={`min-h-[44px] px-3 py-1.5 rounded-xl text-xs font-mono font-semibold border transition active:scale-95 cursor-pointer ${
+                  active
+                    ? 'text-white border-white/30 font-bold'
+                    : 'bg-[#191C22] text-[#94A3B8] hover:text-[#F1F5F9] border-white/10'
+                }`}
+                style={active ? { backgroundColor: themeColors.primary } : {}}
+              >
+                {mins} min
+              </button>
+            );
+          })}
+          <div className="flex items-center gap-1.5 min-w-0">
+            <input
+              type="number"
+              min={1}
+              max={999}
+              inputMode="numeric"
+              aria-label="Freie Minuten"
+              data-testid={`${prefix}-duration-input`}
+              value={minutesVal > 0 ? minutesVal : ''}
+              onChange={(e) => {
+                const n = Number(e.target.value);
+                if (Number.isFinite(n) && n >= 0) {
+                  onChangeMinutes(Math.min(999, Math.round(n)));
+                }
+              }}
+              className="w-20 min-w-0 min-h-[44px] px-2.5 py-1.5 rounded-xl text-xs font-mono bg-[#191C22] text-[#F1F5F9] border border-white/10 focus:outline-none focus:border-[#14B8A6]"
+            />
+            <span className="text-xs font-mono text-[#94A3B8]">min</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-1.5">
+        <div className="text-xs font-semibold text-[#94A3B8]">Tagesblock</div>
+        <div className="flex flex-wrap gap-1.5">
+          {DAY_BLOCK_OPTIONS.map((opt) => {
+            const active = (dayBlockVal ?? null) === opt.id;
+            return (
+              <button
+                key={opt.testKey}
+                type="button"
+                data-testid={`${prefix}-dayblock-${opt.testKey}`}
+                onClick={() => onChangeDayBlock(opt.id)}
+                className={`min-h-[44px] px-3 py-1.5 rounded-xl text-xs font-semibold border transition active:scale-95 cursor-pointer ${
+                  active
+                    ? 'text-white border-white/30 font-bold'
+                    : 'bg-[#191C22] text-[#94A3B8] hover:text-[#F1F5F9] border-white/10'
+                }`}
+                style={active ? { backgroundColor: themeColors.primary } : {}}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <section className="space-y-3.5">
       {/* Sektions-Kopf ohne äußeren Kasten */}
@@ -490,14 +638,15 @@ export const TasksView: React.FC<TasksViewProps> = ({
             onAddTask(
               activeProject.id,
               newTaskTitle.trim(),
-              'Mittel',
-              25,
+              showExtendedMeta ? newTaskPriority : 'Mittel',
+              showExtendedMeta && newTaskMinutes > 0 ? newTaskMinutes : 25,
               newTaskGroup.trim() || undefined,
               newTaskReminderAt || undefined,
               newTaskReminderAt ? newTaskRecurrence : undefined,
               {
                 ...(energyPlannerEnabled ? { energyLevel: newTaskEnergy } : {}),
-                ...(driveDiceEnabled && newTaskHurdle ? { isHurdleTask: true } : {})
+                ...(driveDiceEnabled && newTaskHurdle ? { isHurdleTask: true } : {}),
+                ...(showExtendedMeta && newTaskDayBlock ? { dayBlock: newTaskDayBlock } : {})
               }
             );
             setNewTaskTitle('');
@@ -506,6 +655,10 @@ export const TasksView: React.FC<TasksViewProps> = ({
             setNewTaskRecurrence('none');
             setNewTaskEnergy('medium');
             setNewTaskHurdle(false);
+            setNewTaskPriority('Mittel');
+            setNewTaskMinutes(25);
+            setNewTaskDayBlock(null);
+            setShowNewTaskExtendedMeta(false);
             setIsAddingTask(false);
             onNotify('Aufgabe hinzugefügt.');
           }}
@@ -572,6 +725,30 @@ export const TasksView: React.FC<TasksViewProps> = ({
               )}
             </div>
           )}
+          {showExtendedMeta && (
+            <div className="space-y-2">
+              <button
+                type="button"
+                aria-expanded={showNewTaskExtendedMeta}
+                onClick={() => setShowNewTaskExtendedMeta((v) => !v)}
+                className="min-h-[44px] px-3 py-1.5 rounded-xl text-xs font-semibold bg-[#111317] text-[#94A3B8] hover:text-[#F1F5F9] border border-white/10 transition cursor-pointer"
+              >
+                {showNewTaskExtendedMeta
+                  ? 'Priorität, Dauer & Tagesblock ausblenden'
+                  : '+ Priorität, Dauer & Tagesblock'}
+              </button>
+              {showNewTaskExtendedMeta &&
+                renderExtendedMetaPicker(
+                  newTaskPriority,
+                  newTaskMinutes,
+                  newTaskDayBlock,
+                  setNewTaskPriority,
+                  setNewTaskMinutes,
+                  setNewTaskDayBlock,
+                  'add-task'
+                )}
+            </div>
+          )}
           {renderReminderPicker(
             newTaskReminderAt,
             newTaskRecurrence,
@@ -589,6 +766,10 @@ export const TasksView: React.FC<TasksViewProps> = ({
                 setNewTaskRecurrence('none');
                 setNewTaskEnergy('medium');
                 setNewTaskHurdle(false);
+                setNewTaskPriority('Mittel');
+                setNewTaskMinutes(25);
+                setNewTaskDayBlock(null);
+                setShowNewTaskExtendedMeta(false);
               }}
               className="min-h-[44px] px-4 rounded-xl text-xs font-semibold text-[#94A3B8] hover:text-white transition cursor-pointer"
             >
@@ -989,6 +1170,16 @@ export const TasksView: React.FC<TasksViewProps> = ({
                           )}
                         </div>
                       )}
+                      {showExtendedMeta &&
+                        renderExtendedMetaPicker(
+                          editTaskPriority,
+                          editTaskMinutes,
+                          editTaskDayBlock,
+                          setEditTaskPriority,
+                          setEditTaskMinutes,
+                          setEditTaskDayBlock,
+                          'edit-task'
+                        )}
                       {renderReminderPicker(
                         editTaskReminderAt,
                         editTaskRecurrence,
@@ -1005,12 +1196,21 @@ export const TasksView: React.FC<TasksViewProps> = ({
                         </button>
                         <button
                           type="button"
+                          data-testid={`save-edit-task-${task.id}`}
                           onClick={() => {
                             if (!editTaskTitle.trim()) return;
                             const nextReminder = editTaskReminderAt.trim();
                             onUpdateTask?.(activeProject.id, task.id, {
                               title: editTaskTitle.trim(),
                               assemblyGroup: editTaskGroup.trim() || undefined,
+                              ...(showExtendedMeta
+                                ? {
+                                    priority: editTaskPriority,
+                                    estimatedMinutes:
+                                      editTaskMinutes > 0 ? Math.round(editTaskMinutes) : 15,
+                                    dayBlock: editTaskDayBlock
+                                  }
+                                : {}),
                               reminderAt: nextReminder,
                               reminderRecurrence: nextReminder ? editTaskRecurrence : 'none',
                               ...(energyPlannerEnabled ? { energyLevel: editTaskEnergy } : {}),
@@ -1028,6 +1228,24 @@ export const TasksView: React.FC<TasksViewProps> = ({
                           Speichern
                         </button>
                       </div>
+                    </div>
+                  ) : showExtendedMeta ? (
+                    <div
+                      data-testid={`task-meta-summary-${task.id}`}
+                      className="flex flex-wrap items-center gap-1.5 text-xs text-[#94A3B8]"
+                    >
+                      <span className="px-2 py-0.5 rounded-md bg-[#191C22] border border-white/5">
+                        Priorität: <span className="text-[#F1F5F9] font-semibold">{task.priority}</span>
+                      </span>
+                      <span className="px-2 py-0.5 rounded-md bg-[#191C22] border border-white/5 font-mono">
+                        {task.estimatedMinutes} min
+                      </span>
+                      <span className="px-2 py-0.5 rounded-md bg-[#191C22] border border-white/5">
+                        Block:{' '}
+                        <span className="text-[#F1F5F9] font-semibold">
+                          {task.dayBlock ? DAY_BLOCK_LABEL_MAP[task.dayBlock] : 'Ohne'}
+                        </span>
+                      </span>
                     </div>
                   ) : null}
 
@@ -1073,6 +1291,9 @@ export const TasksView: React.FC<TasksViewProps> = ({
                         setEditTaskRecurrence(task.reminderRecurrence || 'none');
                         setEditTaskEnergy(task.energyLevel ?? 'medium');
                         setEditTaskHurdle(Boolean(task.isHurdleTask));
+                        setEditTaskPriority(task.priority || 'Mittel');
+                        setEditTaskMinutes(task.estimatedMinutes || 15);
+                        setEditTaskDayBlock(task.dayBlock ?? null);
                         setEditingTaskId(task.id);
                       }}
                       className="min-w-0 min-h-[44px] px-3 rounded-xl text-xs font-semibold bg-[#191C22] hover:bg-[#22262F] text-[#F1F5F9] hover:text-[#14B8A6] border border-white/5 flex items-center justify-center gap-1.5 active:scale-95 transition cursor-pointer"
@@ -1169,6 +1390,13 @@ export const TasksView: React.FC<TasksViewProps> = ({
                       <span className="truncate">Löschen</span>
                     </button>
                   </div>
+
+                  {/* Änderungs-Chronologie (standardmäßig zugeklappt) */}
+                  {showChangeHistory &&
+                    Array.isArray(task.changeLog) &&
+                    task.changeLog.length > 0 && (
+                      <ChangeLogAccordion itemId={task.id} entries={task.changeLog} />
+                    )}
 
                   {/* Projektverschiebung */}
                   {allProjects.filter((p) => !p.archived && p.id !== activeProject.id).length > 0 && (

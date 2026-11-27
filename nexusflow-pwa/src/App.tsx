@@ -9,6 +9,7 @@ import {
   Attachment,
   BanditUserPreferences,
   CartItem,
+  DayBlockId,
   DomainType,
   EnergyLevel,
   ForemanProposal,
@@ -30,6 +31,7 @@ import { UNDO_TOAST_MS } from './config/runtimeConfig';
 import { INITIAL_APP_SNAPSHOT } from './data/pizzaBanditTsaSeed';
 import {
   DEFAULT_AI_VOICE_SETTINGS,
+  appendChangeLogEntry,
   downloadFullBackupV2,
   formatNow,
   loadAiVoiceSettings,
@@ -705,9 +707,52 @@ export default function App() {
 
   const handleUpdateTask = (projId: string, taskId: string, patch: Partial<TaskItem>) => {
     const ts = formatNow();
+    const nowIso = new Date().toISOString();
     updateProject(projId, (p) => ({
       ...p,
-      tasks: p.tasks.map((t) => (t.id === taskId ? { ...t, ...patch, lastModified: ts } : t))
+      tasks: p.tasks.map((t) => {
+        if (t.id !== taskId) return t;
+        const changes: string[] = [];
+        if (patch.title !== undefined && patch.title !== t.title) changes.push('Titel');
+        if (patch.priority !== undefined && patch.priority !== t.priority) changes.push('Priorität');
+        if (patch.estimatedMinutes !== undefined && patch.estimatedMinutes !== t.estimatedMinutes) {
+          changes.push('Dauer');
+        }
+        if (patch.dayBlock !== undefined && patch.dayBlock !== t.dayBlock) changes.push('Block');
+        if (patch.assemblyGroup !== undefined && patch.assemblyGroup !== t.assemblyGroup) {
+          changes.push('Baugruppe');
+        }
+        if (patch.reminderAt !== undefined && patch.reminderAt !== t.reminderAt) {
+          changes.push('Erinnerung');
+        }
+        if (patch.energyLevel !== undefined && patch.energyLevel !== t.energyLevel) {
+          changes.push('Akku');
+        }
+        if (patch.isHurdleTask !== undefined && patch.isHurdleTask !== t.isHurdleTask) {
+          changes.push('Schweinehund');
+        }
+        let summary: string | null = null;
+        if (changes.length > 0) {
+          summary = `Bearbeitet: ${changes.join(' / ')}`;
+        } else if (patch.completed !== undefined && patch.completed !== t.completed) {
+          summary = patch.completed ? 'Als erledigt markiert' : 'Wieder geöffnet';
+        }
+        return {
+          ...t,
+          ...patch,
+          lastModified: ts,
+          ...(summary
+            ? {
+                updatedAt: nowIso,
+                changeLog: appendChangeLogEntry(t.changeLog, {
+                  at: nowIso,
+                  actor: 'user',
+                  summary
+                })
+              }
+            : {})
+        };
+      })
     }));
     notify('Aufgabe aktualisiert.');
   };
@@ -923,6 +968,7 @@ export default function App() {
     markdownContent: string,
     followUpTasks: string[]
   ) => {
+    const nowIso = new Date().toISOString();
     updateProject(projectId, (p) => {
       const newK: KnowledgeItem = {
         id: `k-dossier-${Date.now()}`,
@@ -934,6 +980,8 @@ export default function App() {
         changeReason: 'Deep Research Beleg',
         source: 'KI-Recherche',
         aiTouched: true,
+        updatedAt: nowIso,
+        changeLog: [{ at: nowIso, actor: 'ai', summary: 'Deep Research Beleg' }],
         customMeta: {}
       };
       const newTasks: TaskItem[] = (followUpTasks || []).map((tText, idx) => ({
@@ -1454,19 +1502,30 @@ export default function App() {
     content: string
   ) => {
     const ts = formatNow();
+    const nowIso = new Date().toISOString();
     updateProject(projId, (p) => {
-      const nextKnowledge = (p.knowledge || []).map((k) =>
-        k.id === itemId
-          ? {
-            ...k,
-            title,
-            content,
-            stepsText: k.kind === 'explanation' ? content : k.stepsText,
-            lastModified: ts,
-            changeReason: 'Bearbeitet'
-          }
-          : k
-      );
+      const nextKnowledge = (p.knowledge || []).map((k) => {
+        if (k.id !== itemId) return k;
+        const changes: string[] = [];
+        if (title !== k.title) changes.push('Titel');
+        if (content !== k.content) changes.push('Inhalt');
+        const summary =
+          changes.length > 0 ? `Bearbeitet: ${changes.join(' / ')}` : 'Bearbeitet';
+        return {
+          ...k,
+          title,
+          content,
+          stepsText: k.kind === 'explanation' ? content : k.stepsText,
+          lastModified: ts,
+          changeReason: 'Bearbeitet',
+          updatedAt: nowIso,
+          changeLog: appendChangeLogEntry(k.changeLog, {
+            at: nowIso,
+            actor: 'user',
+            summary
+          })
+        };
+      });
       return {
         ...p,
         knowledge: nextKnowledge
@@ -1522,6 +1581,7 @@ export default function App() {
         dataUrl,
         textContent: null
       };
+      const nowIso = new Date().toISOString();
       updateProject(projId, (p) => ({
         ...p,
         knowledge: (p.knowledge || []).map((k) =>
@@ -1530,7 +1590,13 @@ export default function App() {
               ...k,
               attachments: [...(k.attachments || []), newAtt],
               lastModified: formatNow(),
-              changeReason: `Foto ${file.name} komprimiert gespeichert`
+              changeReason: `Foto ${file.name} komprimiert gespeichert`,
+              updatedAt: nowIso,
+              changeLog: appendChangeLogEntry(k.changeLog, {
+                at: nowIso,
+                actor: 'user',
+                summary: `Foto angehängt: ${file.name}`
+              })
             }
             : k
         )
@@ -1552,6 +1618,7 @@ export default function App() {
         dataUrl: isPdf ? String(res) : null,
         textContent: isText ? String(res) : null
       };
+      const nowIso = new Date().toISOString();
       updateProject(projId, (p) => ({
         ...p,
         knowledge: (p.knowledge || []).map((k) =>
@@ -1560,7 +1627,13 @@ export default function App() {
               ...k,
               attachments: [...(k.attachments || []), newAtt],
               lastModified: formatNow(),
-              changeReason: `Anhang ${file.name}`
+              changeReason: `Anhang ${file.name}`,
+              updatedAt: nowIso,
+              changeLog: appendChangeLogEntry(k.changeLog, {
+                at: nowIso,
+                actor: 'user',
+                summary: `Anhang: ${file.name}`
+              })
             }
             : k
         )
@@ -1580,6 +1653,7 @@ export default function App() {
   ) => {
     const defaultProjId = BRAND_CONFIG.defaultProjectId;
     const timestamp = formatNow();
+    const nowIso = new Date().toISOString();
     const executedActions: AiExecutedAction[] = [];
     const logId = `log-${Date.now()}`;
     let firstTargetProjectId = activeProject?.id || defaultProjId;
@@ -1632,6 +1706,8 @@ export default function App() {
               changeReason: safeNote,
               source: 'KI-Zuordnung',
               aiTouched: true,
+              updatedAt: nowIso,
+              changeLog: [{ at: nowIso, actor: 'ai', summary: safeNote }],
               customMeta: {}
             };
             target.knowledge.unshift(kItem);
@@ -1687,6 +1763,8 @@ export default function App() {
               changeReason: safeNote,
               source: 'KI-Zuordnung',
               aiTouched: true,
+              updatedAt: nowIso,
+              changeLog: [{ at: nowIso, actor: 'ai', summary: safeNote }],
               customMeta: {}
             });
             executedActions.push({
@@ -1713,6 +1791,8 @@ export default function App() {
               changeReason: safeNote,
               source: 'KI-Zuordnung',
               aiTouched: true,
+              updatedAt: nowIso,
+              changeLog: [{ at: nowIso, actor: 'ai', summary: safeNote }],
               customMeta: {}
             });
             executedActions.push({
@@ -1742,6 +1822,8 @@ export default function App() {
               changeReason: safeNote,
               source: 'KI-Zuordnung',
               assemblyGroup: act.assemblyGroup,
+              updatedAt: nowIso,
+              changeLog: [{ at: nowIso, actor: 'ai', summary: safeNote }],
               customMeta: {}
             });
             executedActions.push({
@@ -2151,7 +2233,7 @@ export default function App() {
                 assemblyGroup,
                 reminderAt,
                 reminderRecurrence,
-                extra?: { energyLevel?: EnergyLevel; isHurdleTask?: boolean }
+                extra?: { energyLevel?: EnergyLevel; isHurdleTask?: boolean; dayBlock?: DayBlockId }
               ) => {
                 const ts = formatNow();
                 updateProject(projId, (p) => ({
@@ -2163,7 +2245,7 @@ export default function App() {
                       completed: false,
                       priority: prio,
                       estimatedMinutes: mins,
-                      dayBlock: null,
+                      dayBlock: extra?.dayBlock ?? null,
                       reminderAt: reminderAt || '',
                       reminderRecurrence: reminderAt ? reminderRecurrence || 'none' : undefined,
                       ...(extra?.energyLevel ? { energyLevel: extra.energyLevel } : {}),
@@ -2359,6 +2441,10 @@ export default function App() {
               onUpdateAiVoiceSettings={handleUpdateAiVoiceSettings}
               prefs={prefs}
               onUpdatePrefs={handleUpdatePrefs}
+              onClearAiLogs={() => {
+                setState((prev) => ({ ...prev, aiLogs: [] }));
+                notify('KI-Protokoll geleert.');
+              }}
               smartHomeSwitches={smartHomeSwitches}
               onUpdateSmartHomeSwitches={(next) => {
                 setSmartHomeSwitches(next);
@@ -2627,6 +2713,7 @@ export default function App() {
         }
         onSaveAnswerToInfos={(q, ans, att) => {
           if (!activeProject) return;
+          const nowIso = new Date().toISOString();
           const newAtts = att ? [att] : [];
           const newK: KnowledgeItem = {
             id: `k-qa-${Date.now()}`,
@@ -2638,6 +2725,8 @@ export default function App() {
             changeReason: 'Aus KI-Verlauf gespeichert',
             source: 'KI-Zuordnung',
             aiTouched: true,
+            updatedAt: nowIso,
+            changeLog: [{ at: nowIso, actor: 'ai', summary: 'Aus KI-Verlauf gespeichert' }],
             customMeta: {}
           };
           updateProject(activeProject.id, (p) => ({
