@@ -29,7 +29,8 @@ import {
   ForemanProposalAction,
   VisionCaptureCategory,
   VisionCaptureItem,
-  OfflineAudioMemo
+  OfflineAudioMemo,
+  EnergyLevel
 } from '../types';
 
 export type { FullBackupV2, BackupImportResult, ProjectImportResult };
@@ -266,6 +267,18 @@ function migrateProjectInternal(rawProject: any): { project: Project; migrated: 
     const subRes = normalizeSubTasksList(t?.subTasks);
     if (subRes.changed) migrated = true;
 
+    const rawEnergy = t?.energyLevel;
+    const energyLevel: EnergyLevel | undefined =
+      rawEnergy === 'low' || rawEnergy === 'medium' || rawEnergy === 'high'
+        ? rawEnergy
+        : undefined;
+    const isHurdleTask: boolean | undefined =
+      typeof t?.isHurdleTask === 'boolean' ? t.isHurdleTask : undefined;
+    const lastShoulderTapStage: number | undefined =
+      typeof t?.lastShoulderTapStage === 'number' && Number.isFinite(t.lastShoulderTapStage)
+        ? Math.max(0, Math.min(4, Math.round(t.lastShoulderTapStage)))
+        : undefined;
+
     return {
       ...t,
       id: String(t?.id || `task_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`),
@@ -282,6 +295,9 @@ function migrateProjectInternal(rawProject: any): { project: Project; migrated: 
           ? (t.reminderRecurrence as ReminderRecurrence)
           : undefined,
       lastReminderFiredAt: t?.lastReminderFiredAt ? String(t.lastReminderFiredAt) : undefined,
+      ...(energyLevel !== undefined ? { energyLevel } : {}),
+      ...(isHurdleTask !== undefined ? { isHurdleTask } : {}),
+      ...(lastShoulderTapStage !== undefined ? { lastShoulderTapStage } : {}),
       aiTouched: Boolean(t?.aiTouched),
       lastModified: t?.lastModified || formatNow(),
       changeReason: t?.changeReason || '',
@@ -866,6 +882,12 @@ export const DEFAULT_USER_PREFS: BanditUserPreferences = {
   adhdSingleTaskMode: true,
   adhdTwoMinuteStarter: true,
   adhdTimeBufferAndHaptics: true,
+  driveDiceEnabled: true,
+  energyPlannerEnabled: true,
+  shoulderTapEnabled: false,
+  shoulderTapQuietStart: '22:00',
+  shoulderTapQuietEnd: '08:00',
+  shoulderTapTone: 'calm',
   uiDensity: 'standard',
   aiTone: 'partner',
   organicMotion: true,
@@ -927,6 +949,29 @@ export function normalizeUserPrefs(
       typeof src.adhdTimeBufferAndHaptics === 'boolean'
         ? src.adhdTimeBufferAndHaptics
         : DEFAULT_USER_PREFS.adhdTimeBufferAndHaptics,
+    driveDiceEnabled:
+      typeof src.driveDiceEnabled === 'boolean'
+        ? src.driveDiceEnabled
+        : DEFAULT_USER_PREFS.driveDiceEnabled,
+    energyPlannerEnabled:
+      typeof src.energyPlannerEnabled === 'boolean'
+        ? src.energyPlannerEnabled
+        : DEFAULT_USER_PREFS.energyPlannerEnabled,
+    shoulderTapEnabled:
+      typeof src.shoulderTapEnabled === 'boolean'
+        ? src.shoulderTapEnabled
+        : DEFAULT_USER_PREFS.shoulderTapEnabled,
+    shoulderTapQuietStart:
+      typeof src.shoulderTapQuietStart === 'string' &&
+      /^([01]\d|2[0-3]):[0-5]\d$/.test(src.shoulderTapQuietStart.trim())
+        ? src.shoulderTapQuietStart.trim()
+        : DEFAULT_USER_PREFS.shoulderTapQuietStart,
+    shoulderTapQuietEnd:
+      typeof src.shoulderTapQuietEnd === 'string' &&
+      /^([01]\d|2[0-3]):[0-5]\d$/.test(src.shoulderTapQuietEnd.trim())
+        ? src.shoulderTapQuietEnd.trim()
+        : DEFAULT_USER_PREFS.shoulderTapQuietEnd,
+    shoulderTapTone: src.shoulderTapTone === 'direct' ? 'direct' : 'calm',
     uiDensity,
     aiTone,
     organicMotion:

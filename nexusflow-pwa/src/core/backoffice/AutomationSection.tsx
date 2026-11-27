@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Bell, BrainCircuit, Camera, Receipt, Scale, Sparkles, Webhook } from 'lucide-react';
+import { Bell, BrainCircuit, Camera, Clock, Receipt, Scale, Sparkles, Webhook } from 'lucide-react';
 import { BanditUserPreferences, THEME } from '../../types';
 import { requestPushNotificationPermission } from '../../services/cloudSyncAndPush';
 import {
@@ -108,6 +108,93 @@ export const AutomationSection: React.FC<AutomationSectionProps> = ({
         tone="honey"
         testId="toggle-reminder-system-push"
       />
+
+      {/* 4-Stufen-„Festnagel-Schultertipp“ (Geschlossene Schublade, Default Aus) */}
+      <div className="space-y-2.5">
+        <ZentraleToggleRow
+          title="4-Stufen-„Festnagel-Schultertipp“"
+          description="Eskaliert fällige Erinnerungen schuldfrei in bis zu 4 Stufen – respektiert feste Ruhezeiten."
+          checked={prefs.shoulderTapEnabled === true}
+          onToggle={() => {
+            const next = !(prefs.shoulderTapEnabled === true);
+            onUpdatePrefs({ shoulderTapEnabled: next });
+            onNotify(
+              next
+                ? '4-Stufen-Schultertipp aktiviert.'
+                : '4-Stufen-Schultertipp pausiert.'
+            );
+          }}
+          onLabel="An"
+          offLabel="Aus"
+          tone="honey"
+          icon={<Clock className="w-4 h-4 text-[#E5A93C] shrink-0" />}
+          testId="toggle-shoulder-tap"
+        />
+
+        {prefs.shoulderTapEnabled === true && (
+          <div
+            data-testid="shoulder-tap-settings-drawer"
+            className="p-3.5 rounded-2xl bg-[#242930] border border-white/5 space-y-3 animate-fadeIn"
+          >
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1 min-w-0">
+                <label className="text-xs text-[#94A3B8] block font-medium">
+                  Ruhezeit von
+                </label>
+                <input
+                  type="time"
+                  data-testid="input-quiet-start"
+                  value={prefs.shoulderTapQuietStart || '22:00'}
+                  onChange={(e) => onUpdatePrefs({ shoulderTapQuietStart: e.target.value })}
+                  className="w-full min-w-0 min-h-[44px] px-3 py-2 rounded-xl text-xs font-mono bg-[#111317] text-[#F1F5F9] border border-white/10 focus:outline-none focus:border-[#E5A93C] [color-scheme:dark]"
+                />
+              </div>
+              <div className="space-y-1 min-w-0">
+                <label className="text-xs text-[#94A3B8] block font-medium">
+                  Ruhezeit bis
+                </label>
+                <input
+                  type="time"
+                  data-testid="input-quiet-end"
+                  value={prefs.shoulderTapQuietEnd || '08:00'}
+                  onChange={(e) => onUpdatePrefs({ shoulderTapQuietEnd: e.target.value })}
+                  className="w-full min-w-0 min-h-[44px] px-3 py-2 rounded-xl text-xs font-mono bg-[#111317] text-[#F1F5F9] border border-white/10 focus:outline-none focus:border-[#E5A93C] [color-scheme:dark]"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs text-[#94A3B8] block font-medium">
+                Tonfall-Wahl:
+              </label>
+              <div className="flex flex-wrap gap-2">
+                {([
+                  { id: 'calm', label: 'Ruhiger Begleiter' },
+                  { id: 'direct', label: 'Direkter Werkstatt-Ton' }
+                ] as const).map((toneOpt) => {
+                  const isActive = (prefs.shoulderTapTone || 'calm') === toneOpt.id;
+                  return (
+                    <button
+                      key={toneOpt.id}
+                      type="button"
+                      data-testid={`shoulder-tap-tone-${toneOpt.id}`}
+                      onClick={() => onUpdatePrefs({ shoulderTapTone: toneOpt.id })}
+                      className={`flex-1 min-w-[130px] min-h-[44px] px-3 py-2 rounded-xl text-xs font-bold border transition active:scale-95 cursor-pointer ${
+                        isActive
+                          ? 'text-[#111317] border-transparent'
+                          : 'bg-[#111317] text-[#94A3B8] hover:text-[#F1F5F9] border-white/10'
+                      }`}
+                      style={isActive ? { backgroundColor: '#E5A93C' } : {}}
+                    >
+                      {toneOpt.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Browser-Push-Freigabe (390-px-Fix mit flex-wrap) */}
       <div className="p-3.5 rounded-2xl bg-[#242930] border border-white/5 flex items-center justify-between gap-2 flex-wrap">

@@ -6,6 +6,7 @@ import {
   Clock,
   Copy,
   Crosshair,
+  Dices,
   Edit3,
   Eye,
   MoreVertical,
@@ -16,6 +17,8 @@ import {
   Trash2
 } from 'lucide-react';
 import {
+  BanditUserPreferences,
+  EnergyLevel,
   PriorityType,
   Project,
   ReminderRecurrence,
@@ -28,7 +31,8 @@ import {
   parseReminderDate,
   toLocalDateTimeInputValue
 } from '../../services/cloudSyncAndPush';
-import { BanditUserPreferences, triggerHapticFeedback } from '../../services/aiRouter';
+import { filterTasksByEnergy, rollHurdleTask } from '../../services/adhsDriveEngine';
+import { triggerHapticFeedback } from '../../services/storage';
 import { DESIGN_TOKENS } from '../../config/designTokens';
 import { CHECK_GLOW_MS } from '../../config/runtimeConfig';
 import { ThemeColors } from './FrontHeader';
@@ -51,7 +55,8 @@ interface TasksViewProps {
     estimatedMinutes?: number,
     assemblyGroup?: string,
     reminderAt?: string,
-    reminderRecurrence?: ReminderRecurrence
+    reminderRecurrence?: ReminderRecurrence,
+    extra?: { energyLevel?: EnergyLevel; isHurdleTask?: boolean }
   ) => void;
   onDeleteTask: (projectId: string, taskId: string) => void;
   onUpdateTask?: (projectId: string, taskId: string, patch: Partial<TaskItem>) => void;
@@ -101,11 +106,16 @@ export const TasksView: React.FC<TasksViewProps> = ({
   const [newTaskGroup, setNewTaskGroup] = useState('');
   const [newTaskReminderAt, setNewTaskReminderAt] = useState('');
   const [newTaskRecurrence, setNewTaskRecurrence] = useState<ReminderRecurrence>('none');
+  const [newTaskEnergy, setNewTaskEnergy] = useState<EnergyLevel>('medium');
+  const [newTaskHurdle, setNewTaskHurdle] = useState(false);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [editTaskTitle, setEditTaskTitle] = useState('');
   const [editTaskGroup, setEditTaskGroup] = useState('');
   const [editTaskReminderAt, setEditTaskReminderAt] = useState('');
   const [editTaskRecurrence, setEditTaskRecurrence] = useState<ReminderRecurrence>('none');
+  const [editTaskEnergy, setEditTaskEnergy] = useState<EnergyLevel>('medium');
+  const [editTaskHurdle, setEditTaskHurdle] = useState(false);
+  const [energyFilter, setEnergyFilter] = useState<EnergyLevel | 'all'>('all');
   const [singleFocusActive, setSingleFocusActive] = useState(false);
   const [expandedActionCards, setExpandedActionCards] = useState<Record<string, boolean>>({});
   const [glowTaskId, setGlowTaskId] = useState<string | null>(null);
@@ -136,13 +146,25 @@ export const TasksView: React.FC<TasksViewProps> = ({
     };
   }, [isMenuOpen]);
 
+  const driveDiceEnabled = prefs.driveDiceEnabled !== false;
+  const energyPlannerEnabled = prefs.energyPlannerEnabled !== false;
+  const effectiveEnergyFilter: EnergyLevel | 'all' = energyPlannerEnabled ? energyFilter : 'all';
+
   const toggleActionCard = (id: string) => {
     triggerHapticFeedback(10);
     setExpandedActionCards((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
   const sortedTasks = useMemo(() => {
-    const filtered = [...activeProject.tasks]
+    const baseTasks =
+      effectiveEnergyFilter === 'all'
+        ? [...activeProject.tasks]
+        : filterTasksByEnergy(
+            activeProject.tasks.filter((t) => !t.completed),
+            effectiveEnergyFilter
+          );
+
+    const filtered = baseTasks
       .filter((t) => {
         if (searchQuery.trim() && !t.title.toLowerCase().includes(searchQuery.toLowerCase())) {
           return false;
@@ -161,7 +183,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
       return nextOpen ? [nextOpen] : filtered.slice(0, 1);
     }
     return filtered;
-  }, [activeProject, searchQuery, prefs, singleFocusActive, glowTaskId]);
+  }, [activeProject, searchQuery, prefs, singleFocusActive, glowTaskId, effectiveEnergyFilter]);
 
   const handleSoftToggle = (e: React.MouseEvent, task: TaskItem) => {
     e.stopPropagation();
@@ -223,7 +245,13 @@ export const TasksView: React.FC<TasksViewProps> = ({
           taskBackup.title,
           taskBackup.priority,
           taskBackup.estimatedMinutes,
-          taskBackup.assemblyGroup
+          taskBackup.assemblyGroup,
+          taskBackup.reminderAt || undefined,
+          taskBackup.reminderRecurrence,
+          {
+            ...(taskBackup.energyLevel ? { energyLevel: taskBackup.energyLevel } : {}),
+            ...(taskBackup.isHurdleTask ? { isHurdleTask: true } : {})
+          }
         );
         onNotify('Aufgabe wiederhergestellt.');
       }
@@ -394,6 +422,31 @@ export const TasksView: React.FC<TasksViewProps> = ({
                 <span>{singleFocusActive ? '1-Fokus beenden' : '1-Fokus aktivieren'}</span>
               </button>
 
+              {driveDiceEnabled && onOpenSingleFocus && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  data-testid="menu-drive-dice"
+                  onClick={() => {
+                    const rolled = rollHurdleTask(
+                      activeProject.tasks,
+                      null,
+                      effectiveEnergyFilter
+                    );
+                    setIsMenuOpen(false);
+                    if (rolled) {
+                      onOpenSingleFocus(rolled.id);
+                    } else {
+                      onNotify('Keine offenen Aufgaben für den Antriebs-Würfel.');
+                    }
+                  }}
+                  className="w-full min-h-[44px] px-3.5 py-2.5 rounded-xl text-xs font-semibold text-left flex items-center gap-2.5 hover:bg-white/5 text-[#E5A93C] active:scale-95 transition cursor-pointer"
+                >
+                  <Dices className="w-4 h-4 text-[#E5A93C] shrink-0" />
+                  <span>Antriebs-Würfel (Schweinehund-Pool)</span>
+                </button>
+              )}
+
               <button
                 type="button"
                 role="menuitem"
@@ -441,12 +494,18 @@ export const TasksView: React.FC<TasksViewProps> = ({
               25,
               newTaskGroup.trim() || undefined,
               newTaskReminderAt || undefined,
-              newTaskReminderAt ? newTaskRecurrence : undefined
+              newTaskReminderAt ? newTaskRecurrence : undefined,
+              {
+                ...(energyPlannerEnabled ? { energyLevel: newTaskEnergy } : {}),
+                ...(driveDiceEnabled && newTaskHurdle ? { isHurdleTask: true } : {})
+              }
             );
             setNewTaskTitle('');
             setNewTaskGroup('');
             setNewTaskReminderAt('');
             setNewTaskRecurrence('none');
+            setNewTaskEnergy('medium');
+            setNewTaskHurdle(false);
             setIsAddingTask(false);
             onNotify('Aufgabe hinzugefügt.');
           }}
@@ -469,6 +528,50 @@ export const TasksView: React.FC<TasksViewProps> = ({
               className="sm:w-44 min-h-[44px] px-3.5 py-2.5 rounded-xl text-sm bg-[#111317] text-[#F1F5F9] border border-white/10 placeholder-[#94A3B8] focus:outline-none focus:border-white/20"
             />
           </div>
+          {(energyPlannerEnabled || driveDiceEnabled) && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              {energyPlannerEnabled &&
+                ([
+                  { id: 'low', label: 'Niedrig' },
+                  { id: 'medium', label: 'Mittel' },
+                  { id: 'high', label: 'Hoch' }
+                ] as const).map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    data-testid={`task-form-energy-${opt.id}`}
+                    onClick={() => setNewTaskEnergy(opt.id)}
+                    className={`min-h-[44px] px-3 py-1.5 rounded-xl text-xs font-semibold border transition active:scale-95 cursor-pointer ${
+                      newTaskEnergy === opt.id
+                        ? 'text-white border-white/30'
+                        : 'bg-[#111317] text-[#94A3B8] hover:text-[#F1F5F9] border-white/10'
+                    }`}
+                    style={
+                      newTaskEnergy === opt.id ? { backgroundColor: themeColors.primary } : {}
+                    }
+                  >
+                    Akku: {opt.label}
+                  </button>
+                ))}
+              {driveDiceEnabled && (
+                <button
+                  type="button"
+                  data-testid="task-form-hurdle-toggle"
+                  onClick={() => setNewTaskHurdle((v) => !v)}
+                  className={`min-h-[44px] px-3 py-1.5 rounded-xl text-xs font-semibold border transition active:scale-95 cursor-pointer ${
+                    newTaskHurdle
+                      ? 'text-[#111317] border-transparent font-bold'
+                      : 'bg-[#111317] text-[#94A3B8] hover:text-[#F1F5F9] border-white/10'
+                  }`}
+                  style={
+                    newTaskHurdle ? { backgroundColor: DESIGN_TOKENS.accentHoney } : {}
+                  }
+                >
+                  Schweinehund-Pool
+                </button>
+              )}
+            </div>
+          )}
           {renderReminderPicker(
             newTaskReminderAt,
             newTaskRecurrence,
@@ -484,6 +587,8 @@ export const TasksView: React.FC<TasksViewProps> = ({
                 setNewTaskGroup('');
                 setNewTaskReminderAt('');
                 setNewTaskRecurrence('none');
+                setNewTaskEnergy('medium');
+                setNewTaskHurdle(false);
               }}
               className="min-h-[44px] px-4 rounded-xl text-xs font-semibold text-[#94A3B8] hover:text-white transition cursor-pointer"
             >
@@ -501,8 +606,60 @@ export const TasksView: React.FC<TasksViewProps> = ({
         </form>
       )}
 
+      {/* Energie-gekoppelter Tagesplaner (Akku-Filterleiste) */}
+      {energyPlannerEnabled && (
+        <div
+          data-testid="energy-filter-bar"
+          className="flex items-center gap-1.5 flex-wrap px-1"
+        >
+          <span className="text-xs font-semibold text-[#94A3B8] mr-1">Akku:</span>
+          {([
+            { id: 'all', label: 'Alle' },
+            { id: 'low', label: 'Niedrig' },
+            { id: 'medium', label: 'Mittel' },
+            { id: 'high', label: 'Hoch' }
+          ] as const).map((chip) => {
+            const isActive = effectiveEnergyFilter === chip.id;
+            return (
+              <button
+                key={chip.id}
+                type="button"
+                data-testid={`energy-filter-${chip.id}`}
+                onClick={() => setEnergyFilter(chip.id)}
+                className={`min-h-[44px] px-3 py-1.5 rounded-xl text-xs font-semibold border transition active:scale-95 cursor-pointer ${
+                  isActive
+                    ? 'text-white border-white/25'
+                    : 'bg-[#191C22] text-[#94A3B8] hover:text-[#F1F5F9] border-white/5'
+                }`}
+                style={isActive ? { backgroundColor: themeColors.primary } : {}}
+              >
+                {chip.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {/* Tasks-Liste: Zwei-Zonen-Karten direkt auf dem Canvas */}
       <div className="space-y-2.5">
+        {energyPlannerEnabled && effectiveEnergyFilter !== 'all' && sortedTasks.length === 0 && (
+          <div
+            data-testid="energy-filter-empty"
+            className="p-3.5 rounded-2xl bg-[#191C22] border border-white/5 flex items-center justify-between gap-2 flex-wrap"
+          >
+            <span className="text-xs text-[#94A3B8]">
+              Keine offenen Aufgaben für dieses Akku-Level.
+            </span>
+            <button
+              type="button"
+              onClick={() => setEnergyFilter('all')}
+              className="min-h-[44px] px-3.5 rounded-xl text-xs font-bold text-[#111317] active:scale-95 transition cursor-pointer"
+              style={{ backgroundColor: DESIGN_TOKENS.accentHoney }}
+            >
+              Alle zeigen
+            </button>
+          </div>
+        )}
         {sortedTasks.map((task) => {
           const isAnchored = prefs.activeFocusTaskId === task.id;
           const isTrayOpen = !!expandedActionCards[task.id];
@@ -618,6 +775,19 @@ export const TasksView: React.FC<TasksViewProps> = ({
                           task.reminderRecurrence === 'weekly') && (
                           <span aria-hidden="true">↻</span>
                         )}
+                      </span>
+                    )}
+
+                    {energyPlannerEnabled &&
+                      (task.energyLevel === 'low' || task.energyLevel === 'high') && (
+                        <span className="text-xs font-medium text-[#94A3B8] px-2 py-0.5 rounded-md bg-[#111317]">
+                          {task.energyLevel === 'low' ? 'Akku: Niedrig' : 'Akku: Hoch'}
+                        </span>
+                      )}
+
+                    {driveDiceEnabled && task.isHurdleTask === true && (
+                      <span className="text-xs font-semibold text-[#E5A93C] bg-[#E5A93C]/10 px-2 py-0.5 rounded-md border border-[#E5A93C]/20">
+                        Schweinehund
                       </span>
                     )}
                   </div>
@@ -771,6 +941,54 @@ export const TasksView: React.FC<TasksViewProps> = ({
                         placeholder="Baugruppe (optional)"
                         className="w-full min-h-[44px] px-3.5 py-2 rounded-xl text-xs bg-[#111317] text-[#F1F5F9] border border-white/10 focus:outline-none focus:border-[#14B8A6]"
                       />
+                      {(energyPlannerEnabled || driveDiceEnabled) && (
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {energyPlannerEnabled &&
+                            ([
+                              { id: 'low', label: 'Niedrig' },
+                              { id: 'medium', label: 'Mittel' },
+                              { id: 'high', label: 'Hoch' }
+                            ] as const).map((opt) => (
+                              <button
+                                key={opt.id}
+                                type="button"
+                                data-testid={`edit-task-energy-${opt.id}`}
+                                onClick={() => setEditTaskEnergy(opt.id)}
+                                className={`min-h-[44px] px-3 py-1.5 rounded-xl text-xs font-semibold border transition active:scale-95 cursor-pointer ${
+                                  editTaskEnergy === opt.id
+                                    ? 'text-white border-white/30'
+                                    : 'bg-[#111317] text-[#94A3B8] hover:text-[#F1F5F9] border-white/10'
+                                }`}
+                                style={
+                                  editTaskEnergy === opt.id
+                                    ? { backgroundColor: themeColors.primary }
+                                    : {}
+                                }
+                              >
+                                Akku: {opt.label}
+                              </button>
+                            ))}
+                          {driveDiceEnabled && (
+                            <button
+                              type="button"
+                              data-testid="edit-task-hurdle-toggle"
+                              onClick={() => setEditTaskHurdle((v) => !v)}
+                              className={`min-h-[44px] px-3 py-1.5 rounded-xl text-xs font-semibold border transition active:scale-95 cursor-pointer ${
+                                editTaskHurdle
+                                  ? 'text-[#111317] border-transparent font-bold'
+                                  : 'bg-[#111317] text-[#94A3B8] hover:text-[#F1F5F9] border-white/10'
+                              }`}
+                              style={
+                                editTaskHurdle
+                                  ? { backgroundColor: DESIGN_TOKENS.accentHoney }
+                                  : {}
+                              }
+                            >
+                              Schweinehund-Pool
+                            </button>
+                          )}
+                        </div>
+                      )}
                       {renderReminderPicker(
                         editTaskReminderAt,
                         editTaskRecurrence,
@@ -795,8 +1013,10 @@ export const TasksView: React.FC<TasksViewProps> = ({
                               assemblyGroup: editTaskGroup.trim() || undefined,
                               reminderAt: nextReminder,
                               reminderRecurrence: nextReminder ? editTaskRecurrence : 'none',
+                              ...(energyPlannerEnabled ? { energyLevel: editTaskEnergy } : {}),
+                              ...(driveDiceEnabled ? { isHurdleTask: editTaskHurdle } : {}),
                               ...(nextReminder !== (task.reminderAt || '')
-                                ? { lastReminderFiredAt: undefined }
+                                ? { lastReminderFiredAt: undefined, lastShoulderTapStage: 0 }
                                 : {})
                             });
                             setEditingTaskId(null);
@@ -851,6 +1071,8 @@ export const TasksView: React.FC<TasksViewProps> = ({
                         setEditTaskGroup(task.assemblyGroup || (m ? m[1] : ''));
                         setEditTaskReminderAt(task.reminderAt || '');
                         setEditTaskRecurrence(task.reminderRecurrence || 'none');
+                        setEditTaskEnergy(task.energyLevel ?? 'medium');
+                        setEditTaskHurdle(Boolean(task.isHurdleTask));
                         setEditingTaskId(task.id);
                       }}
                       className="min-w-0 min-h-[44px] px-3 rounded-xl text-xs font-semibold bg-[#191C22] hover:bg-[#22262F] text-[#F1F5F9] hover:text-[#14B8A6] border border-white/5 flex items-center justify-center gap-1.5 active:scale-95 transition cursor-pointer"

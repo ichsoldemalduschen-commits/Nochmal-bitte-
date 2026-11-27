@@ -10,6 +10,7 @@ import {
   CartItem,
   CustomMeta,
   DomainType,
+  EnergyLevel,
   EventSalesLog,
   ForemanProposal,
   KnowledgeItem,
@@ -98,7 +99,8 @@ interface FrontWorkspaceProps {
     estimatedMinutes?: number,
     assemblyGroup?: string,
     reminderAt?: string,
-    reminderRecurrence?: ReminderRecurrence
+    reminderRecurrence?: ReminderRecurrence,
+    extra?: { energyLevel?: EnergyLevel; isHurdleTask?: boolean }
   ) => void;
   externalUndoAction?: { message: string; undo: () => void } | null;
   onClearExternalUndo?: () => void;

@@ -11,6 +11,8 @@ export type QuickAiMode = 'flash' | 'research';
 export type VoiceInteractionMode = 'quick' | 'collect' | 'dialog';
 export type UiDensityMode = 'compact' | 'standard' | 'large';
 export type CartOpenMode = 'floating' | 'tab';
+export type EnergyLevel = 'low' | 'medium' | 'high';
+export type ShoulderTapTone = 'calm' | 'direct';
 
 export interface BanditUserPreferences {
   // Schaltbare ADHS-Unterstützung
@@ -19,6 +21,13 @@ export interface BanditUserPreferences {
   adhdSingleTaskMode: boolean;
   adhdTwoMinuteStarter: boolean;
   adhdTimeBufferAndHaptics: boolean;
+  // Welle 5: Antriebs-Würfel, Energie-Planer & 4-Stufen-Schultertipp
+  driveDiceEnabled?: boolean;
+  energyPlannerEnabled?: boolean;
+  shoulderTapEnabled?: boolean;
+  shoulderTapQuietStart?: string;
+  shoulderTapQuietEnd?: string;
+  shoulderTapTone?: ShoulderTapTone;
   // Personalisierung & Zentrale v2 Toggles
   uiDensity: UiDensityMode;
   aiTone: 'short' | 'partner' | 'coach';
@@ -105,6 +114,9 @@ export interface TaskItem {
   reminderAt: string;
   reminderRecurrence?: ReminderRecurrence;
   lastReminderFiredAt?: string;
+  energyLevel?: EnergyLevel;
+  isHurdleTask?: boolean;
+  lastShoulderTapStage?: number;
   aiTouched: boolean;
   lastModified: string;
   changeReason: string;

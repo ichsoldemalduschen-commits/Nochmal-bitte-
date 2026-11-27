@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Check, CheckCircle2, RotateCcw, Timer, X } from 'lucide-react';
+import { Check, CheckCircle2, Dices, RotateCcw, Timer, X } from 'lucide-react';
 import { Project, TaskItem } from '../../types';
 import { DESIGN_TOKENS } from '../../config/designTokens';
 import { UNDO_TOAST_MS } from '../../config/runtimeConfig';
@@ -9,6 +9,8 @@ export interface SingleFocusOverlayProps {
   onClose: () => void;
   activeProject?: Project;
   initialTaskId?: string | null;
+  driveDiceEnabled?: boolean;
+  onRollAnotherTask?: (currentTaskId?: string | null) => void;
   onToggleTask: (projectId: string, taskId: string) => void;
   onToggleSubTask?: (projectId: string, taskId: string, subTaskId: string) => void;
   onRegisterUndo?: (action: { message: string; undo: () => void }) => void;
@@ -23,6 +25,8 @@ export const SingleFocusOverlay: React.FC<SingleFocusOverlayProps> = ({
   onClose,
   activeProject,
   initialTaskId,
+  driveDiceEnabled = true,
+  onRollAnotherTask,
   onToggleTask,
   onToggleSubTask,
   onRegisterUndo,
@@ -209,9 +213,22 @@ export const SingleFocusOverlay: React.FC<SingleFocusOverlayProps> = ({
               </div>
             )}
 
-            {/* Kopfzeile der Karte: Baugruppe / Restzeit + 5-Min-Start Schalter */}
+            {/* Kopfzeile der Karte: Baugruppe / Restzeit / Schweinehund + 5-Min-Start Schalter */}
             <div className="flex items-center justify-between gap-2 flex-wrap pt-1">
-              <div className="flex items-center gap-2 min-w-0">
+              <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                {driveDiceEnabled && onRollAnotherTask && currentTask.isHurdleTask === true && (
+                  <span
+                    data-testid="single-focus-hurdle-badge"
+                    className="text-xs font-mono font-bold px-2 py-0.5 rounded-md border"
+                    style={{
+                      color: DESIGN_TOKENS.accentHoney,
+                      backgroundColor: `${DESIGN_TOKENS.accentHoney}1A`,
+                      borderColor: `${DESIGN_TOKENS.accentHoney}33`
+                    }}
+                  >
+                    Schweinehund-Pool
+                  </span>
+                )}
                 {displayGroup && (
                   <span className="text-xs font-semibold px-2 py-0.5 rounded-md bg-[#111317] text-[#94A3B8] border border-white/5 truncate">
                     {displayGroup}
@@ -315,6 +332,20 @@ export const SingleFocusOverlay: React.FC<SingleFocusOverlayProps> = ({
                 <span>Erledigt ✓</span>
               </button>
             </div>
+
+            {driveDiceEnabled && onRollAnotherTask && (
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  data-testid="btn-roll-another-task"
+                  onClick={() => onRollAnotherTask(currentTask.id)}
+                  className="flex-1 min-w-[200px] min-h-[44px] px-4 py-2.5 rounded-2xl text-xs font-semibold bg-[#111317] hover:bg-[#22262F] text-[#E5A93C] border border-[#E5A93C]/25 flex items-center justify-center gap-2 active:scale-95 transition cursor-pointer"
+                >
+                  <Dices className="w-4 h-4 shrink-0" />
+                  <span>Andere Aufgabe würfeln</span>
+                </button>
+              </div>
+            )}
           </div>
         ) : (
           /* Ruhige „Alles frei für jetzt“-Karte */

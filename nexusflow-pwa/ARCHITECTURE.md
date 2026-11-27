@@ -181,7 +181,7 @@ Für jede künftige Änderung gilt ein verbindliches E2E-Qualitätsgate auf mobi
 - **Befehl:** `npm run verify` im Verzeichnis `nexusflow-pwa` (führt `npm run build && npm run test:guard` aus).
 - **Pflicht vor jedem Git-Push:**
   1. `npm run build` muss fehlerfrei durchlaufen.
-  2. Playwright Mobile-Guard (`tests/mobile-guard.spec.ts`) muss alle **20 Stationen** (inkl. Allgemeine Bild-Vision & Offline-Audio-Puffer in Station 20) zu 100 % grün durchlaufen.
+  2. Playwright Mobile-Guard (`tests/mobile-guard.spec.ts`) muss alle **22 Stationen** (inkl. Stetiger Begleiter v2 in Station 21 sowie Wacher Begleiter, Antriebs-Würfel & Energie-Tagesplaner in Station 22) zu 100 % grün durchlaufen.
   3. Strikte Wächter: 0 ungefangene `pageerror`-Exceptions, 0 unberechtigte `console.error`-Meldungen, 0 horizontale Viewport-Überläufe (`document.documentElement.scrollWidth <= window.innerWidth + 1`).
 
 ---
@@ -373,3 +373,17 @@ Die ehemalige Mono-Komponente `VoiceModal.tsx` (> 2 200 Zeilen) ist verlustfrei 
   - **Stufe 1:** Schwebender Streifen ohne Vollbild-Backdrop mit Zieh-Griff, 1-Zeilen-Status, ruhigem Fokus-Feld, 2-px-Fortschrittslinie und kollisionsfreier Daumen-Steuerung (Mini-Sechseck, `⌨`, `⊞`, `⤢`, `✕`).
   - **Stufe 2:** Einzeiliger Kopf (Projektfarbpunkt, Name, Phasen-Indikator, Stumm/Ton, `⤡`, `⋮` `Chat-Optionen`, `✕`), Quick-Command-Chips nur bei leerem Chat, ruhige Eingabe-Kapsel unten (`<textarea>`, `+` Foto, `⚡ Sprech` ↔ `🧠 Research`-Pill, Mikrofon, Senden) sowie `Vorlesen`, `Kopieren`, `Bearbeiten`, `Nochmal senden`, `Neu verarbeiten`, `Mit 🧠 Pro` (einzelner Pro-Reprocess über `overrideAiMode` ohne globale Änderung) und `Als Wissen`.
 - **Zentrale Bereich 3 & Station 21:** Drei persistente `ZentraleToggleRow`-Schalter (`companionMessageToolsEnabled`, `companionQuickChipsEnabled`, `companionStartExpanded`) inkl. IDB-Normalisierung & Voll-Backup v2 sowie E2E-Absicherung auf 390×844 px in **Station 21** (`tests/mobile-guard.spec.ts`).
+
+---
+
+## 23  Welle 5 / Ticket 5.1 – „Wacher Begleiter“, Antriebs-Würfel & Energie-Tagesplaner
+
+- **Reines Antriebs- & Schultertipp-Modul (`src/services/adhsDriveEngine.ts`):**
+  - `isWithinQuietHours(now, startHHMM, endHHMM)` prüft Ruhezeiten zuverlässig auch über Mitternacht (z. B. `22:00`–`08:00`) und als Tagesfenster (`13:00`–`15:00`).
+  - `computeShoulderTapStage(reminderAt, now)` ermittelt die 4 schuldfreien Eskalationsstufen (`0` nicht fällig, `1` 0–14 Min., `2` 15–44 Min., `3` 45–89 Min., `4` ≥ 90 Min.) und `getShoulderTapCopy` liefert die passende Ansprache (`calm` ↔ `direct`).
+  - `rollHurdleTask` wählt offene `isHurdleTask`-Aufgaben („Schweinehund-Pool“) mit optionalem Energie-Filter und vermeidet Wiederholung der aktuellen Aufgabe; `filterTasksByEnergy` filtert nach `energyLevel` (Altaufgaben ohne Feld gelten als `'medium'`).
+- **4-Stufen-„Festnagel-Schultertipp“ (`useReminderEngine.ts`, `App.tsx`, `AutomationSection.tsx`):**
+  - Opt-in über `shoulderTapEnabled` (Default `false`, geschlossene Schublade in Zentrale Bereich 4 inkl. `Ruhezeit von/bis` und Tonfall-Wahl). Innerhalb der Ruhezeit bleiben System-Push & Eskalation stumm; außerhalb löst jede neue Stufe (`lastShoulderTapStage`) einmalig mit ruhigem Mono-Tag `Stufe X/4` in `#E5A93C` aus und wird bei `Erledigt ✓`, `+30 Min` oder `OK` sauber zurückgesetzt bzw. abgeschlossen.
+- **Energie-Akku-Filter & Schweinehund-Pool (`TasksView.tsx`, `SingleFocusOverlay.tsx`, `FocusAndSmartphoneSection.tsx`, `storage.ts`):**
+  - Zwei persistente Zentrale-Schalter in Bereich 2 (`driveDiceEnabled`, `energyPlannerEnabled`, Default `true`) inkl. Voll-Backup-v2- und IDB-Migration.
+  - Akku-Filterleiste (`Alle` / `Niedrig` / `Mittel` / `Hoch`), Formular-Chips, `Antriebs-Würfel (Schweinehund-Pool)` im `⋮`-Menü sowie `Andere Aufgabe würfeln` im `SingleFocusOverlay` (`Station 22`).

@@ -2196,4 +2196,150 @@ test.describe('Block C: Mobile-Guard 390×844 px Gesamt-Schutznetz', () => {
     await dialog.locator('button[aria-label="Schließen"]').click();
     await expect(dialog).toBeHidden();
   });
+
+  test('Station 22 – Wacher Begleiter, Antriebs-Würfel & Energie-Tagesplaner: 3 Zentrale-Schalter, geschlossene Schublade, Akku-Filter & Schweinehund-Pool im 1-Fokus (390px-Schutz)', async ({ page }) => {
+    await page.goto('./');
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.locator('h1')).toBeVisible({ timeout: 10000 });
+
+    // 1. Zentrale Bereich 2 & Bereich 4 öffnen -> 3 neue Schalter prüfen
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    await page.getByRole('button', { name: 'Zentrale', exact: true }).click();
+
+    await page.locator('button:has-text("Fokus, Bedienung & Smartphone")').click();
+    const driveDiceToggle = page.locator('[data-testid="toggle-drive-dice"]');
+    const energyPlannerToggle = page.locator('[data-testid="toggle-energy-planner"]');
+    await expect(driveDiceToggle).toBeVisible();
+    await expect(energyPlannerToggle).toBeVisible();
+    await expect(driveDiceToggle).toContainText('An');
+    await expect(energyPlannerToggle).toContainText('An');
+    expect((await driveDiceToggle.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+    expect((await energyPlannerToggle.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+    await assertNoHorizontalOverflow(page, 'Station 22 – Bereich 2 Toggles');
+
+    // Bereich 4 öffnen -> Schultertipp initial AUS & Ruhezeiten-Schublade geschlossen
+    await page.locator('button:has-text("Erinnerungen, Vorarbeiter & Smart Home")').click();
+    const shoulderTapToggle = page.locator('[data-testid="toggle-shoulder-tap"]');
+    await expect(shoulderTapToggle).toBeVisible();
+    await expect(shoulderTapToggle).toContainText('Aus');
+    await expect(page.locator('[data-testid="shoulder-tap-settings-drawer"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid="input-quiet-start"]')).toHaveCount(0);
+
+    // Schultertipp einschalten -> Ruhezeiten (22:00-08:00) & Tonfall sichtbar
+    await shoulderTapToggle.click();
+    await expect(shoulderTapToggle).toContainText('An');
+    await expect(page.locator('[data-testid="shoulder-tap-settings-drawer"]')).toBeVisible();
+    const quietStartInput = page.locator('[data-testid="input-quiet-start"]');
+    const quietEndInput = page.locator('[data-testid="input-quiet-end"]');
+    await expect(quietStartInput).toHaveValue('22:00');
+    await expect(quietEndInput).toHaveValue('08:00');
+
+    const toneCalmBtn = page.locator('[data-testid="shoulder-tap-tone-calm"]');
+    const toneDirectBtn = page.locator('[data-testid="shoulder-tap-tone-direct"]');
+    await expect(toneCalmBtn).toBeVisible();
+    await expect(toneDirectBtn).toBeVisible();
+    expect((await toneCalmBtn.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+    expect((await toneDirectBtn.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+    await toneDirectBtn.click();
+    await assertNoHorizontalOverflow(page, 'Station 22 – Schultertipp Schublade offen');
+
+    // Reload -> Persistenz prüfen -> wieder sauber auf AUS
+    await page.waitForTimeout(250);
+    await page.reload();
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.locator('h1')).toBeVisible({ timeout: 10000 });
+
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    await page.getByRole('button', { name: 'Zentrale', exact: true }).click();
+    await page.locator('button:has-text("Erinnerungen, Vorarbeiter & Smart Home")').click();
+    await expect(page.locator('[data-testid="toggle-shoulder-tap"]')).toContainText('An');
+    await expect(page.locator('[data-testid="shoulder-tap-settings-drawer"]')).toBeVisible();
+    await page.locator('[data-testid="toggle-shoulder-tap"]').click();
+    await expect(page.locator('[data-testid="toggle-shoulder-tap"]')).toContainText('Aus');
+    await expect(page.locator('[data-testid="shoulder-tap-settings-drawer"]')).toHaveCount(0);
+
+    // 2. Geschlossene Schublade: toggle-energy-planner auf AUS -> Akku-Filterleiste in TasksView komplett weg
+    await page.locator('button:has-text("Fokus, Bedienung & Smartphone")').click();
+    await page.locator('[data-testid="toggle-energy-planner"]').click();
+    await expect(page.locator('[data-testid="toggle-energy-planner"]')).toContainText('Aus');
+    await page.waitForTimeout(200);
+    await page.locator('button:has-text("Zurück")').click();
+
+    await expect(page.locator('[data-testid="energy-filter-bar"]')).toHaveCount(0);
+    await assertNoHorizontalOverflow(page, 'Station 22 – Akku-Filter im Aus-Zustand ausgeblendet');
+
+    // Wieder einschalten
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    await page.getByRole('button', { name: 'Zentrale', exact: true }).click();
+    await page.locator('button:has-text("Fokus, Bedienung & Smartphone")').click();
+    await page.locator('[data-testid="toggle-energy-planner"]').click();
+    await expect(page.locator('[data-testid="toggle-energy-planner"]')).toContainText('An');
+    await page.waitForTimeout(200);
+    await page.locator('button:has-text("Zurück")').click();
+
+    // 3. Energie-Filter & Schweinehund-Pool End-to-End in TasksView
+    const energyBar = page.locator('[data-testid="energy-filter-bar"]');
+    await expect(energyBar).toBeVisible();
+    for (const chipId of ['all', 'low', 'medium', 'high']) {
+      const chip = page.locator(`[data-testid="energy-filter-${chipId}"]`);
+      await expect(chip).toBeVisible();
+      expect((await chip.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+    }
+
+    const addBtn = page.locator('button[aria-label="Aufgabe hinzufügen"]');
+    // Aufgabe 1: Niedrig + Schweinehund-Pool
+    await addBtn.click();
+    await page.locator('input[placeholder="Neue Aufgabe beschreiben..."]').fill('Belegordner vorsortieren');
+    await page.locator('[data-testid="task-form-energy-low"]').click();
+    await page.locator('[data-testid="task-form-hurdle-toggle"]').click();
+    await page.locator('form button[type="submit"]:has-text("Speichern")').click();
+
+    // Aufgabe 2: Hoch
+    await addBtn.click();
+    await page.locator('input[placeholder="Neue Aufgabe beschreiben..."]').fill('Schwerlastrahmen ausrichten');
+    await page.locator('[data-testid="task-form-energy-high"]').click();
+    await page.locator('form button[type="submit"]:has-text("Speichern")').click();
+
+    const tasksSection = page.locator('section:has(h3:has-text("Tasks"))');
+    await expect(tasksSection).toContainText('Belegordner vorsortieren');
+    await expect(tasksSection).toContainText('Schwerlastrahmen ausrichten');
+    await assertNoHorizontalOverflow(page, 'Station 22 – Neue Aufgaben angelegt');
+
+    // Filter Niedrig -> deterministisch nur Aufgabe 1 sichtbar
+    await page.locator('[data-testid="energy-filter-low"]').click();
+    await expect(tasksSection).toContainText('Belegordner vorsortieren');
+    await expect(tasksSection).not.toContainText('Schwerlastrahmen ausrichten');
+    await assertNoHorizontalOverflow(page, 'Station 22 – Filter Niedrig');
+
+    // Filter zurück auf Alle
+    await page.locator('[data-testid="energy-filter-all"]').click();
+    await expect(tasksSection).toContainText('Schwerlastrahmen ausrichten');
+
+    // 4. Antriebs-Würfel im 1-Fokus über das ⋮-Menü starten
+    await page.locator('button[aria-label="Weitere Aufgaben-Aktionen"]').click();
+    const diceMenuItem = page.locator('[data-testid="menu-drive-dice"]');
+    await expect(diceMenuItem).toBeVisible();
+    expect((await diceMenuItem.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+    await diceMenuItem.click();
+
+    const focusOverlay = page.locator('div[role="dialog"][aria-label="1-Fokus-Modus"]');
+    await expect(focusOverlay).toBeVisible();
+    await expect(focusOverlay.locator('[data-testid="single-focus-hurdle-badge"]')).toBeVisible();
+    await expect(focusOverlay.locator('h2')).toContainText('Belegordner vorsortieren');
+
+    const rollBtn = focusOverlay.locator('[data-testid="btn-roll-another-task"]');
+    await expect(rollBtn).toBeVisible();
+    expect((await rollBtn.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+    await assertNoHorizontalOverflow(page, 'Station 22 – Antriebs-Würfel 1-Fokus offen');
+
+    // Andere Aufgabe würfeln -> Overlay bleibt offen, andere Aufgabe wird geladen
+    await rollBtn.click();
+    await expect(focusOverlay).toBeVisible();
+    await expect(focusOverlay.locator('h2')).not.toContainText('Belegordner vorsortieren');
+    await assertNoHorizontalOverflow(page, 'Station 22 – Nach Andere Aufgabe würfeln');
+
+    await focusOverlay.locator('button[aria-label="Schließen"]').click();
+    await expect(focusOverlay).toBeHidden();
+    await assertNoHorizontalOverflow(page, 'Station 22 – Abschluss');
+  });
 });
