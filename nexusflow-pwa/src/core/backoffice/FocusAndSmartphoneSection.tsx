@@ -152,6 +152,35 @@ export const FocusAndSmartphoneSection: React.FC<FocusAndSmartphoneSectionProps>
           offLabel="Aus"
           testId="toggle-energy-planner"
         />
+
+        <ZentraleToggleRow
+          title="Erweiterte Task-Felder (Priorität, Dauer & Tagesblock)"
+          description="Zeigt beim Bearbeiten und Anlegen von Aufgaben Chips für Priorität, Minuten und Tagesblock."
+          checked={prefs.taskExtendedMetaEnabled !== false}
+          onToggle={() =>
+            onUpdatePrefs({
+              taskExtendedMetaEnabled: !(prefs.taskExtendedMetaEnabled !== false)
+            })
+          }
+          onLabel="An"
+          offLabel="Aus"
+          testId="toggle-task-extended-meta"
+        />
+
+        <ZentraleToggleRow
+          title="„Jetzt-Vorbühne“ (A+C-Modus über Aufgabenliste)"
+          description="Zeigt oben eine einzelne Fokus-Aufgabe zum Durchblättern und klappt die restliche Liste darunter ruhig ein."
+          checked={prefs.nowStageEnabled === true}
+          onToggle={() =>
+            onUpdatePrefs({
+              nowStageEnabled: !(prefs.nowStageEnabled === true)
+            })
+          }
+          onLabel="An"
+          offLabel="Aus"
+          tone="honey"
+          testId="toggle-now-stage"
+        />
       </div>
 
       {/* ── Optik & Darstellung ── */}

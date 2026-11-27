@@ -124,10 +124,12 @@ export const ZentraleToggleRow: React.FC<ZentraleToggleRowProps> = ({
       </div>
       <button
         type="button"
+        role="switch"
+        aria-checked={checked}
         aria-label={ariaLabel || title}
         data-testid={testId}
         onClick={onToggle}
-        className="min-h-[44px] px-3.5 py-1.5 rounded-xl text-xs font-bold border transition shrink-0 active:scale-95 cursor-pointer"
+        className="min-h-[44px] px-3.5 py-1.5 rounded-xl text-xs font-bold border transition shrink-0 cursor-pointer bandit-pressable"
         style={{
           backgroundColor: checked ? activeBg : '#181A1B',
           color: checked ? activeText : DESIGN_TOKENS.textMeta,

@@ -9,6 +9,7 @@ import {
   Attachment,
   BanditUserPreferences,
   CartItem,
+  DayBlockId,
   DomainType,
   EnergyLevel,
   ForemanProposal,
@@ -24,13 +25,20 @@ import {
   THEME,
   VoiceInteractionMode
 } from './types';
-import { BRAND_CONFIG } from './config/brandConfig';
+import { BRAND_CONFIG, NEUTRAL_BRAND_META } from './config/brandConfig';
 import { DESIGN_TOKENS } from './config/designTokens';
 import { UNDO_TOAST_MS } from './config/runtimeConfig';
 import { INITIAL_APP_SNAPSHOT } from './data/pizzaBanditTsaSeed';
 import {
+  createNeutralStarterProjects,
+  createNeutralStarterSnapshot,
+  isNeutralStarterRequested
+} from './services/neutralStarterSeed';
+import {
   DEFAULT_AI_VOICE_SETTINGS,
+  appendChangeLogEntry,
   downloadFullBackupV2,
+  downloadNeutralStarterBackupJson,
   formatNow,
   loadAiVoiceSettings,
   loadPersistedState,
@@ -78,6 +86,7 @@ import { FrontWorkspace } from './core/FrontWorkspace';
 import { HexThumbHub } from './core/front/HexThumbHub';
 import { SingleFocusOverlay } from './core/front/SingleFocusOverlay';
 import { FloatingCartOverlay } from './core/front/FloatingCartOverlay';
+import { ByokOnboardingModal, type ByokOnboardingResult } from './core/front';
 import { DeepResearchAndAuditModal } from './components/DeepResearchAndAuditModal';
 import {
   computeNextRecurrenceReminder,
@@ -115,7 +124,9 @@ function isCoverScreenEnvironment(): boolean {
 }
 
 export default function App() {
-  const [state, setState] = useState<AppStateSnapshot>(INITIAL_APP_SNAPSHOT);
+  const [state, setState] = useState<AppStateSnapshot>(() =>
+    isNeutralStarterRequested() ? createNeutralStarterSnapshot() : INITIAL_APP_SNAPSHOT
+  );
   const [hydrated, setHydrated] = useState(false);
 
   const [isBackoffice, setIsBackoffice] = useState(false);
@@ -123,7 +134,9 @@ export default function App() {
   const [flip7CoverMode, setFlip7CoverMode] = useState<boolean>(isCoverScreenEnvironment);
 
   const [activeDomain, setActiveDomain] = useState<DomainType>('business');
-  const [selectedProjectId, setSelectedProjectId] = useState<string>(BRAND_CONFIG.defaultProjectId);
+  const [selectedProjectId, setSelectedProjectId] = useState<string>(() =>
+    isNeutralStarterRequested() ? NEUTRAL_BRAND_META.defaultProjectId : BRAND_CONFIG.defaultProjectId
+  );
   const [activeProjectTab, setActiveProjectTab] = useState<ProjectTabId>('tasks');
   const [highlightedItemId, setHighlightedItemId] = useState<string | null>(null);
 
@@ -132,6 +145,7 @@ export default function App() {
   const [floatingCartOpen, setFloatingCartOpen] = useState(false);
   const [quickFanOpen, setQuickFanOpen] = useState(false);
   const [deepResearchModalOpen, setDeepResearchModalOpen] = useState(false);
+  const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [autoStartMicOnOpen, setAutoStartMicOnOpen] = useState(true);
   const [voicePrefillText, setVoicePrefillText] = useState('');
   const urlIntakeHandledRef = useRef(false);
@@ -202,6 +216,86 @@ export default function App() {
 
   const handleExportFullBackup = () => {
     downloadFullBackupV2(state).catch(console.warn);
+  };
+
+  const handleOnboardingSkip = () => {
+    if (prefs.onboardingCompleted !== true) {
+      handleUpdatePrefs({ onboardingCompleted: true });
+    }
+    setOnboardingOpen(false);
+  };
+
+  const handleOnboardingComplete = (result: ByokOnboardingResult) => {
+    const nextThumbPos = result.thumbHubPosition;
+    const nextPrefs: BanditUserPreferences = {
+      ...prefs,
+      companionStartExpanded: result.companionStartExpanded,
+      onboardingCompleted: true,
+      ...(result.applyNeutralStarter ? { starterProfile: 'neutral' as const } : {})
+    };
+    setPrefs(nextPrefs);
+    void saveUserPrefs(nextPrefs);
+
+    saveThumbHubPosition(nextThumbPos);
+
+    const nextVoice: AiVoiceSettings = {
+      ...aiVoiceSettingsRef.current,
+      azureSpeechKey: result.azureSpeechKey,
+      azureSpeechRegion: result.azureSpeechRegion || 'germanywestcentral'
+    };
+    aiVoiceSettingsRef.current = nextVoice;
+    void saveAiVoiceSettings(nextVoice);
+
+    setState((prev) => {
+      const nextState: AppStateSnapshot = {
+        ...prev,
+        userApiKey: result.geminiApiKey,
+        thumbHubPosition: nextThumbPos,
+        aiVoiceSettings: nextVoice,
+        ...(result.applyNeutralStarter ? { projects: createNeutralStarterProjects() } : {})
+      };
+      void savePersistedState(nextState);
+      return nextState;
+    });
+
+    if (result.applyNeutralStarter) {
+      setActiveDomain('business');
+      setSelectedProjectId(NEUTRAL_BRAND_META.defaultProjectId);
+      setActiveProjectTab('tasks');
+    }
+
+    setOnboardingOpen(false);
+    notify('Einrichtung gespeichert ✓');
+  };
+
+  const handleSwitchToNeutralStarter = () => {
+    const neutralProjects = createNeutralStarterProjects();
+    const nextPrefs: BanditUserPreferences = {
+      ...prefs,
+      starterProfile: 'neutral',
+      onboardingCompleted: true
+    };
+    setPrefs(nextPrefs);
+    void saveUserPrefs(nextPrefs);
+
+    setState((prev) => {
+      const nextState: AppStateSnapshot = {
+        ...prev,
+        projects: neutralProjects
+      };
+      void savePersistedState(nextState);
+      return nextState;
+    });
+
+    setActiveDomain('business');
+    setSelectedProjectId(NEUTRAL_BRAND_META.defaultProjectId);
+    setActiveProjectTab('tasks');
+    notify('Auf neutrales Starter-Profil (Arbeit & Privat) gewechselt.');
+  };
+
+  const handleExportNeutralStarterJson = () => {
+    downloadNeutralStarterBackupJson();
+    notify('Neutrale Starter-JSON (focus-os-neutral-starter.json) exportiert.');
   };
 
   const handleToggleThumbHub = (enabled: boolean) => {
@@ -290,6 +384,11 @@ export default function App() {
   }, [prefs.uiDensity]);
 
   useEffect(() => {
+    document.documentElement.dataset.organicMotion =
+      prefs.organicMotion !== false ? 'on' : 'off';
+  }, [prefs.organicMotion]);
+
+  useEffect(() => {
     if (typeof navigator === 'undefined' || typeof navigator.vibrate !== 'function') return;
     const originalVibrate = navigator.vibrate.bind(navigator);
     try {
@@ -330,8 +429,34 @@ export default function App() {
   }, [prefs.flipCoverAutoDetect]);
 
   useEffect(() => {
+    if (typeof document === 'undefined') return;
+    document.title =
+      prefs.starterProfile === 'neutral'
+        ? `${NEUTRAL_BRAND_META.appName} • ${NEUTRAL_BRAND_META.subtitle}`
+        : 'NexusFlow • Pizza Bandit & Workflow PWA';
+  }, [prefs.starterProfile]);
+
+  useEffect(() => {
     let cancelled = false;
     (async () => {
+      const neutralRequested = isNeutralStarterRequested();
+      const hasStarterParam =
+        typeof window !== 'undefined' &&
+        new URLSearchParams(window.location.search).has('starter');
+
+      if (hasStarterParam && typeof window !== 'undefined') {
+        try {
+          const url = new URL(window.location.href);
+          if (url.searchParams.has('starter')) {
+            url.searchParams.delete('starter');
+            const cleanUrl = `${url.pathname}${url.search}${url.hash}`;
+            window.history.replaceState({}, '', cleanUrl);
+          }
+        } catch {
+          // ignore invalid URL state
+        }
+      }
+
       // 1. Silent IDB migration & request storage persistence BEFORE loading settings
       requestStoragePersistence();
       await migrateLocalStorageToIDB();
@@ -356,8 +481,23 @@ export default function App() {
       if (!cancelled && pins && Object.keys(pins).length > 0) {
         setPhotoPins(pins);
       }
+
+      const shouldInitNeutralStarter =
+        neutralRequested &&
+        !(loadedPrefs.starterProfile === 'neutral' && loadedPrefs.onboardingCompleted === true);
+      const effectivePrefs: BanditUserPreferences = shouldInitNeutralStarter
+        ? {
+            ...loadedPrefs,
+            starterProfile: 'neutral',
+            onboardingCompleted: false
+          }
+        : loadedPrefs;
+
       if (!cancelled) {
-        setPrefs(loadedPrefs);
+        setPrefs(effectivePrefs);
+        if (shouldInitNeutralStarter) {
+          void saveUserPrefs(effectivePrefs);
+        }
         setForemanProposals(loadedProposals);
         setDismissedThinkerIds(loadedDismissedIds);
         setOfflineAudioMemos(loadedAudioMemos);
@@ -365,14 +505,20 @@ export default function App() {
       }
 
       // 2. Load persisted app state & unified AI/Voice settings
-      const loaded = await loadPersistedState(INITIAL_APP_SNAPSHOT);
+      const baseSnapshot =
+        shouldInitNeutralStarter || effectivePrefs.starterProfile === 'neutral' || neutralRequested
+          ? createNeutralStarterSnapshot()
+          : INITIAL_APP_SNAPSHOT;
+      const loaded = shouldInitNeutralStarter
+        ? baseSnapshot
+        : await loadPersistedState(baseSnapshot);
       const [savedAmbientMode, loadedAiVoiceSettings] = await Promise.all([
         loadAmbientLightMode(),
         loadAiVoiceSettings(loaded)
       ]);
       if (cancelled) return;
 
-      const normalizedProjects = (loaded.projects || INITIAL_APP_SNAPSHOT.projects).map((p) => {
+      const normalizedProjects = (loaded.projects || baseSnapshot.projects).map((p) => {
         const brandProj = (BRAND_CONFIG.projects as Record<string, any>)[p.id];
         return {
           ...p,
@@ -391,7 +537,7 @@ export default function App() {
       aiVoiceSettingsRef.current = loadedAiVoiceSettings;
       skipNextAutoSyncRef.current = true;
       setState({
-        ...INITIAL_APP_SNAPSHOT,
+        ...baseSnapshot,
         ...loaded,
         schemaVersion: 2,
         ambientLightMode: savedAmbientMode || (loaded as any).ambientLightMode || 'shimmer',
@@ -403,6 +549,27 @@ export default function App() {
         aiLogs: Array.isArray(loaded.aiLogs) ? loaded.aiLogs : [],
         selfChecks: Array.isArray(loaded.selfChecks) ? loaded.selfChecks : []
       });
+
+      if (shouldInitNeutralStarter) {
+        setActiveDomain('business');
+        setSelectedProjectId(NEUTRAL_BRAND_META.defaultProjectId);
+        setActiveProjectTab('tasks');
+        setOnboardingOpen(true);
+      } else {
+        const firstActiveProj =
+          normalizedProjects.find((p) => !p.archived && p.domain === 'business') ||
+          normalizedProjects.find((p) => !p.archived);
+        if (
+          firstActiveProj &&
+          !normalizedProjects.some((p) => !p.archived && p.id === selectedProjectId)
+        ) {
+          setSelectedProjectId(firstActiveProj.id);
+        }
+        if (effectivePrefs.starterProfile === 'neutral' && effectivePrefs.onboardingCompleted === false) {
+          setOnboardingOpen(true);
+        }
+      }
+
       setHydrated(true);
     })();
     return () => {
@@ -705,9 +872,52 @@ export default function App() {
 
   const handleUpdateTask = (projId: string, taskId: string, patch: Partial<TaskItem>) => {
     const ts = formatNow();
+    const nowIso = new Date().toISOString();
     updateProject(projId, (p) => ({
       ...p,
-      tasks: p.tasks.map((t) => (t.id === taskId ? { ...t, ...patch, lastModified: ts } : t))
+      tasks: p.tasks.map((t) => {
+        if (t.id !== taskId) return t;
+        const changes: string[] = [];
+        if (patch.title !== undefined && patch.title !== t.title) changes.push('Titel');
+        if (patch.priority !== undefined && patch.priority !== t.priority) changes.push('Priorität');
+        if (patch.estimatedMinutes !== undefined && patch.estimatedMinutes !== t.estimatedMinutes) {
+          changes.push('Dauer');
+        }
+        if (patch.dayBlock !== undefined && patch.dayBlock !== t.dayBlock) changes.push('Block');
+        if (patch.assemblyGroup !== undefined && patch.assemblyGroup !== t.assemblyGroup) {
+          changes.push('Baugruppe');
+        }
+        if (patch.reminderAt !== undefined && patch.reminderAt !== t.reminderAt) {
+          changes.push('Erinnerung');
+        }
+        if (patch.energyLevel !== undefined && patch.energyLevel !== t.energyLevel) {
+          changes.push('Akku');
+        }
+        if (patch.isHurdleTask !== undefined && patch.isHurdleTask !== t.isHurdleTask) {
+          changes.push('Schweinehund');
+        }
+        let summary: string | null = null;
+        if (changes.length > 0) {
+          summary = `Bearbeitet: ${changes.join(' / ')}`;
+        } else if (patch.completed !== undefined && patch.completed !== t.completed) {
+          summary = patch.completed ? 'Als erledigt markiert' : 'Wieder geöffnet';
+        }
+        return {
+          ...t,
+          ...patch,
+          lastModified: ts,
+          ...(summary
+            ? {
+                updatedAt: nowIso,
+                changeLog: appendChangeLogEntry(t.changeLog, {
+                  at: nowIso,
+                  actor: 'user',
+                  summary
+                })
+              }
+            : {})
+        };
+      })
     }));
     notify('Aufgabe aktualisiert.');
   };
@@ -923,6 +1133,7 @@ export default function App() {
     markdownContent: string,
     followUpTasks: string[]
   ) => {
+    const nowIso = new Date().toISOString();
     updateProject(projectId, (p) => {
       const newK: KnowledgeItem = {
         id: `k-dossier-${Date.now()}`,
@@ -934,6 +1145,8 @@ export default function App() {
         changeReason: 'Deep Research Beleg',
         source: 'KI-Recherche',
         aiTouched: true,
+        updatedAt: nowIso,
+        changeLog: [{ at: nowIso, actor: 'ai', summary: 'Deep Research Beleg' }],
         customMeta: {}
       };
       const newTasks: TaskItem[] = (followUpTasks || []).map((tText, idx) => ({
@@ -1454,19 +1667,30 @@ export default function App() {
     content: string
   ) => {
     const ts = formatNow();
+    const nowIso = new Date().toISOString();
     updateProject(projId, (p) => {
-      const nextKnowledge = (p.knowledge || []).map((k) =>
-        k.id === itemId
-          ? {
-            ...k,
-            title,
-            content,
-            stepsText: k.kind === 'explanation' ? content : k.stepsText,
-            lastModified: ts,
-            changeReason: 'Bearbeitet'
-          }
-          : k
-      );
+      const nextKnowledge = (p.knowledge || []).map((k) => {
+        if (k.id !== itemId) return k;
+        const changes: string[] = [];
+        if (title !== k.title) changes.push('Titel');
+        if (content !== k.content) changes.push('Inhalt');
+        const summary =
+          changes.length > 0 ? `Bearbeitet: ${changes.join(' / ')}` : 'Bearbeitet';
+        return {
+          ...k,
+          title,
+          content,
+          stepsText: k.kind === 'explanation' ? content : k.stepsText,
+          lastModified: ts,
+          changeReason: 'Bearbeitet',
+          updatedAt: nowIso,
+          changeLog: appendChangeLogEntry(k.changeLog, {
+            at: nowIso,
+            actor: 'user',
+            summary
+          })
+        };
+      });
       return {
         ...p,
         knowledge: nextKnowledge
@@ -1522,6 +1746,7 @@ export default function App() {
         dataUrl,
         textContent: null
       };
+      const nowIso = new Date().toISOString();
       updateProject(projId, (p) => ({
         ...p,
         knowledge: (p.knowledge || []).map((k) =>
@@ -1530,7 +1755,13 @@ export default function App() {
               ...k,
               attachments: [...(k.attachments || []), newAtt],
               lastModified: formatNow(),
-              changeReason: `Foto ${file.name} komprimiert gespeichert`
+              changeReason: `Foto ${file.name} komprimiert gespeichert`,
+              updatedAt: nowIso,
+              changeLog: appendChangeLogEntry(k.changeLog, {
+                at: nowIso,
+                actor: 'user',
+                summary: `Foto angehängt: ${file.name}`
+              })
             }
             : k
         )
@@ -1552,6 +1783,7 @@ export default function App() {
         dataUrl: isPdf ? String(res) : null,
         textContent: isText ? String(res) : null
       };
+      const nowIso = new Date().toISOString();
       updateProject(projId, (p) => ({
         ...p,
         knowledge: (p.knowledge || []).map((k) =>
@@ -1560,7 +1792,13 @@ export default function App() {
               ...k,
               attachments: [...(k.attachments || []), newAtt],
               lastModified: formatNow(),
-              changeReason: `Anhang ${file.name}`
+              changeReason: `Anhang ${file.name}`,
+              updatedAt: nowIso,
+              changeLog: appendChangeLogEntry(k.changeLog, {
+                at: nowIso,
+                actor: 'user',
+                summary: `Anhang: ${file.name}`
+              })
             }
             : k
         )
@@ -1580,6 +1818,7 @@ export default function App() {
   ) => {
     const defaultProjId = BRAND_CONFIG.defaultProjectId;
     const timestamp = formatNow();
+    const nowIso = new Date().toISOString();
     const executedActions: AiExecutedAction[] = [];
     const logId = `log-${Date.now()}`;
     let firstTargetProjectId = activeProject?.id || defaultProjId;
@@ -1632,6 +1871,8 @@ export default function App() {
               changeReason: safeNote,
               source: 'KI-Zuordnung',
               aiTouched: true,
+              updatedAt: nowIso,
+              changeLog: [{ at: nowIso, actor: 'ai', summary: safeNote }],
               customMeta: {}
             };
             target.knowledge.unshift(kItem);
@@ -1687,6 +1928,8 @@ export default function App() {
               changeReason: safeNote,
               source: 'KI-Zuordnung',
               aiTouched: true,
+              updatedAt: nowIso,
+              changeLog: [{ at: nowIso, actor: 'ai', summary: safeNote }],
               customMeta: {}
             });
             executedActions.push({
@@ -1713,6 +1956,8 @@ export default function App() {
               changeReason: safeNote,
               source: 'KI-Zuordnung',
               aiTouched: true,
+              updatedAt: nowIso,
+              changeLog: [{ at: nowIso, actor: 'ai', summary: safeNote }],
               customMeta: {}
             });
             executedActions.push({
@@ -1742,6 +1987,8 @@ export default function App() {
               changeReason: safeNote,
               source: 'KI-Zuordnung',
               assemblyGroup: act.assemblyGroup,
+              updatedAt: nowIso,
+              changeLog: [{ at: nowIso, actor: 'ai', summary: safeNote }],
               customMeta: {}
             });
             executedActions.push({
@@ -2043,7 +2290,12 @@ export default function App() {
             void saveOfflineAudioMemos(next);
           }}
           initialPrefillText={voicePrefillText}
-          activeProjectName={activeProject?.name || BRAND_CONFIG.projects['proj-foodtruck']?.name || 'Pizza Bandit'}
+          activeProjectName={
+            activeProject?.name ||
+            (prefs.starterProfile === 'neutral'
+              ? NEUTRAL_BRAND_META.appName
+              : BRAND_CONFIG.projects['proj-foodtruck']?.name || 'Pizza Bandit')
+          }
           projects={state.projects}
           aiVoiceSettings={aiVoiceSettings}
           onUpdateAiVoiceSettings={handleUpdateAiVoiceSettings}
@@ -2151,7 +2403,7 @@ export default function App() {
                 assemblyGroup,
                 reminderAt,
                 reminderRecurrence,
-                extra?: { energyLevel?: EnergyLevel; isHurdleTask?: boolean }
+                extra?: { energyLevel?: EnergyLevel; isHurdleTask?: boolean; dayBlock?: DayBlockId }
               ) => {
                 const ts = formatNow();
                 updateProject(projId, (p) => ({
@@ -2163,7 +2415,7 @@ export default function App() {
                       completed: false,
                       priority: prio,
                       estimatedMinutes: mins,
-                      dayBlock: null,
+                      dayBlock: extra?.dayBlock ?? null,
                       reminderAt: reminderAt || '',
                       reminderRecurrence: reminderAt ? reminderRecurrence || 'none' : undefined,
                       ...(extra?.energyLevel ? { energyLevel: extra.energyLevel } : {}),
@@ -2236,6 +2488,7 @@ export default function App() {
               onOpenFloatingCart={() => setFloatingCartOpen(true)}
               isFloatingCartOpen={floatingCartOpen}
               prefs={prefs}
+              nowStageEnabled={prefs.nowStageEnabled === true}
               onUpdatePrefs={handleUpdatePrefs}
               foremanProposals={foremanProposals}
               dismissedThinkerIds={dismissedThinkerIds}
@@ -2359,6 +2612,10 @@ export default function App() {
               onUpdateAiVoiceSettings={handleUpdateAiVoiceSettings}
               prefs={prefs}
               onUpdatePrefs={handleUpdatePrefs}
+              onClearAiLogs={() => {
+                setState((prev) => ({ ...prev, aiLogs: [] }));
+                notify('KI-Protokoll geleert.');
+              }}
               smartHomeSwitches={smartHomeSwitches}
               onUpdateSmartHomeSwitches={(next) => {
                 setSmartHomeSwitches(next);
@@ -2396,6 +2653,9 @@ export default function App() {
                 setState((prev) => ({ ...prev, remindersEnabled: enabled }));
                 notify(enabled ? 'Erinnerungen aktiviert.' : 'Erinnerungen pausiert.');
               }}
+              onOpenByokOnboarding={() => setOnboardingOpen(true)}
+              onSwitchToNeutralStarter={handleSwitchToNeutralStarter}
+              onExportNeutralStarterJson={handleExportNeutralStarterJson}
               onNotify={notify}
             />
           )}
@@ -2546,7 +2806,7 @@ export default function App() {
             setActiveProjectTab('cart');
             setForceSingleViewSeq((s) => s + 1);
           }}
-          activeProject={activeProject || BRAND_CONFIG.projects['proj-foodtruck'] || state.projects[0]}
+          activeProject={activeProject || state.projects[0] || (BRAND_CONFIG.projects['proj-foodtruck'] as unknown as Project)}
           allProjects={state.projects}
           themeColors={{
             primary: activeVisualTheme.primary,
@@ -2603,7 +2863,12 @@ export default function App() {
           void saveOfflineAudioMemos(next);
         }}
         initialPrefillText={voicePrefillText}
-        activeProjectName={activeProject?.name || BRAND_CONFIG.projects['proj-foodtruck']?.name || 'Pizza Bandit'}
+        activeProjectName={
+          activeProject?.name ||
+          (prefs.starterProfile === 'neutral'
+            ? NEUTRAL_BRAND_META.appName
+            : BRAND_CONFIG.projects['proj-foodtruck']?.name || 'Pizza Bandit')
+        }
         projects={state.projects}
         aiVoiceSettings={aiVoiceSettings}
         onUpdateAiVoiceSettings={handleUpdateAiVoiceSettings}
@@ -2627,6 +2892,7 @@ export default function App() {
         }
         onSaveAnswerToInfos={(q, ans, att) => {
           if (!activeProject) return;
+          const nowIso = new Date().toISOString();
           const newAtts = att ? [att] : [];
           const newK: KnowledgeItem = {
             id: `k-qa-${Date.now()}`,
@@ -2638,6 +2904,8 @@ export default function App() {
             changeReason: 'Aus KI-Verlauf gespeichert',
             source: 'KI-Zuordnung',
             aiTouched: true,
+            updatedAt: nowIso,
+            changeLog: [{ at: nowIso, actor: 'ai', summary: 'Aus KI-Verlauf gespeichert' }],
             customMeta: {}
           };
           updateProject(activeProject.id, (p) => ({
@@ -2713,6 +2981,22 @@ export default function App() {
             setState((prev) => ({ ...prev, selfChecks: [entry, ...prev.selfChecks] }));
             notify('Selbst-Check gespeichert.');
           }}
+        />
+
+        <ByokOnboardingModal
+          open={onboardingOpen}
+          starterProfile={prefs.starterProfile === 'neutral' ? 'neutral' : 'bandit'}
+          hasExistingNonNeutralProjects={
+            prefs.starterProfile !== 'neutral' ||
+            state.projects.some((p) => p.id !== 'proj-work' && p.id !== 'proj-private')
+          }
+          initialGeminiKey={state.userApiKey}
+          initialAzureKey={aiVoiceSettings.azureSpeechKey}
+          initialAzureRegion={aiVoiceSettings.azureSpeechRegion}
+          initialThumbHubPosition={state.thumbHubPosition || 'center'}
+          initialCompanionStartExpanded={prefs.companionStartExpanded === true}
+          onSkip={handleOnboardingSkip}
+          onComplete={handleOnboardingComplete}
         />
 
         {newProjectModalOpen && (

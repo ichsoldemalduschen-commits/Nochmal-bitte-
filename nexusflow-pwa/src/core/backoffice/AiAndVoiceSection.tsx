@@ -499,6 +499,29 @@ export const AiAndVoiceSection: React.FC<AiAndVoiceSectionProps> = ({
             containerClassName="py-1"
           />
         </div>
+
+        {/* Einzelpunkt-Vorlesen bei Wissen & Abläufen */}
+        <div className="pt-2 border-t border-white/5">
+          <ZentraleToggleRow
+            title="Einzelpunkt-Vorlesen bei Wissen & Abläufen"
+            description="Zeigt bei mehrteiligen Wissens- und Ablauf-Einträgen für jeden Punkt einen Vorlesen-Knopf."
+            checked={prefs.knowledgeStepReadAloudEnabled !== false}
+            onToggle={() => {
+              const next = !(prefs.knowledgeStepReadAloudEnabled !== false);
+              onUpdatePrefs({ knowledgeStepReadAloudEnabled: next });
+              onNotify(
+                next
+                  ? 'Einzelpunkt-Vorlesen bei Wissen aktiviert.'
+                  : 'Einzelpunkt-Vorlesen ausgeblendet.'
+              );
+            }}
+            onLabel="An"
+            offLabel="Aus"
+            ariaLabel="Einzelpunkt-Vorlesen bei Wissen & Abläufen umschalten"
+            testId="toggle-knowledge-step-read"
+            containerClassName="py-1"
+          />
+        </div>
       </div>
 
       {/* BEGLEITER-OBERFLÄCHE (Stetiger Begleiter v2) */}

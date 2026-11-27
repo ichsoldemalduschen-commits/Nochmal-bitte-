@@ -280,7 +280,9 @@ test.describe('Block C: Mobile-Guard 390×844 px Gesamt-Schutznetz', () => {
     await firstKnowledgeCard.locator('> div.cursor-pointer').click();
 
     // In-Place Aktionen sichtbar: Vorlesen / Audio-Guide, Kopieren, Bearbeiten, Verschieben, KI
-    const audioBtn = firstKnowledgeCard.locator('button:has-text("Vorlesen"), button:has-text("Audio-Guide")');
+    const audioBtn = firstKnowledgeCard
+      .locator('button:has-text("Vorlesen"), button:has-text("Audio-Guide")')
+      .last();
     await expect(audioBtn).toBeVisible();
 
     const copyBtn = firstKnowledgeCard.locator('button:has-text("Kopieren")');
@@ -2488,5 +2490,369 @@ test.describe('Block C: Mobile-Guard 390×844 px Gesamt-Schutznetz', () => {
     await openExtras();
     await expect(page.locator('[data-testid="smart-home-quick-panel"]')).toHaveCount(0);
     await assertNoHorizontalOverflow(page, 'Station 23 – Abschluss');
+  });
+
+  test('Station 24 – Komfort-Politur: 4 Zentrale-Schalter, Task-Edit-Metadaten, Einzelpunkt-Vorlesen, Änderungs-Chronologie & zugeklappte aiLogs-Einsicht (390px-Schutz)', async ({ page }) => {
+    await page.goto('./');
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.locator('h1')).toBeVisible({ timeout: 10000 });
+
+    const openZentrale = async () => {
+      await page.locator('button[aria-label="Navigation öffnen"]').click();
+      await page.getByRole('button', { name: 'Zentrale', exact: true }).click();
+    };
+
+    // 1. Alle 4 neuen Zentrale-Schalter prüfen + aiLogs-Schublade inkl. Reload-Persistenz
+    await openZentrale();
+
+    await page.locator('button:has-text("Fokus, Bedienung & Smartphone")').click();
+    const taskMetaToggle = page.locator('[data-testid="toggle-task-extended-meta"]');
+    await expect(taskMetaToggle).toBeVisible();
+    await expect(taskMetaToggle).toContainText('An');
+    expect((await taskMetaToggle.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+
+    await page.locator('button:has-text("KI & Stimme")').click();
+    const stepReadToggle = page.locator('[data-testid="toggle-knowledge-step-read"]');
+    await expect(stepReadToggle).toBeVisible();
+    await expect(stepReadToggle).toContainText('An');
+    expect((await stepReadToggle.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+
+    await page.locator('button:has-text("Daten, Backup & System")').click();
+    const changeHistoryToggle = page.locator('[data-testid="toggle-change-history"]');
+    const aiLogsToggle = page.locator('[data-testid="toggle-ai-logs-viewer"]');
+    await expect(changeHistoryToggle).toBeVisible();
+    await expect(aiLogsToggle).toBeVisible();
+    await expect(changeHistoryToggle).toContainText('An');
+    await expect(aiLogsToggle).toContainText('Aus');
+    expect((await changeHistoryToggle.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+    expect((await aiLogsToggle.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+
+    // Geschlossene Schublade: aiLogs-Karte im Aus-Zustand unsichtbar
+    await expect(page.locator('[data-testid="ai-logs-viewer-card"]')).toHaveCount(0);
+    await assertNoHorizontalOverflow(page, 'Station 24 – Zentrale Toggles initial');
+
+    // aiLogs-Einsicht einschalten -> Reload -> Persistenz & Aufklappen prüfen -> wieder AUS
+    await aiLogsToggle.click();
+    await expect(aiLogsToggle).toContainText('An');
+    await expect(page.locator('[data-testid="ai-logs-viewer-card"]')).toBeVisible();
+    await page.waitForTimeout(250);
+
+    await page.reload();
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.locator('h1')).toBeVisible({ timeout: 10000 });
+
+    await openZentrale();
+    await page.locator('button:has-text("Daten, Backup & System")').click();
+    await expect(page.locator('[data-testid="toggle-ai-logs-viewer"]')).toContainText('An');
+    await expect(page.locator('[data-testid="ai-logs-viewer-card"]')).toBeVisible();
+    const aiLogsAccordion = page.locator('[data-testid="toggle-ai-logs-accordion"]');
+    expect((await aiLogsAccordion.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+    await aiLogsAccordion.click();
+    await expect(page.locator('[data-testid="ai-logs-viewer-list"]')).toBeVisible();
+    await assertNoHorizontalOverflow(page, 'Station 24 – aiLogs aufgeklappt');
+
+    await page.locator('[data-testid="toggle-ai-logs-viewer"]').click();
+    await expect(page.locator('[data-testid="toggle-ai-logs-viewer"]')).toContainText('Aus');
+    await expect(page.locator('[data-testid="ai-logs-viewer-card"]')).toHaveCount(0);
+    await page.waitForTimeout(200);
+    await page.locator('button:has-text("Zurück")').click();
+
+    // 2. Task-Edit (Priorität, Dauer, Tagesblock) + Chronologie End-to-End
+    const targetCard = page.locator('#item-card-tsa-bg5-t1');
+    await expect(targetCard).toBeVisible();
+    await targetCard.getByText('Shelly Plus 2PM').click();
+    await targetCard.locator('button:has-text("Bearbeiten")').click();
+
+    const prioHochBtn = targetCard.locator('[data-testid="edit-task-priority-Hoch"]');
+    const dur30Btn = targetCard.locator('[data-testid="edit-task-duration-30"]');
+    const blockMorningBtn = targetCard.locator('[data-testid="edit-task-dayblock-morning"]');
+    for (const btn of [prioHochBtn, dur30Btn, blockMorningBtn]) {
+      await expect(btn).toBeVisible();
+      expect((await btn.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+    }
+
+    await prioHochBtn.click();
+    await dur30Btn.click();
+    await blockMorningBtn.click();
+    await assertNoHorizontalOverflow(page, 'Station 24 – Task-Edit-Metadaten offen');
+
+    await targetCard.locator('[data-testid="save-edit-task-tsa-bg5-t1"]').click();
+    await page.waitForTimeout(250);
+
+    await page.reload();
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.locator('h1')).toBeVisible({ timeout: 10000 });
+
+    const reloadedCard = page.locator('#item-card-tsa-bg5-t1');
+    await reloadedCard.getByText('Shelly Plus 2PM').click();
+
+    const metaSummary = reloadedCard.locator('[data-testid="task-meta-summary-tsa-bg5-t1"]');
+    await expect(metaSummary).toBeVisible();
+    await expect(metaSummary).toContainText('Hoch');
+    await expect(metaSummary).toContainText('30 min');
+    await expect(metaSummary).toContainText('Morgens');
+
+    const taskChangelogBtn = reloadedCard.locator('[data-testid="changelog-toggle-tsa-bg5-t1"]');
+    await expect(taskChangelogBtn).toBeVisible();
+    await expect(taskChangelogBtn).toContainText('Chronologie (1)');
+    expect((await taskChangelogBtn.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+    await taskChangelogBtn.click();
+    const taskChangelogList = reloadedCard.locator('[data-testid="changelog-list-tsa-bg5-t1"]');
+    await expect(taskChangelogList).toBeVisible();
+    await expect(taskChangelogList).toContainText('Du');
+    await expect(taskChangelogList).toContainText('Bearbeitet: Priorität / Dauer / Block');
+    await assertNoHorizontalOverflow(page, 'Station 24 – Task-Chronologie aufgeklappt');
+
+    // 3. Geschlossene Schublade bei taskExtendedMetaEnabled = Aus
+    await openZentrale();
+    await page.locator('button:has-text("Fokus, Bedienung & Smartphone")').click();
+    await page.locator('[data-testid="toggle-task-extended-meta"]').click();
+    await expect(page.locator('[data-testid="toggle-task-extended-meta"]')).toContainText('Aus');
+    await page.waitForTimeout(200);
+    await page.locator('button:has-text("Zurück")').click();
+
+    await reloadedCard.getByText('Shelly Plus 2PM').click();
+    await reloadedCard.locator('button:has-text("Bearbeiten")').click();
+    await expect(reloadedCard.locator('[data-testid="edit-task-extended-meta"]')).toHaveCount(0);
+
+    await openZentrale();
+    await page.locator('button:has-text("Fokus, Bedienung & Smartphone")').click();
+    await page.locator('[data-testid="toggle-task-extended-meta"]').click();
+    await expect(page.locator('[data-testid="toggle-task-extended-meta"]')).toContainText('An');
+    await page.waitForTimeout(200);
+    await page.locator('button:has-text("Zurück")').click();
+
+    // 4. Einzelpunkt-Vorlesen in KnowledgeView & Toggle-Schublade
+    await page.locator('button[aria-label="Navigation öffnen"]').click();
+    await page.locator('button:has-text("Wissen")').first().click();
+
+    const knowledgeCard = page.locator('#item-card-tsa-exp-event');
+    await expect(knowledgeCard).toBeVisible();
+    await knowledgeCard.getByText('Event-Aufbau Checkliste vor Ort').click();
+
+    const stepReadButtons = knowledgeCard.locator('[data-testid^="knowledge-step-read-tsa-exp-event-"]');
+    await expect(stepReadButtons).toHaveCount(4);
+    expect((await stepReadButtons.first().boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+    await assertNoHorizontalOverflow(page, 'Station 24 – Knowledge Einzelpunkt-Vorlesen');
+
+    // toggle-knowledge-step-read auf AUS -> Einzelpunkt-Buttons verschwinden
+    await openZentrale();
+    await page.locator('button:has-text("KI & Stimme")').click();
+    await page.locator('[data-testid="toggle-knowledge-step-read"]').click();
+    await expect(page.locator('[data-testid="toggle-knowledge-step-read"]')).toContainText('Aus');
+    await page.waitForTimeout(200);
+    await page.locator('button:has-text("Zurück")').click();
+
+    await expect(knowledgeCard).toBeVisible();
+    if ((await knowledgeCard.locator('button:has-text("Audio-Guide")').count()) === 0) {
+      await knowledgeCard.getByText('Event-Aufbau Checkliste vor Ort').click();
+    }
+    await expect(knowledgeCard.locator('[data-testid^="knowledge-step-read-tsa-exp-event-"]')).toHaveCount(0);
+
+    // Wieder einschalten
+    await openZentrale();
+    await page.locator('button:has-text("KI & Stimme")').click();
+    await page.locator('[data-testid="toggle-knowledge-step-read"]').click();
+    await expect(page.locator('[data-testid="toggle-knowledge-step-read"]')).toContainText('An');
+    await page.waitForTimeout(200);
+    await page.locator('button:has-text("Zurück")').click();
+    await assertNoHorizontalOverflow(page, 'Station 24 – Abschluss');
+  });
+
+  test('Station 25 – Taktil-Politur & opt-in A+C-„Jetzt-Vorbühne“: Zentrale-Schalter (Default Aus), Reload-Persistenz, Fokus-Blättern, Klapp-Riegel & sauberes Ausblenden (390px-Schutz)', async ({ page }) => {
+    await page.goto('./');
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.locator('h1')).toBeVisible({ timeout: 10000 });
+
+    const openZentraleFocus = async () => {
+      await page.locator('button[aria-label="Navigation öffnen"]').click();
+      await page.getByRole('button', { name: 'Zentrale', exact: true }).click();
+      await page.locator('button:has-text("Fokus, Bedienung & Smartphone")').click();
+    };
+
+    // 1. Standardmäßig geschlossene Schublade prüfen: keine JETZT IM FOKUS Vorbühne sichtbar
+    await expect(page.locator('[data-testid="tasks-now-stage"]')).toHaveCount(0);
+
+    await openZentraleFocus();
+    const nowStageToggle = page.locator('[data-testid="toggle-now-stage"]');
+    await expect(nowStageToggle).toBeVisible();
+    await expect(nowStageToggle).toHaveAttribute('aria-checked', 'false');
+    await expect(nowStageToggle).toContainText('Aus');
+    expect((await nowStageToggle.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+
+    // Einschalten -> Reload -> Persistenz prüfen
+    await nowStageToggle.click();
+    await expect(nowStageToggle).toHaveAttribute('aria-checked', 'true');
+    await expect(nowStageToggle).toContainText('An');
+    await page.waitForTimeout(250);
+
+    await page.reload();
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.locator('h1')).toBeVisible({ timeout: 10000 });
+
+    await openZentraleFocus();
+    await expect(page.locator('[data-testid="toggle-now-stage"]')).toHaveAttribute('aria-checked', 'true');
+    await page.locator('button:has-text("Zurück")').click();
+
+    // 2. TasksView mit aktiver A+C-Jetzt-Vorbühne prüfen
+    const nowStage = page.locator('[data-testid="tasks-now-stage"]');
+    await expect(nowStage).toBeVisible();
+    await expect(nowStage).toContainText('JETZT IM FOKUS');
+    const counter = nowStage.locator('[data-testid="now-stage-counter"]');
+    await expect(counter).toContainText('1 / ');
+
+    const nextBtn = nowStage.locator('[data-testid="now-stage-next"]');
+    const completeBtn = nowStage.locator('[data-testid="now-stage-complete"]');
+    const toggleListBtn = nowStage.locator('[data-testid="now-stage-toggle-list"]');
+    for (const btn of [nextBtn, completeBtn, toggleListBtn]) {
+      await expect(btn).toBeVisible();
+      expect((await btn.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+    }
+
+    // Vollständige Restliste startet eingeklappt
+    await expect(toggleListBtn).toContainText('Alle weiteren Einträge entfalten');
+    await expect(page.locator('#item-card-tsa-bg5-t1')).toHaveCount(0);
+    await assertNoHorizontalOverflow(page, 'Station 25 – Jetzt-Vorbühne eingeklappt');
+
+    // Weiter blättern -> Zähler wechselt auf 2 / N
+    await nextBtn.click();
+    await expect(counter).toContainText('2 / ');
+    await assertNoHorizontalOverflow(page, 'Station 25 – Nach Weiter blättern');
+
+    // Klapp-Riegel antippen -> Restliste klappt auf
+    await toggleListBtn.click();
+    await expect(toggleListBtn).toContainText('Liste wieder einklappen');
+    await expect(page.locator('#item-card-tsa-bg5-t1')).toBeVisible();
+    await assertNoHorizontalOverflow(page, 'Station 25 – Restliste entfaltet');
+
+    // 3. Sauber wieder auf AUS zurückstellen -> Vorbühne verschwindet komplett
+    await openZentraleFocus();
+    await page.locator('[data-testid="toggle-now-stage"]').click();
+    await expect(page.locator('[data-testid="toggle-now-stage"]')).toHaveAttribute('aria-checked', 'false');
+    await page.waitForTimeout(200);
+    await page.locator('button:has-text("Zurück")').click();
+
+    await expect(page.locator('[data-testid="tasks-now-stage"]')).toHaveCount(0);
+    await expect(page.locator('#item-card-tsa-bg5-t1')).toBeVisible();
+    await assertNoHorizontalOverflow(page, 'Station 25 – Abschluss');
+  });
+
+  test('Station 26 – BYOK-/Open-Source-Basis: Neutraler Erststart (?starter=neutral), 3-Schritte-Assistent, Persistenz nach Reload & Zentrale Bereich 5 toggle-byok-starter (390px-Schutz)', async ({ page, browser }) => {
+    // ── Teil A: Neutraler BYOK-Erststart (?starter=neutral) ──
+    await page.goto('./?starter=neutral');
+    await page.waitForLoadState('domcontentloaded');
+
+    const modal = page.locator('[data-testid="byok-onboarding-modal"]');
+    await expect(modal).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('[data-testid="onboarding-step-indicator"]')).toContainText('Schritt 1 von 3');
+
+    // ?starter=neutral wurde sauber aus der URL entfernt
+    await expect.poll(() => page.url()).not.toContain('starter=neutral');
+
+    const skipBtn = page.locator('[data-testid="onboarding-skip-btn"]');
+    const neutralCard = page.locator('[data-testid="onboarding-profile-neutral"]');
+    const keepCard = page.locator('[data-testid="onboarding-profile-keep"]');
+    const nextBtn = page.locator('[data-testid="onboarding-next-btn"]');
+    for (const btn of [skipBtn, neutralCard, keepCard, nextBtn]) {
+      await expect(btn).toBeVisible();
+      expect((await btn.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+    }
+    await assertNoHorizontalOverflow(page, 'Station 26 – BYOK Assistent Schritt 1');
+
+    // Schritt 1 -> Neutrales Starter-Profil -> Weiter zu Schritt 2
+    await neutralCard.click();
+    await nextBtn.click();
+    await expect(page.locator('[data-testid="onboarding-step-indicator"]')).toContainText('Schritt 2 von 3');
+    await assertNoHorizontalOverflow(page, 'Station 26 – BYOK Assistent Schritt 2');
+
+    // Schritt 2 -> Weiter ohne API-Key zu Schritt 3
+    await page.locator('[data-testid="onboarding-next-btn"]').click();
+    await expect(page.locator('[data-testid="onboarding-step-indicator"]')).toContainText('Schritt 3 von 3');
+
+    const finishBtn = page.locator('[data-testid="onboarding-finish-btn"]');
+    const posLeftBtn = page.locator('[data-testid="onboarding-pos-left"]');
+    await expect(finishBtn).toBeVisible();
+    expect((await finishBtn.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+    expect((await posLeftBtn.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+    await assertNoHorizontalOverflow(page, 'Station 26 – BYOK Assistent Schritt 3');
+
+    // Einrichtung abschließen -> Assistent schließt, neutrales Projekt "Arbeit" aktiv
+    await finishBtn.click();
+    await expect(modal).toBeHidden();
+
+    const headerTitle = page.locator('h1');
+    await expect(headerTitle).toBeVisible({ timeout: 10000 });
+    await expect(headerTitle).toContainText('Arbeit');
+    await expect(headerTitle).not.toContainText('Pizza Bandit');
+    await assertNoHorizontalOverflow(page, 'Station 26 – Neutrales Profil Arbeit aktiv');
+
+    // Reload -> Assistent darf NICHT erneut aufpoppen
+    await page.waitForTimeout(250);
+    await page.reload();
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.locator('h1')).toContainText('Arbeit', { timeout: 10000 });
+    await expect(page.locator('[data-testid="byok-onboarding-modal"]')).toHaveCount(0);
+    await assertNoHorizontalOverflow(page, 'Station 26 – Neutrales Profil nach Reload');
+
+    // ── Teil B: Zentrale Bereich 5 (frischer Standard-Kontext) ──
+    const stdContext = await browser.newContext({
+      baseURL: 'http://localhost:4173/Nochmal-bitte-/',
+      viewport: { width: 390, height: 844 },
+      isMobile: true,
+      hasTouch: true
+    });
+    const stdPage = await stdContext.newPage();
+    attachGlobalErrorWatchers(stdPage, capturedErrors);
+
+    try {
+      await stdPage.goto('./');
+      await stdPage.waitForLoadState('domcontentloaded');
+      await expect(stdPage.locator('h1')).toContainText('Pizza Bandit', { timeout: 10000 });
+      await expect(stdPage.locator('[data-testid="byok-onboarding-modal"]')).toHaveCount(0);
+
+      // Zentrale Bereich 5 öffnen
+      await stdPage.locator('button[aria-label="Navigation öffnen"]').click();
+      await stdPage.getByRole('button', { name: 'Zentrale', exact: true }).click();
+      await stdPage.locator('button:has-text("Daten, Backup & System")').click();
+
+      const byokToggle = stdPage.locator('[data-testid="toggle-byok-starter"]');
+      await expect(byokToggle).toBeVisible();
+      await expect(byokToggle).toHaveAttribute('aria-checked', 'true');
+      await expect(byokToggle).toContainText('An');
+      expect((await byokToggle.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+
+      const openOnboardingBtn = stdPage.locator('[data-testid="btn-open-byok-onboarding"]');
+      await expect(openOnboardingBtn).toBeVisible();
+      expect((await openOnboardingBtn.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+
+      // Assistent manuell öffnen -> scrollWidth <= 390 -> Überspringen schließt ohne Datenänderung
+      await openOnboardingBtn.click();
+      const stdModal = stdPage.locator('[data-testid="byok-onboarding-modal"]');
+      await expect(stdModal).toBeVisible();
+      await assertNoHorizontalOverflow(stdPage, 'Station 26 – Manueller BYOK Assistent offen');
+
+      await stdPage.locator('[data-testid="onboarding-skip-btn"]').click();
+      await expect(stdModal).toBeHidden();
+
+      // toggle-byok-starter auf AUS -> Button verschwindet (geschlossene Schublade)
+      await byokToggle.click();
+      await expect(byokToggle).toHaveAttribute('aria-checked', 'false');
+      await expect(byokToggle).toContainText('Aus');
+      await expect(stdPage.locator('[data-testid="btn-open-byok-onboarding"]')).toHaveCount(0);
+      await assertNoHorizontalOverflow(stdPage, 'Station 26 – BYOK Schublade geschlossen');
+
+      // Wieder auf AN -> Button wieder sichtbar
+      await byokToggle.click();
+      await expect(byokToggle).toHaveAttribute('aria-checked', 'true');
+      await expect(byokToggle).toContainText('An');
+      await expect(stdPage.locator('[data-testid="btn-open-byok-onboarding"]')).toBeVisible();
+
+      // Zurück zur Hauptansicht -> bestehendes Projekt unverändert
+      await stdPage.locator('button:has-text("Zurück")').click();
+      await expect(stdPage.locator('h1')).toContainText('Pizza Bandit');
+      await assertNoHorizontalOverflow(stdPage, 'Station 26 – Abschluss');
+    } finally {
+      await stdContext.close();
+    }
   });
 });

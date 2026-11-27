@@ -205,3 +205,83 @@ code, kbd, samp, pre, .font-mono {
     animation: none !important;
   }
 }
+
+/* ── Ticket 6.1b: Taktil-Politur, samtige Übergänge & 4-Balken-Stimmwelle ── */
+:root {
+  --ease-bandit-smooth: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.bandit-pressable {
+  transition:
+    transform 240ms var(--ease-bandit-smooth),
+    background-color 180ms ease,
+    border-color 180ms ease,
+    opacity 180ms ease;
+  transform-origin: center;
+}
+
+.bandit-pressable:not(:disabled):active {
+  transform: scale(0.96);
+  transition-duration: 100ms;
+}
+
+button:not(:disabled):not([aria-label="Daumen-Steuerung"]):not(.bandit-no-press):active {
+  scale: 0.97;
+  transition: scale 100ms var(--ease-bandit-smooth);
+}
+
+@keyframes bandit-reveal-in {
+  0% {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.bandit-reveal {
+  animation: bandit-reveal-in 260ms var(--ease-bandit-smooth) both;
+  will-change: transform, opacity;
+}
+
+@keyframes bandit-voice-wave {
+  0%, 100% {
+    transform: scaleY(0.35);
+    opacity: 0.65;
+  }
+  50% {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+
+.bandit-voice-wave-bar {
+  transform-origin: center bottom;
+  animation: bandit-voice-wave 1.25s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+html[data-organic-motion="off"] .bandit-reveal,
+html[data-organic-motion="off"] .bandit-voice-wave-bar {
+  animation: none !important;
+  opacity: 1 !important;
+  transform: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bandit-reveal,
+  .bandit-voice-wave-bar {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+  .bandit-pressable,
+  .bandit-pressable:not(:disabled):active,
+  button:not(:disabled):not([aria-label="Daumen-Steuerung"]):not(.bandit-no-press):active {
+    transition: none !important;
+    transform: none !important;
+    scale: 1 !important;
+  }
+}

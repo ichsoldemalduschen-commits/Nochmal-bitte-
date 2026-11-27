@@ -161,10 +161,10 @@ Die gesamte Einstellungs-Ansicht heißt für den Nutzer **„Zentrale"** (intern
 | Nr | Bereich (`src/core/backoffice/`) | `ZentraleSectionId` | Inhalt |
 |---|---|---|---|
 | 1 | Projekte & Werkzeuge (`ProjectsSection.tsx`) | `projects` | Projektkarten (390px-Fix: nur Farbpunkt + voller Name + Pfeil), Gesamt-Übersicht (`overviewEnabled`), Vorschriften-Wächter (`legalWatchEnabled`), Bild-Tausch, Farb-Presets, Lifecycle, Domain, Module, Plugins, JSON-Export, Archiv, 2-Stufen-Reset-Schutz |
-| 2 | Fokus, Bedienung & Smartphone (`FocusAndSmartphoneSection.tsx`) | `focus` | ADHS-Helfer (+25 %-Puffer separat von Vibration), echte `uiDensity`-`rem`-Skalierung (`compact` 15 px / `standard` 16 px / `large` 17 px via `data-density`), 3-Stufen-Hintergrundbeleuchtung, `organicMotion`, `hapticsEnabled`, `cartOpenMode` (Schwebend vs. Tab), `flipCoverAutoDetect`, `realityCheckEnabled`, `SelfCheckHistoryPanel` (zugeklappt), Tagesplaner & `.ics` |
-| 3 | KI & Stimme „Gisela" (`AiAndVoiceSection.tsx`) | `ai` | Gemini API-Key & Modellwahl, direkter Start-Modus (`activeAiMode`: `⚡ Sprech (Flash)` ↔ `🧠 Research (Pro)`), KI-Antwortstil & Quick-Commands, Azure Speech + Gisela-Test + `continuousListening` + `autoModeDetection` + Offline-Audio-Puffer (`offlineAudioBufferEnabled`) |
+| 2 | Fokus, Bedienung & Smartphone (`FocusAndSmartphoneSection.tsx`) | `focus` | ADHS-Helfer (+25 %-Puffer separat von Vibration), Antriebs-Würfel (`driveDiceEnabled`), Energie-Planer (`energyPlannerEnabled`), erweiterte Task-Felder (`taskExtendedMetaEnabled`), opt-in „Jetzt-Vorbühne“ (`nowStageEnabled`), echte `uiDensity`-`rem`-Skalierung (`compact` 15 px / `standard` 16 px / `large` 17 px via `data-density`), 3-Stufen-Hintergrundbeleuchtung, `organicMotion`, `hapticsEnabled`, `cartOpenMode` (Schwebend vs. Tab), `flipCoverAutoDetect`, `realityCheckEnabled`, `SelfCheckHistoryPanel` (zugeklappt), Tagesplaner & `.ics` |
+| 3 | KI & Stimme „Gisela" (`AiAndVoiceSection.tsx`) | `ai` | Gemini API-Key & Modellwahl, direkter Start-Modus (`activeAiMode`: `⚡ Sprech (Flash)` ↔ `🧠 Research (Pro)`), KI-Antwortstil & Quick-Commands, Azure Speech + Gisela-Test + `continuousListening` + `autoModeDetection` + Offline-Audio-Puffer (`offlineAudioBufferEnabled`) + Einzelpunkt-Vorlesen (`knowledgeStepReadAloudEnabled`) |
 | 4 | Erinnerungen, Vorarbeiter & Smart Home (`AutomationSection.tsx`) | `automation` | Proaktive Erinnerungen (`remindersEnabled`), separater System-Push-Schalter (`reminderSystemPushEnabled`), Browser-Push-Freigabe, Vorschriften-Wächter (`AUDIT_SETTINGS`), Beleg- & Rechnungs-Vorarbeiter (`receiptForemanEnabled`), Stiller Mitdenker (`silentThinkerEnabled`), „Nebenbei-Murmel“-Autopilot (`murmurAutopilotEnabled`), Allgemeine Bild-Vision (`generalVisionEnabled`), Smart Home / Home Assistant (`smartHomeEnabled` als geschlossene Schublade) |
-| 5 | Daten, Backup & System (`SystemAndBackupSection.tsx`, `CloudSyncPanel.tsx`) | `system` | Cloud-Synchronisation (URL, Token, `autoSyncOnChange` mit 5s-Debounce & Pull/Hydration-Loop-Schutz, Hochladen/Herunterladen), Voll-Backup v2 inkl. `BanditUserPreferences`, Projekt-JSON-Import, CSV-Export, Vorlagen-Tresor (`Blueprints` inkl. Tasks/Cart-Übernahme & Löschen) |
+| 5 | Daten, Backup & System (`SystemAndBackupSection.tsx`, `CloudSyncPanel.tsx`) | `system` | Cloud-Synchronisation (URL, Token, `autoSyncOnChange` mit 5s-Debounce & Pull/Hydration-Loop-Schutz, Hochladen/Herunterladen), Voll-Backup v2 inkl. `BanditUserPreferences`, Projekt-JSON-Import, CSV-Export, Vorlagen-Tresor (`Blueprints` inkl. Tasks/Cart-Übernahme & Löschen), Änderungs-Chronologie (`changeHistoryEnabled`), zugeklappte `aiLogs`-Einsicht (`aiLogsViewerEnabled`) sowie BYOK-Starter-Werkzeuge (`byokStarterToolsEnabled`) |
 
 **Verbindliche Toggle-Regel (`ZentraleToggleRow`):** Jede neue Einstellung erhält einen einheitlichen Ein-/Ausschalter (`min-h-[44px]`, `ZentraleToggleRow`), bleibt abwärtskompatibel in IndexedDB (`BanditUserPreferences` in `storage.ts`, ohne lose `localStorage`-Keys) und blendet optionale Detail-Felder im Aus-Zustand nach dem Prinzip der geschlossenen Schublade aus.
 
@@ -181,7 +181,7 @@ Für jede künftige Änderung gilt ein verbindliches E2E-Qualitätsgate auf mobi
 - **Befehl:** `npm run verify` im Verzeichnis `nexusflow-pwa` (führt `npm run build && npm run test:guard` aus).
 - **Pflicht vor jedem Git-Push:**
   1. `npm run build` muss fehlerfrei durchlaufen.
-  2. Playwright Mobile-Guard (`tests/mobile-guard.spec.ts`) muss alle **23 Stationen** (inkl. Stetiger Begleiter v2 in Station 21, Wacher Begleiter / Antriebs-Würfel in Station 22 sowie Gastro-Brücke, 1-Klick-HACCP & Smart-Home-Schnellschalter in Station 23) zu 100 % grün durchlaufen.
+  2. Playwright Mobile-Guard (`tests/mobile-guard.spec.ts`) muss alle **26 Stationen** (inkl. Stetiger Begleiter v2 in Station 21, Wacher Begleiter / Antriebs-Würfel in Station 22, Gastro-Brücke, 1-Klick-HACCP & Smart-Home-Schnellschalter in Station 23, Komfort-Politur in Station 24, Taktil-Politur & opt-in A+C-Jetzt-Vorbühne in Station 25 sowie BYOK-Erststart-Assistent & neutrales Starter-Profil in Station 26) zu 100 % grün durchlaufen.
   3. Strikte Wächter: 0 ungefangene `pageerror`-Exceptions, 0 unberechtigte `console.error`-Meldungen, 0 horizontale Viewport-Überläufe (`document.documentElement.scrollWidth <= window.innerWidth + 1`).
 
 ---
@@ -399,3 +399,35 @@ Die ehemalige Mono-Komponente `VoiceModal.tsx` (> 2 200 Zeilen) ist verlustfrei 
   - Isoliertes Plugin (`haccp-protocol`, Default aktiv für `proj-foodtruck` via idempotenter Erst-Migration) mit Kühl-/Saladette-Sollwert-Hinweis in Honig-Gold (`#E5A93C`), 4 Hygiene-Checks, `Alle Standard-Checks ✓`, IDB-Store `HACCP_LOGS` (`banditos_haccp_logs_v1` inkl. Voll-Backup v2) sowie CSV-Export (UTF-8-BOM, `;`, deutsches Komma) und Nachweis-Kopie.
 - **Live-Shelly- & Home-Assistant-Schnellschalter (`src/core/front/SmartHomeQuickPanel.tsx`, `src/services/smartHomeBridge.ts`, `ExtrasView.tsx`, `AutomationSection.tsx`):**
   - Geschlossene Schublade strikt an `smartHomeEnabled` (Default `false`) gekoppelt; IDB-Store `SMART_HOME_SWITCHES` (`banditos_smart_home_switches_v1` inkl. Voll-Backup v2), Verwaltung inkl. `TSA-Vorlagen einfügen` in Bereich 4 und `fetch` mit 4s-Timeout / `no-cors`-Fallback ohne ungefangene Konsolenfehler (`Station 23`).
+
+---
+
+## 25  Welle 6 / Ticket 6.1 – Komfort-Politur (Task-Edit-Metadaten, Einzelpunkt-Vorlesen, Chronologie & `aiLogs`-Einsicht)
+
+- **Erweiterte Task-Edit-Metadaten (`TasksView.tsx`, `FocusAndSmartphoneSection.tsx`, `App.tsx`):**
+  - Bearbeiten- und (optional eingeklapptes) Neu-Anlegen-Formular ergänzen Priorität (`Hoch` / `Mittel` / `Niedrig`), geschätzte Dauer (`5`/`15`/`30`/`60 min` + freies Minutenfeld) sowie `dayBlock` (`Ohne`, `Morgens`, `Mittags`, `Nachmittags`, `Abends`).
+  - Steuerbar über `taskExtendedMetaEnabled` (Bereich 2, Default `true`).
+- **Einzelpunkt-Vorlesen bei Wissen & Abläufen (`src/services/knowledgeBlocks.ts`, `KnowledgeView.tsx`, `AiAndVoiceSection.tsx`):**
+  - Zerlegt mehrteilige Einträge (≥ 2 Punkte/Schritte/Absätze) in ruhige Karten mit eigenem `Vorlesen`/`Stopp`-Knopf (`min-h-[44px]`) über die bestehende Gisela-/Browser-TTS-Brücke; `StepByStepAudioGuide` bleibt unverändert.
+  - Steuerbar über `knowledgeStepReadAloudEnabled` (Bereich 3, Default `true`).
+- **Änderungs-Chronologie & zugeklappte `aiLogs`-Einsicht (`ChangeLogAccordion.tsx`, `SystemAndBackupSection.tsx`, `types.ts`, `storage.ts`):**
+  - `TaskItem` und `KnowledgeItem` speichern `updatedAt` und max. 10 `ChangeLogEntry`-Einträge (`Du` / `KI` + `JetBrains Mono`-Zeitstempel), angezeigt in einer standardmäßig zugeklappten `Chronologie (N)`-Zeile (steuerbar über `changeHistoryEnabled`, Bereich 5, Default `true`).
+  - Opt-in-Einsicht in `AppStateSnapshot.aiLogs` über `aiLogsViewerEnabled` (Bereich 5, Default `false` – geschlossene Schublade) mit zugeklappter Protokoll-Liste und `Protokoll leeren`-Bestätigung (`Station 24`).
+
+### Welle 6 / Ticket 6.1b – Taktil-Politur, 4-Balken-Stimmwelle & opt-in A+C-„Jetzt-Vorbühne“
+
+- **Taktiles Press-In & samtige Übergänge (`src/index.css`, `App.tsx`):**
+  - `--ease-bandit-smooth: cubic-bezier(0.22, 1, 0.36, 1)`, `.bandit-pressable` (`scale(0.96)` in `100ms` bei `:active`), `.bandit-reveal` (`260ms` Einblendung) sowie dezentes Button-Press-In ohne Eingriff in `HexThumbHub` oder positionierte Overlays; vollständige Deaktivierung bei `prefers-reduced-motion: reduce` und `data-organic-motion="off"`.
+- **Ruhige 4-Balken-Stimmwelle (`src/core/companion/VoiceWaveformBars.tsx`, `CompanionStageOne.tsx`, `CompanionChatSheet.tsx`):**
+  - Reine Präsentations-Komponente mit 4 abgerundeten Balken im ruhigen 1,15–1,45s-Rhythmus (`.bandit-voice-wave-bar`, `aria-hidden="true"`), ausschließlich im aktiven Zuhör-Zustand sichtbar.
+- **Opt-in A+C-„Jetzt-Vorbühne“ (`src/core/front/TasksNowStage.tsx`, `TasksView.tsx`, `FocusAndSmartphoneSection.tsx`):**
+  - Geschlossene Schublade über `nowStageEnabled` (Bereich 2, Default `false`); aktiviert eine einzelne Fokus-Karte (`JETZT IM FOKUS`, `1 / N`, `Zurück` / `Weiter` / `1-Fokus` / `Erledigt ✓`) über dem Klapp-Riegel `Alle weiteren Einträge entfalten (N)` (`Station 25`).
+
+### Welle 6 / Ticket 6.2 – BYOK-/Open-Source-Basis & 3-Schritte-Erststart-Assistent
+
+- **Neutrale Starter-Basis (`src/services/neutralStarterSeed.ts`, `src/config/brandConfig.ts`, `README_BYOK.md`):**
+  - `isNeutralStarterRequested()` prüft `VITE_STARTER_PROFILE === 'neutral'` oder `?starter=neutral`; `createNeutralStarterProjects()` / `createNeutralStarterSnapshot()` liefern 2 personenfreie Projekte (`Arbeit` & `Privat`), flankiert von `NEUTRAL_BRAND_META` (`FOCUS.OS`). Im normalen Standard-Start bleiben alle bestehenden Projekte & Daten zu 100 % unberührt.
+- **Ruhiger 3-Schritte-Erststart-Assistent (`src/core/front/ByokOnboardingModal.tsx`, `App.tsx`):**
+  - Schritt 1 (Profil & Ruhe mit Datenverlust-Schutz), Schritt 2 (Gemini API-Key & eingeklappter Azure-Bereich, offline ohne Key nutzbar), Schritt 3 (Sechseck-Parkplatz & Begleiter-Start), jederzeit überspringbar (`Überspringen`) und per `window.history.replaceState` unter Erhalt von `?mode=cover` bereinigt.
+- **Zentrale Bereich 5 & Station 26 (`SystemAndBackupSection.tsx`, `storage.ts`, `tests/mobile-guard.spec.ts`):**
+  - Persistenter Schalter `byokStarterToolsEnabled` (Default `true`, IDB & Voll-Backup v2) für den manuellen Assistenten-Aufruf, den neutralen Export (`downloadNeutralStarterBackupJson()` → `focus-os-neutral-starter.json`) und den 2-Stufen-gesicherten Profil-Wechsel (`Station 26`).

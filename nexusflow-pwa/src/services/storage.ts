@@ -1,4 +1,5 @@
 import { get, set } from 'idb-keyval';
+import { createNeutralStarterSnapshot } from './neutralStarterSeed';
 import {
   AiLogEntry,
   AiVoiceSettings,
@@ -6,6 +7,7 @@ import {
   AppStateSnapshot,
   Attachment,
   BanditUserPreferences,
+  ChangeLogEntry,
   DomainType,
   KnowledgeItem,
   Project,
@@ -163,15 +165,43 @@ function cleanAttachmentList(rawList: unknown): { attachments: Attachment[]; cha
   return { attachments, changed };
 }
 
+export const MAX_CHANGE_LOG_ENTRIES = 10;
+
+export function normalizeChangeLog(raw: unknown): ChangeLogEntry[] | undefined {
+  if (!Array.isArray(raw) || raw.length === 0) return undefined;
+  const cleaned = raw
+    .filter((e) => e && typeof e === 'object')
+    .map((e: any): ChangeLogEntry => ({
+      at: typeof e.at === 'string' && e.at.trim() ? e.at.trim() : new Date().toISOString(),
+      actor: e.actor === 'ai' ? 'ai' : 'user',
+      summary: String(e.summary || '').trim() || 'Aktualisiert'
+    }));
+  if (cleaned.length === 0) return undefined;
+  return cleaned.slice(-MAX_CHANGE_LOG_ENTRIES);
+}
+
+export function appendChangeLogEntry(
+  existing: ChangeLogEntry[] | undefined,
+  entry: ChangeLogEntry
+): ChangeLogEntry[] {
+  const base = normalizeChangeLog(existing) || [];
+  return [...base, entry].slice(-MAX_CHANGE_LOG_ENTRIES);
+}
+
 /**
  * Migriert bestehende `explanations` und `infos` verlustfrei zu einheitlichen `KnowledgeItem`s.
  */
 export function normalizeProjectKnowledge(project: any): KnowledgeItem[] {
   const existingKnowledge: KnowledgeItem[] = Array.isArray(project?.knowledge)
-    ? project.knowledge.map((k: any) => ({
-      ...k,
-      attachments: cleanAttachmentList(k?.attachments).attachments
-    }))
+    ? project.knowledge.map((k: any) => {
+      const changeLog = normalizeChangeLog(k?.changeLog);
+      return {
+        ...k,
+        attachments: cleanAttachmentList(k?.attachments).attachments,
+        ...(typeof k?.updatedAt === 'string' && k.updatedAt ? { updatedAt: k.updatedAt } : {}),
+        ...(changeLog ? { changeLog } : { changeLog: undefined })
+      };
+    })
     : [];
   const knownIds = new Set(existingKnowledge.map((k) => k.id));
 
@@ -271,6 +301,10 @@ function migrateProjectInternal(rawProject: any): { project: Project; migrated: 
     const subRes = normalizeSubTasksList(t?.subTasks);
     if (subRes.changed) migrated = true;
 
+    const changeLog = normalizeChangeLog(t?.changeLog);
+    const updatedAt =
+      typeof t?.updatedAt === 'string' && t.updatedAt.trim() ? t.updatedAt.trim() : undefined;
+
     const rawEnergy = t?.energyLevel;
     const energyLevel: EnergyLevel | undefined =
       rawEnergy === 'low' || rawEnergy === 'medium' || rawEnergy === 'high'
@@ -308,6 +342,8 @@ function migrateProjectInternal(rawProject: any): { project: Project; migrated: 
       source: t?.source || 'Manuell',
       assemblyGroup,
       ...(subRes.subTasks ? { subTasks: subRes.subTasks } : { subTasks: undefined }),
+      ...(updatedAt ? { updatedAt } : {}),
+      ...(changeLog ? { changeLog } : {}),
       customMeta: typeof t?.customMeta === 'object' && t.customMeta ? t.customMeta : {}
     };
   });
@@ -928,6 +964,14 @@ export const DEFAULT_USER_PREFS: BanditUserPreferences = {
   companionMessageToolsEnabled: true,
   companionQuickChipsEnabled: true,
   companionStartExpanded: false,
+  taskExtendedMetaEnabled: true,
+  knowledgeStepReadAloudEnabled: true,
+  changeHistoryEnabled: true,
+  aiLogsViewerEnabled: false,
+  nowStageEnabled: false,
+  starterProfile: 'bandit',
+  onboardingCompleted: true,
+  byokStarterToolsEnabled: true,
   quickCommands: [
     'Gib mir ein kurzes 3-Punkte-Briefing für dieses Projekt',
     'Welche Materialien fehlen noch im Einkaufswagen?',
@@ -1062,6 +1106,35 @@ export function normalizeUserPrefs(
       typeof src.companionStartExpanded === 'boolean'
         ? src.companionStartExpanded
         : DEFAULT_USER_PREFS.companionStartExpanded,
+    taskExtendedMetaEnabled:
+      typeof src.taskExtendedMetaEnabled === 'boolean'
+        ? src.taskExtendedMetaEnabled
+        : DEFAULT_USER_PREFS.taskExtendedMetaEnabled,
+    knowledgeStepReadAloudEnabled:
+      typeof src.knowledgeStepReadAloudEnabled === 'boolean'
+        ? src.knowledgeStepReadAloudEnabled
+        : DEFAULT_USER_PREFS.knowledgeStepReadAloudEnabled,
+    changeHistoryEnabled:
+      typeof src.changeHistoryEnabled === 'boolean'
+        ? src.changeHistoryEnabled
+        : DEFAULT_USER_PREFS.changeHistoryEnabled,
+    aiLogsViewerEnabled:
+      typeof src.aiLogsViewerEnabled === 'boolean'
+        ? src.aiLogsViewerEnabled
+        : DEFAULT_USER_PREFS.aiLogsViewerEnabled,
+    nowStageEnabled:
+      typeof src.nowStageEnabled === 'boolean'
+        ? src.nowStageEnabled
+        : DEFAULT_USER_PREFS.nowStageEnabled,
+    starterProfile: src.starterProfile === 'neutral' ? 'neutral' : 'bandit',
+    onboardingCompleted:
+      typeof src.onboardingCompleted === 'boolean'
+        ? src.onboardingCompleted
+        : DEFAULT_USER_PREFS.onboardingCompleted,
+    byokStarterToolsEnabled:
+      typeof src.byokStarterToolsEnabled === 'boolean'
+        ? src.byokStarterToolsEnabled
+        : DEFAULT_USER_PREFS.byokStarterToolsEnabled,
     quickCommands: Array.isArray(src.quickCommands)
       ? src.quickCommands
       : DEFAULT_USER_PREFS.quickCommands,
@@ -1682,6 +1755,50 @@ export async function downloadFullBackupV2(snapshot: AppStateSnapshot): Promise<
   URL.revokeObjectURL(url);
 
   return backup;
+}
+
+/**
+ * Erstellt und lädt eine saubere, komplett personenfreie Starter-JSON (`focus-os-neutral-starter.json`) herunter.
+ */
+export function buildNeutralStarterBackupV2(): FullBackupV2 {
+  return {
+    backupVersion: 2,
+    exportedAt: new Date().toISOString(),
+    appState: createNeutralStarterSnapshot(),
+    userPrefs: {
+      ...DEFAULT_USER_PREFS,
+      starterProfile: 'neutral',
+      onboardingCompleted: false,
+      byokStarterToolsEnabled: true
+    },
+    blueprints: [],
+    photoPins: {},
+    aiChat: [],
+    scannedReceipts: [],
+    savedDossiers: [],
+    foremanProposals: [],
+    dismissedThinkerIds: [],
+    visionCaptures: [],
+    offlineAudioMemos: [],
+    haccpLogs: [],
+    smartHomeSwitches: [],
+    pizzaCatalog: [],
+    posSlots: [],
+    doughCalcDefaults: { ...DEFAULT_DOUGH_CALC_DEFAULTS }
+  };
+}
+
+export function downloadNeutralStarterBackupJson(): void {
+  const backup = buildNeutralStarterBackupV2();
+  const blob = new Blob([JSON.stringify(backup, null, 2)], {
+    type: 'application/json;charset=utf-8'
+  });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'focus-os-neutral-starter.json';
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 export async function importFullBackupV2(

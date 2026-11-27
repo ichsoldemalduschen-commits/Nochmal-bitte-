@@ -14,6 +14,7 @@ import { DESIGN_TOKENS } from '../../config/designTokens';
 import { AiExecutedAction, OfflineAudioMemo } from '../../types';
 import { OfflineAudioBufferBar } from '../front/OfflineAudioBufferBar';
 import { ConversationMessage } from './useVoiceSession';
+import { VoiceWaveformBars } from './VoiceWaveformBars';
 
 export interface CompanionStageOneProps {
   activeProjectName: string;
@@ -150,6 +151,7 @@ export const CompanionStageOne: React.FC<CompanionStageOneProps> = ({
             >
               {statusLabel}
             </span>
+            {isListening && <VoiceWaveformBars color={accentColor} />}
             <span className="text-[#94A3B8] truncate">{activeProjectName}</span>
           </div>
           {wakeLockActive && (
