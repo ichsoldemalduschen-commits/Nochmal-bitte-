@@ -14,12 +14,17 @@ import {
   saveDoughCalcDefaults,
   DEFAULT_DOUGH_CALC_DEFAULTS
 } from '../services/storage';
+import { computeDoughRestockItems } from '../services/gastroInventoryBridge';
 
 export const EventQuantityCalcPlugin: React.FC<PluginContextProps> = ({
   onAddCartItems,
   onUpdateProjectMeta,
-  onNotify
+  onNotify,
+  gastroCartBridgeEnabled,
+  openCartTitles,
+  onAddRestockItemsToCart
 }) => {
+  const [restockStatus, setRestockStatus] = useState<string | null>(null);
   // ── Standard-Vorgaben aus IndexedDB ────────────────────────────────────────
   const [defaultsLoaded, setDefaultsLoaded] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -117,6 +122,50 @@ export const EventQuantityCalcPlugin: React.FC<PluginContextProps> = ({
     });
 
     onNotify(`${calc.targetBalls} Ballen berechnet & Rohstoffe in Einkaufswagen gelegt!`);
+  };
+
+  const handleSyncMissingIngredients = () => {
+    const suggestions = computeDoughRestockItems(
+      [
+        { label: 'Pizzamehl Caputo Cuoco / Tipo 00', quantity: `${Math.ceil(calc.flourKg)} kg` },
+        { label: 'San Marzano Tomaten DOP für Sugo', quantity: `${calc.sugoKg.toFixed(1)} kg` },
+        {
+          label: 'Fior di Latte Mozzarella (Schnittfest)',
+          quantity: `${calc.fiorDiLatteKg.toFixed(1)} kg`
+        }
+      ],
+      openCartTitles || []
+    );
+    const missing = suggestions.filter((s) => !s.alreadyInCart);
+    const skippedCount = suggestions.length - missing.length;
+
+    if (missing.length === 0) {
+      const msg = 'Alle berechneten Zutaten sind bereits im Einkaufswagen.';
+      setRestockStatus(msg);
+      onNotify(msg);
+      return;
+    }
+
+    const addFn = onAddRestockItemsToCart || onAddCartItems;
+    addFn(
+      missing.map((item) => ({
+        title: item.title,
+        quantity: item.quantity,
+        reason: `Event-Kalkulator (${calc.targetBalls} Teigballen)`
+      }))
+    );
+
+    onUpdateProjectMeta({
+      geplanteTeigballen: calc.targetBalls,
+      benoetigteEuroboxen: calc.euroBoxesNeeded
+    });
+
+    const msg =
+      skippedCount > 0
+        ? `${missing.length} fehlende Zutaten nachgeordert · ${skippedCount} bereits im Wagen.`
+        : `${missing.length} fehlende Zutaten auf die Einkaufsliste gelegt.`;
+    setRestockStatus(msg);
+    onNotify(msg);
   };
 
   return (
@@ -289,6 +338,29 @@ export const EventQuantityCalcPlugin: React.FC<PluginContextProps> = ({
         <ShoppingCart className="w-3.5 h-3.5" />
         Mengen direkt in den Einkaufswagen übertragen
       </button>
+
+      {/* ── Gastro-Einkaufswagen-Brücke (1-Tipp-Abgleich ohne Dubletten) ── */}
+      {gastroCartBridgeEnabled !== false && (
+        <div data-testid="dough-restock-bridge" className="space-y-1.5">
+          <button
+            type="button"
+            data-testid="dough-restock-sync-btn"
+            onClick={handleSyncMissingIngredients}
+            className="w-full min-h-[44px] px-3 py-2 rounded-xl text-xs font-bold border border-[#E5A93C]/35 bg-[#E5A93C]/15 text-[#E5A93C] flex items-center justify-center gap-2 active:scale-95 transition cursor-pointer"
+          >
+            <ShoppingCart className="w-4 h-4 shrink-0" />
+            <span>Fehlende Zutaten abgleichen &amp; nachordern</span>
+          </button>
+          {restockStatus && (
+            <div
+              data-testid="dough-restock-status"
+              className="text-xs font-medium text-[#E5A93C] px-1 leading-snug break-words"
+            >
+              {restockStatus}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };

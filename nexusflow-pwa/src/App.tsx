@@ -10,6 +10,7 @@ import {
   BanditUserPreferences,
   CartItem,
   DomainType,
+  EnergyLevel,
   ForemanProposal,
   KnowledgeItem,
   KnowledgeKind,
@@ -17,6 +18,7 @@ import {
   Project,
   ProjectTabId,
   ReminderRecurrence,
+  SmartHomeSwitchItem,
   SubTaskItem,
   TaskItem,
   THEME,
@@ -54,6 +56,9 @@ import {
   loadOfflineAudioMemos,
   loadOfflineAudioMemosAsync,
   saveOfflineAudioMemos,
+  loadSmartHomeSwitches,
+  loadSmartHomeSwitchesAsync,
+  saveSmartHomeSwitches,
   STORAGE_KEYS
 } from './services/storage';
 import {
@@ -83,6 +88,7 @@ import {
   toLocalDateTimeInputValue
 } from './services/cloudSyncAndPush';
 import { useReminderEngine } from './hooks/useReminderEngine';
+import { rollHurdleTask } from './services/adhsDriveEngine';
 import {
   inspectAndQueueCriticalTopic
 } from './services/deepResearchAndScanner';
@@ -154,6 +160,9 @@ export default function App() {
   const [dismissedThinkerIds, setDismissedThinkerIds] = useState<string[]>(loadDismissedThinkerIds);
   const [offlineAudioMemos, setOfflineAudioMemos] = useState<OfflineAudioMemo[]>(
     loadOfflineAudioMemos
+  );
+  const [smartHomeSwitches, setSmartHomeSwitches] = useState<SmartHomeSwitchItem[]>(
+    loadSmartHomeSwitches
   );
   const [forceSingleViewSeq, setForceSingleViewSeq] = useState(0);
   const skipNextAutoSyncRef = useRef<boolean>(true);
@@ -235,7 +244,12 @@ export default function App() {
     }, UNDO_TOAST_MS);
   };
 
-  const handleMarkReminderFired = (projId: string, taskId: string, firedIso: string) => {
+  const handleMarkReminderFired = (
+    projId: string,
+    taskId: string,
+    firedIso: string,
+    shoulderTapStage?: number
+  ) => {
     setState((prev) => ({
       ...prev,
       projects: prev.projects.map((p) =>
@@ -244,7 +258,15 @@ export default function App() {
           : {
               ...p,
               tasks: p.tasks.map((t) =>
-                t.id === taskId ? { ...t, lastReminderFiredAt: firedIso } : t
+                t.id === taskId
+                  ? {
+                      ...t,
+                      lastReminderFiredAt: firedIso,
+                      ...(typeof shoulderTapStage === 'number'
+                        ? { lastShoulderTapStage: shoulderTapStage }
+                        : {})
+                    }
+                  : t
               )
             }
       )
@@ -255,6 +277,10 @@ export default function App() {
     projects: state.projects,
     enabled: state.remindersEnabled !== false,
     systemPushEnabled: prefs.reminderSystemPushEnabled !== false,
+    shoulderTapEnabled: prefs.shoulderTapEnabled === true,
+    shoulderTapQuietStart: prefs.shoulderTapQuietStart || '22:00',
+    shoulderTapQuietEnd: prefs.shoulderTapQuietEnd || '08:00',
+    shoulderTapTone: prefs.shoulderTapTone || 'calm',
     hydrated,
     onMarkReminderFired: handleMarkReminderFired
   });
@@ -309,17 +335,24 @@ export default function App() {
       // 1. Silent IDB migration & request storage persistence BEFORE loading settings
       requestStoragePersistence();
       await migrateLocalStorageToIDB();
-      const [pins, loadedPrefs, loadedProposals, loadedDismissedIds, loadedAudioMemos] =
-        await Promise.all([
-          loadIdbItem<Record<string, PhotoMeasurePin[]>>(STORAGE_KEYS.PHOTO_PINS, {}),
-          loadUserPrefsAsync(),
-          loadForemanProposalsAsync(),
-          loadDismissedThinkerIdsAsync(),
-          loadOfflineAudioMemosAsync(),
-          loadIdbItem(STORAGE_KEYS.CLOUD_SYNC, DEFAULT_CLOUD_CONFIG),
-          loadIdbItem(STORAGE_KEYS.AUDIT_SETTINGS, { weeklyAutoAuditEnabled: true, lastRunIso: null }),
-          loadIdbItem(STORAGE_KEYS.BLUEPRINTS, [])
-        ]);
+      const [
+        pins,
+        loadedPrefs,
+        loadedProposals,
+        loadedDismissedIds,
+        loadedAudioMemos,
+        loadedSmartSwitches
+      ] = await Promise.all([
+        loadIdbItem<Record<string, PhotoMeasurePin[]>>(STORAGE_KEYS.PHOTO_PINS, {}),
+        loadUserPrefsAsync(),
+        loadForemanProposalsAsync(),
+        loadDismissedThinkerIdsAsync(),
+        loadOfflineAudioMemosAsync(),
+        loadSmartHomeSwitchesAsync(),
+        loadIdbItem(STORAGE_KEYS.CLOUD_SYNC, DEFAULT_CLOUD_CONFIG),
+        loadIdbItem(STORAGE_KEYS.AUDIT_SETTINGS, { weeklyAutoAuditEnabled: true, lastRunIso: null }),
+        loadIdbItem(STORAGE_KEYS.BLUEPRINTS, [])
+      ]);
       if (!cancelled && pins && Object.keys(pins).length > 0) {
         setPhotoPins(pins);
       }
@@ -328,6 +361,7 @@ export default function App() {
         setForemanProposals(loadedProposals);
         setDismissedThinkerIds(loadedDismissedIds);
         setOfflineAudioMemos(loadedAudioMemos);
+        setSmartHomeSwitches(loadedSmartSwitches);
       }
 
       // 2. Load persisted app state & unified AI/Voice settings
@@ -2116,7 +2150,8 @@ export default function App() {
                 mins = 25,
                 assemblyGroup,
                 reminderAt,
-                reminderRecurrence
+                reminderRecurrence,
+                extra?: { energyLevel?: EnergyLevel; isHurdleTask?: boolean }
               ) => {
                 const ts = formatNow();
                 updateProject(projId, (p) => ({
@@ -2131,6 +2166,8 @@ export default function App() {
                       dayBlock: null,
                       reminderAt: reminderAt || '',
                       reminderRecurrence: reminderAt ? reminderRecurrence || 'none' : undefined,
+                      ...(extra?.energyLevel ? { energyLevel: extra.energyLevel } : {}),
+                      ...(extra?.isHurdleTask ? { isHurdleTask: true } : {}),
                       aiTouched: false,
                       lastModified: ts,
                       changeReason: 'Manuell angelegt',
@@ -2206,6 +2243,17 @@ export default function App() {
               onSnoozeForemanProposal={handleSnoozeForemanProposal}
               onDismissForemanProposal={handleDismissForemanProposal}
               onParkForemanProposal={handleParkForemanProposal}
+              smartHomeSwitches={smartHomeSwitches}
+              haWebhookUrl={state.haWebhookUrl}
+              onTriggerSmartHomeSwitch={(switchId, triggeredAt) => {
+                setSmartHomeSwitches((prev) => {
+                  const next = prev.map((sw) =>
+                    sw.id === switchId ? { ...sw, lastTriggeredAt: triggeredAt } : sw
+                  );
+                  void saveSmartHomeSwitches(next);
+                  return next;
+                });
+              }}
               forceSingleViewSeq={forceSingleViewSeq}
               ambientLightMode={state.ambientLightMode || 'shimmer'}
               onSaveDossierToProject={handleSaveDossierToProject}
@@ -2275,7 +2323,10 @@ export default function App() {
                   ...p,
                   enabledPlugins: (p.enabledPlugins || []).includes(pluginId)
                     ? (p.enabledPlugins || []).filter((id) => id !== pluginId)
-                    : [...(p.enabledPlugins || []), pluginId]
+                    : [...(p.enabledPlugins || []), pluginId],
+                  ...(pluginId === 'haccp-protocol'
+                    ? { customMeta: { ...p.customMeta, haccpProtocolSeeded: true } }
+                    : {})
                 }))
               }
               onToggleTabForProject={handleToggleTabForProject}
@@ -2308,6 +2359,11 @@ export default function App() {
               onUpdateAiVoiceSettings={handleUpdateAiVoiceSettings}
               prefs={prefs}
               onUpdatePrefs={handleUpdatePrefs}
+              smartHomeSwitches={smartHomeSwitches}
+              onUpdateSmartHomeSwitches={(next) => {
+                setSmartHomeSwitches(next);
+                void saveSmartHomeSwitches(next);
+              }}
               onExportFullBackup={handleExportFullBackup}
               onImportFullBackup={(snap) => {
                 skipNextAutoSyncRef.current = true;
@@ -2316,6 +2372,7 @@ export default function App() {
                 void loadForemanProposalsAsync().then(setForemanProposals);
                 void loadDismissedThinkerIdsAsync().then(setDismissedThinkerIds);
                 void loadOfflineAudioMemosAsync().then(setOfflineAudioMemos);
+                void loadSmartHomeSwitchesAsync().then(setSmartHomeSwitches);
                 notify('Backup geladen.');
               }}
               onUploadProjectLogo={async (projId, file) => {
@@ -2458,6 +2515,17 @@ export default function App() {
           onClose={() => setSingleFocusOpen(false)}
           activeProject={activeProject}
           initialTaskId={singleFocusTaskId}
+          driveDiceEnabled={prefs.driveDiceEnabled !== false}
+          onRollAnotherTask={(currentId?: string | null) => {
+            if (!activeProject) return;
+            const rolled = rollHurdleTask(
+              activeProject.tasks,
+              currentId ?? singleFocusTaskId
+            );
+            if (rolled) {
+              setSingleFocusTaskId(rolled.id);
+            }
+          }}
           onToggleTask={handleToggleTask}
           onToggleSubTask={handleToggleSubTask}
           onRegisterUndo={(action) => {
@@ -2842,10 +2910,31 @@ export default function App() {
                   <span className="text-xs font-mono text-[#94A3B8]">
                     ⏰ {formatReminderBadge(activeReminder.task.reminderAt)}
                   </span>
+                  {activeReminder.shoulderTapLabel && (
+                    <span
+                      data-testid="shoulder-tap-stage-badge"
+                      className="text-xs font-mono font-bold px-2 py-0.5 rounded-md border"
+                      style={{
+                        color: DESIGN_TOKENS.accentHoney,
+                        backgroundColor: `${DESIGN_TOKENS.accentHoney}1A`,
+                        borderColor: `${DESIGN_TOKENS.accentHoney}33`
+                      }}
+                    >
+                      {activeReminder.shoulderTapLabel}
+                    </span>
+                  )}
                 </div>
                 <p className="text-sm font-semibold text-[#F1F5F9] leading-snug break-words mt-0.5">
                   {activeReminder.task.title}
                 </p>
+                {activeReminder.shoulderTapMessage && (
+                  <p
+                    data-testid="shoulder-tap-message"
+                    className="text-xs text-[#94A3B8] leading-snug break-words mt-1"
+                  >
+                    {activeReminder.shoulderTapMessage}
+                  </p>
+                )}
               </div>
             </div>
 
@@ -2860,13 +2949,15 @@ export default function App() {
                     const nextAt = computeNextRecurrenceReminder(task.reminderAt, rec);
                     handleUpdateTask(projectId, task.id, {
                       reminderAt: nextAt,
-                      lastReminderFiredAt: nowIso
+                      lastReminderFiredAt: nowIso,
+                      lastShoulderTapStage: 0
                     });
                     notify(`Für heute erledigt – nächste Erinnerung ${formatReminderBadge(nextAt)}`);
                   } else {
                     handleUpdateTask(projectId, task.id, {
                       completed: true,
-                      lastReminderFiredAt: nowIso
+                      lastReminderFiredAt: nowIso,
+                      lastShoulderTapStage: 0
                     });
                     registerExternalUndo({
                       message: `„${task.title}“ erledigt`,
@@ -2887,7 +2978,8 @@ export default function App() {
                   const snoozed = toLocalDateTimeInputValue(new Date(Date.now() + 30 * 60 * 1000));
                   handleUpdateTask(projectId, task.id, {
                     reminderAt: snoozed,
-                    lastReminderFiredAt: undefined
+                    lastReminderFiredAt: undefined,
+                    lastShoulderTapStage: 0
                   });
                   dismissActiveReminder(firedKey);
                   notify(`Erinnerung verschoben auf ${formatReminderBadge(snoozed)}.`);
@@ -2906,11 +2998,13 @@ export default function App() {
                     const nextAt = computeNextRecurrenceReminder(task.reminderAt, rec);
                     handleUpdateTask(projectId, task.id, {
                       reminderAt: nextAt,
-                      lastReminderFiredAt: nowIso
+                      lastReminderFiredAt: nowIso,
+                      lastShoulderTapStage: 0
                     });
                   } else {
                     handleUpdateTask(projectId, task.id, {
-                      lastReminderFiredAt: nowIso
+                      lastReminderFiredAt: nowIso,
+                      ...(activeReminder.shoulderTapStage ? { lastShoulderTapStage: 4 } : {})
                     });
                   }
                   dismissActiveReminder(firedKey);

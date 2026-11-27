@@ -14,5 +14,9 @@ export {
   OfflineAudioBufferBar,
   type OfflineAudioBufferBarProps
 } from './OfflineAudioBufferBar';
+export {
+  SmartHomeQuickPanel,
+  type SmartHomeQuickPanelProps
+} from './SmartHomeQuickPanel';
 
 

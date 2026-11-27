@@ -11,6 +11,8 @@ export type QuickAiMode = 'flash' | 'research';
 export type VoiceInteractionMode = 'quick' | 'collect' | 'dialog';
 export type UiDensityMode = 'compact' | 'standard' | 'large';
 export type CartOpenMode = 'floating' | 'tab';
+export type EnergyLevel = 'low' | 'medium' | 'high';
+export type ShoulderTapTone = 'calm' | 'direct';
 
 export interface BanditUserPreferences {
   // Schaltbare ADHS-Unterstützung
@@ -19,6 +21,13 @@ export interface BanditUserPreferences {
   adhdSingleTaskMode: boolean;
   adhdTwoMinuteStarter: boolean;
   adhdTimeBufferAndHaptics: boolean;
+  // Welle 5: Antriebs-Würfel, Energie-Planer & 4-Stufen-Schultertipp
+  driveDiceEnabled?: boolean;
+  energyPlannerEnabled?: boolean;
+  shoulderTapEnabled?: boolean;
+  shoulderTapQuietStart?: string;
+  shoulderTapQuietEnd?: string;
+  shoulderTapTone?: ShoulderTapTone;
   // Personalisierung & Zentrale v2 Toggles
   uiDensity: UiDensityMode;
   aiTone: 'short' | 'partner' | 'coach';
@@ -36,6 +45,7 @@ export interface BanditUserPreferences {
   murmurAutopilotEnabled?: boolean;
   generalVisionEnabled?: boolean;
   offlineAudioBufferEnabled?: boolean;
+  gastroCartBridgeEnabled?: boolean;
   companionMessageToolsEnabled?: boolean;
   companionQuickChipsEnabled?: boolean;
   companionStartExpanded?: boolean;
@@ -105,6 +115,9 @@ export interface TaskItem {
   reminderAt: string;
   reminderRecurrence?: ReminderRecurrence;
   lastReminderFiredAt?: string;
+  energyLevel?: EnergyLevel;
+  isHurdleTask?: boolean;
+  lastShoulderTapStage?: number;
   aiTouched: boolean;
   lastModified: string;
   changeReason: string;
@@ -297,6 +310,11 @@ export interface PluginContextProps {
   onAddInfoCard?: (title: string, content: string) => void;
   onRecordEventSale: (entry: EventSalesLog) => void;
   onNotify: (msg: string) => void;
+  gastroCartBridgeEnabled?: boolean;
+  openCartTitles?: string[];
+  onAddRestockItemsToCart?: (
+    items: Array<{ title: string; quantity: string; price?: string; reason?: string }>
+  ) => void;
 }
 
 export interface PluginDefinition {
@@ -349,9 +367,37 @@ export interface FullBackupV2 {
   dismissedThinkerIds?: string[];
   visionCaptures?: VisionCaptureItem[];
   offlineAudioMemos?: OfflineAudioMemo[];
+  haccpLogs?: HaccpLogEntry[];
+  smartHomeSwitches?: SmartHomeSwitchItem[];
   pizzaCatalog: PizzaCatalogItem[];
   posSlots: PosPizzaSlot[];
   doughCalcDefaults: DoughCalcDefaults;
+}
+
+export interface HaccpLogEntry {
+  id: string;
+  projectId: string;
+  dateISO: string; // YYYY-MM-DD
+  timestamp: string;
+  eventLabel: string;
+  fridgeTempC?: number | null;
+  saladetteTempC?: number | null;
+  hotWaterOk: boolean;
+  checks: {
+    surfacesSanitized: boolean;
+    handwashReady: boolean;
+    coolingChainOk: boolean;
+    endCleaningDone: boolean;
+  };
+  notes?: string;
+}
+
+export interface SmartHomeSwitchItem {
+  id: string;
+  label: string;
+  endpointUrl: string;
+  method: 'POST' | 'GET';
+  lastTriggeredAt?: string;
 }
 
 export type ForemanProposalKind = 'murmur-research' | 'thinker-contradiction';

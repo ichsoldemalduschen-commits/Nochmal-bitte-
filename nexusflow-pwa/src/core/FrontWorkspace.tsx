@@ -10,6 +10,7 @@ import {
   CartItem,
   CustomMeta,
   DomainType,
+  EnergyLevel,
   EventSalesLog,
   ForemanProposal,
   KnowledgeItem,
@@ -18,6 +19,7 @@ import {
   Project,
   ProjectTabId,
   ReminderRecurrence,
+  SmartHomeSwitchItem,
   TaskItem,
   AmbientLightMode
 } from '../types';
@@ -98,7 +100,8 @@ interface FrontWorkspaceProps {
     estimatedMinutes?: number,
     assemblyGroup?: string,
     reminderAt?: string,
-    reminderRecurrence?: ReminderRecurrence
+    reminderRecurrence?: ReminderRecurrence,
+    extra?: { energyLevel?: EnergyLevel; isHurdleTask?: boolean }
   ) => void;
   externalUndoAction?: { message: string; undo: () => void } | null;
   onClearExternalUndo?: () => void;
@@ -150,6 +153,9 @@ interface FrontWorkspaceProps {
   onSnoozeForemanProposal?: (proposal: ForemanProposal) => void;
   onDismissForemanProposal?: (proposal: ForemanProposal) => void;
   onParkForemanProposal?: (proposal: ForemanProposal) => void;
+  smartHomeSwitches?: SmartHomeSwitchItem[];
+  haWebhookUrl?: string;
+  onTriggerSmartHomeSwitch?: (switchId: string, triggeredAt: string) => void;
   forceSingleViewSeq?: number;
   onNotify: (msg: string) => void;
 }
@@ -209,6 +215,9 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
   onSnoozeForemanProposal,
   onDismissForemanProposal,
   onParkForemanProposal,
+  smartHomeSwitches = [],
+  haWebhookUrl = '',
+  onTriggerSmartHomeSwitch,
   forceSingleViewSeq = 0,
   ambientLightMode = 'shimmer',
   onSaveDossierToProject,
@@ -759,6 +768,11 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
             <ExtrasView
               activeProject={activeProject}
               activePlugins={activePlugins}
+              gastroCartBridgeEnabled={prefs.gastroCartBridgeEnabled !== false}
+              smartHomeEnabled={prefs.smartHomeEnabled === true}
+              smartHomeSwitches={smartHomeSwitches}
+              haWebhookUrl={haWebhookUrl}
+              onTriggerSmartHomeSwitch={onTriggerSmartHomeSwitch}
               onUpdateProjectMeta={onUpdateProjectMeta}
               onAddCartItems={onAddCartItems}
               onRecordEventSale={onRecordEventSale}

@@ -10,6 +10,7 @@ import {
   EventSalesLog,
   Project,
   SelfCheckEntry,
+  SmartHomeSwitchItem,
   THEME
 } from '../types';
 import {
@@ -78,6 +79,8 @@ interface BackofficeWorkspaceProps {
   onUpdateAiVoiceSettings?: (patch: Partial<AiVoiceSettings>) => void;
   prefs?: BanditUserPreferences;
   onUpdatePrefs?: (patch: Partial<BanditUserPreferences>) => void;
+  smartHomeSwitches?: SmartHomeSwitchItem[];
+  onUpdateSmartHomeSwitches?: (items: SmartHomeSwitchItem[]) => void;
   onNotify: (msg: string) => void;
 }
 
@@ -128,6 +131,8 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
   onUpdateAiVoiceSettings,
   prefs: prefsProp,
   onUpdatePrefs: onUpdatePrefsProp,
+  smartHomeSwitches = [],
+  onUpdateSmartHomeSwitches,
   onNotify
 }) => {
   const [openSection, setOpenSection] = useState<ZentraleSectionId | null>(
@@ -257,6 +262,8 @@ export const BackofficeWorkspace: React.FC<BackofficeWorkspaceProps> = ({
         haEmbedUrl={haEmbedUrl}
         onChangeHaWebhook={onChangeHaWebhook}
         onChangeHaEmbed={onChangeHaEmbed}
+        smartHomeSwitches={smartHomeSwitches}
+        onUpdateSmartHomeSwitches={onUpdateSmartHomeSwitches}
         onNotify={onNotify}
       />
 

@@ -2,6 +2,7 @@ import React from 'react';
 import { PluginDefinition } from '../types';
 import { PosTapClickerPlugin } from './posTapClicker';
 import { EventQuantityCalcPlugin } from './eventQuantityCalc';
+import { HaccpProtocolPlugin } from './haccpProtocol';
 
 export const PLUGIN_REGISTRY: PluginDefinition[] = [
   {
@@ -23,5 +24,15 @@ export const PLUGIN_REGISTRY: PluginDefinition[] = [
     recommendedDomains: ['arbeit'],
     metaKeysUsed: ['geplanteTeigballen', 'benoetigteEuroboxen'],
     render: (ctx) => React.createElement(EventQuantityCalcPlugin, ctx)
+  },
+  {
+    id: 'haccp-protocol',
+    name: '1-Klick-HACCP-Protokoll',
+    shortLabel: 'HACCP-Protokoll',
+    description:
+      'Schnelle Temperatur- und Hygiene-Dokumentation (Kühlung, Saladette, Warmwasser, 4 Checks) inkl. Tagesverlauf & CSV-Nachweis.',
+    recommendedDomains: ['arbeit'],
+    metaKeysUsed: [],
+    render: (ctx) => React.createElement(HaccpProtocolPlugin, ctx)
   }
 ];

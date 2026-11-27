@@ -18,11 +18,14 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks(id) {
-          if (id.includes('node_modules')) {
-            if (id.includes('lucide-react')) return 'vendor-icons';
-            if (id.includes('react')) return 'vendor-react';
+          const norm = id.replace(/\\/g, '/');
+          if (norm.includes('node_modules')) {
+            if (norm.includes('lucide-react')) return 'vendor-icons';
+            if (norm.includes('react')) return 'vendor-react';
             return 'vendor';
           }
+          if (norm.includes('/src/core/backoffice/')) return 'zentrale';
+          if (norm.includes('/src/plugins/')) return 'plugins';
         }
       }
     }

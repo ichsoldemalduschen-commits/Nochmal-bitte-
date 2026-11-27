@@ -127,6 +127,31 @@ export const FocusAndSmartphoneSection: React.FC<FocusAndSmartphoneSectionProps>
             ))}
           </div>
         )}
+
+        <ZentraleToggleRow
+          title="Antriebs-Würfel („Schweinehund-Pool“)"
+          description="Markiert Hürden-Aufgaben und bietet im 1-Fokus-Modus den schuldfreien Würfel zum Weiterdrehen."
+          checked={prefs.driveDiceEnabled !== false}
+          onToggle={() =>
+            onUpdatePrefs({ driveDiceEnabled: !(prefs.driveDiceEnabled !== false) })
+          }
+          onLabel="An"
+          offLabel="Aus"
+          tone="honey"
+          testId="toggle-drive-dice"
+        />
+
+        <ZentraleToggleRow
+          title="Energie-gekoppelter Tagesplaner (Akku-Filter)"
+          description="Filtert Aufgaben nach aktuellem Energielevel (Niedrig / Mittel / Hoch)."
+          checked={prefs.energyPlannerEnabled !== false}
+          onToggle={() =>
+            onUpdatePrefs({ energyPlannerEnabled: !(prefs.energyPlannerEnabled !== false) })
+          }
+          onLabel="An"
+          offLabel="Aus"
+          testId="toggle-energy-planner"
+        />
       </div>
 
       {/* ── Optik & Darstellung ── */}

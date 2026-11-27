@@ -29,7 +29,10 @@ import {
   ForemanProposalAction,
   VisionCaptureCategory,
   VisionCaptureItem,
-  OfflineAudioMemo
+  OfflineAudioMemo,
+  EnergyLevel,
+  HaccpLogEntry,
+  SmartHomeSwitchItem
 } from '../types';
 
 export type { FullBackupV2, BackupImportResult, ProjectImportResult };
@@ -63,7 +66,9 @@ export const STORAGE_KEYS = {
   FOREMAN_PROPOSALS: 'banditos_foreman_proposals_v1',
   DISMISSED_THINKER_IDS: 'banditos_dismissed_thinker_ids_v1',
   VISION_CAPTURES: 'banditos_vision_captures_v1',
-  OFFLINE_AUDIO_MEMOS: 'banditos_offline_audio_memos_v1'
+  OFFLINE_AUDIO_MEMOS: 'banditos_offline_audio_memos_v1',
+  HACCP_LOGS: 'banditos_haccp_logs_v1',
+  SMART_HOME_SWITCHES: 'banditos_smart_home_switches_v1'
 } as const;
 
 // In-Memory-Cache für verzögerungsfreie synchrone UI-Abfragen
@@ -266,6 +271,18 @@ function migrateProjectInternal(rawProject: any): { project: Project; migrated: 
     const subRes = normalizeSubTasksList(t?.subTasks);
     if (subRes.changed) migrated = true;
 
+    const rawEnergy = t?.energyLevel;
+    const energyLevel: EnergyLevel | undefined =
+      rawEnergy === 'low' || rawEnergy === 'medium' || rawEnergy === 'high'
+        ? rawEnergy
+        : undefined;
+    const isHurdleTask: boolean | undefined =
+      typeof t?.isHurdleTask === 'boolean' ? t.isHurdleTask : undefined;
+    const lastShoulderTapStage: number | undefined =
+      typeof t?.lastShoulderTapStage === 'number' && Number.isFinite(t.lastShoulderTapStage)
+        ? Math.max(0, Math.min(4, Math.round(t.lastShoulderTapStage)))
+        : undefined;
+
     return {
       ...t,
       id: String(t?.id || `task_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`),
@@ -282,6 +299,9 @@ function migrateProjectInternal(rawProject: any): { project: Project; migrated: 
           ? (t.reminderRecurrence as ReminderRecurrence)
           : undefined,
       lastReminderFiredAt: t?.lastReminderFiredAt ? String(t.lastReminderFiredAt) : undefined,
+      ...(energyLevel !== undefined ? { energyLevel } : {}),
+      ...(isHurdleTask !== undefined ? { isHurdleTask } : {}),
+      ...(lastShoulderTapStage !== undefined ? { lastShoulderTapStage } : {}),
       aiTouched: Boolean(t?.aiTouched),
       lastModified: t?.lastModified || formatNow(),
       changeReason: t?.changeReason || '',
@@ -323,6 +343,20 @@ function migrateProjectInternal(rawProject: any): { project: Project; migrated: 
 
   const { explanations: _dropExp, infos: _dropInfo, ...cleanRest } = src;
 
+  const customMeta =
+    typeof src.customMeta === 'object' && src.customMeta ? { ...src.customMeta } : {};
+  let enabledPlugins: string[] = Array.isArray(src.enabledPlugins)
+    ? [...src.enabledPlugins]
+    : [];
+
+  if (src.id === 'proj-foodtruck' && customMeta.haccpProtocolSeeded !== true) {
+    if (!enabledPlugins.includes('haccp-protocol')) {
+      enabledPlugins = [...enabledPlugins, 'haccp-protocol'];
+    }
+    customMeta.haccpProtocolSeeded = true;
+    migrated = true;
+  }
+
   const project: Project = {
     ...cleanRest,
     id: String(src.id || `proj_${Date.now()}`),
@@ -337,8 +371,8 @@ function migrateProjectInternal(rawProject: any): { project: Project; migrated: 
     archived,
     legalWatchEnabled,
     overviewEnabled,
-    customMeta: typeof src.customMeta === 'object' && src.customMeta ? src.customMeta : {},
-    enabledPlugins: Array.isArray(src.enabledPlugins) ? src.enabledPlugins : [],
+    customMeta,
+    enabledPlugins,
     enabledTabs,
     tasks,
     knowledge,
@@ -451,7 +485,9 @@ export async function migrateLocalStorageToIndexedDB(): Promise<void> {
     STORAGE_KEYS.FOREMAN_PROPOSALS,
     STORAGE_KEYS.DISMISSED_THINKER_IDS,
     STORAGE_KEYS.VISION_CAPTURES,
-    STORAGE_KEYS.OFFLINE_AUDIO_MEMOS
+    STORAGE_KEYS.OFFLINE_AUDIO_MEMOS,
+    STORAGE_KEYS.HACCP_LOGS,
+    STORAGE_KEYS.SMART_HOME_SWITCHES
   ];
 
   for (const key of keysToMigrate) {
@@ -866,6 +902,12 @@ export const DEFAULT_USER_PREFS: BanditUserPreferences = {
   adhdSingleTaskMode: true,
   adhdTwoMinuteStarter: true,
   adhdTimeBufferAndHaptics: true,
+  driveDiceEnabled: true,
+  energyPlannerEnabled: true,
+  shoulderTapEnabled: false,
+  shoulderTapQuietStart: '22:00',
+  shoulderTapQuietEnd: '08:00',
+  shoulderTapTone: 'calm',
   uiDensity: 'standard',
   aiTone: 'partner',
   organicMotion: true,
@@ -882,6 +924,7 @@ export const DEFAULT_USER_PREFS: BanditUserPreferences = {
   murmurAutopilotEnabled: true,
   generalVisionEnabled: true,
   offlineAudioBufferEnabled: true,
+  gastroCartBridgeEnabled: true,
   companionMessageToolsEnabled: true,
   companionQuickChipsEnabled: true,
   companionStartExpanded: false,
@@ -927,6 +970,29 @@ export function normalizeUserPrefs(
       typeof src.adhdTimeBufferAndHaptics === 'boolean'
         ? src.adhdTimeBufferAndHaptics
         : DEFAULT_USER_PREFS.adhdTimeBufferAndHaptics,
+    driveDiceEnabled:
+      typeof src.driveDiceEnabled === 'boolean'
+        ? src.driveDiceEnabled
+        : DEFAULT_USER_PREFS.driveDiceEnabled,
+    energyPlannerEnabled:
+      typeof src.energyPlannerEnabled === 'boolean'
+        ? src.energyPlannerEnabled
+        : DEFAULT_USER_PREFS.energyPlannerEnabled,
+    shoulderTapEnabled:
+      typeof src.shoulderTapEnabled === 'boolean'
+        ? src.shoulderTapEnabled
+        : DEFAULT_USER_PREFS.shoulderTapEnabled,
+    shoulderTapQuietStart:
+      typeof src.shoulderTapQuietStart === 'string' &&
+      /^([01]\d|2[0-3]):[0-5]\d$/.test(src.shoulderTapQuietStart.trim())
+        ? src.shoulderTapQuietStart.trim()
+        : DEFAULT_USER_PREFS.shoulderTapQuietStart,
+    shoulderTapQuietEnd:
+      typeof src.shoulderTapQuietEnd === 'string' &&
+      /^([01]\d|2[0-3]):[0-5]\d$/.test(src.shoulderTapQuietEnd.trim())
+        ? src.shoulderTapQuietEnd.trim()
+        : DEFAULT_USER_PREFS.shoulderTapQuietEnd,
+    shoulderTapTone: src.shoulderTapTone === 'direct' ? 'direct' : 'calm',
     uiDensity,
     aiTone,
     organicMotion:
@@ -980,6 +1046,10 @@ export function normalizeUserPrefs(
       typeof src.offlineAudioBufferEnabled === 'boolean'
         ? src.offlineAudioBufferEnabled
         : DEFAULT_USER_PREFS.offlineAudioBufferEnabled,
+    gastroCartBridgeEnabled:
+      typeof src.gastroCartBridgeEnabled === 'boolean'
+        ? src.gastroCartBridgeEnabled
+        : DEFAULT_USER_PREFS.gastroCartBridgeEnabled,
     companionMessageToolsEnabled:
       typeof src.companionMessageToolsEnabled === 'boolean'
         ? src.companionMessageToolsEnabled
@@ -1341,6 +1411,100 @@ export function saveOfflineAudioMemos(memos: OfflineAudioMemo[]): Promise<void> 
   return p;
 }
 
+// ── HACCP-Protokolle & Smart-Home-Schnellschalter (Welle 5 / Ticket 5.2) ────
+
+export function normalizeHaccpLogs(raw: unknown): HaccpLogEntry[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((entry) => entry && typeof entry === 'object')
+    .map((entry: any, idx: number): HaccpLogEntry => {
+      const checksRaw = entry.checks && typeof entry.checks === 'object' ? entry.checks : {};
+      const parseTemp = (val: unknown): number | null => {
+        if (val === null || val === undefined || val === '') return null;
+        const num = Number(String(val).replace(',', '.'));
+        return Number.isFinite(num) ? num : null;
+      };
+      const dateISO =
+        typeof entry.dateISO === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(entry.dateISO)
+          ? entry.dateISO
+          : new Date().toISOString().slice(0, 10);
+      return {
+        id: String(entry.id || `haccp-${Date.now()}-${idx}`),
+        projectId: String(entry.projectId || ''),
+        dateISO,
+        timestamp: typeof entry.timestamp === 'string' && entry.timestamp ? entry.timestamp : formatNow(),
+        eventLabel: String(entry.eventLabel || dateISO).trim() || dateISO,
+        fridgeTempC: parseTemp(entry.fridgeTempC),
+        saladetteTempC: parseTemp(entry.saladetteTempC),
+        hotWaterOk: Boolean(entry.hotWaterOk),
+        checks: {
+          surfacesSanitized: Boolean(checksRaw.surfacesSanitized),
+          handwashReady: Boolean(checksRaw.handwashReady),
+          coolingChainOk: Boolean(checksRaw.coolingChainOk),
+          endCleaningDone: Boolean(checksRaw.endCleaningDone)
+        },
+        ...(typeof entry.notes === 'string' && entry.notes.trim()
+          ? { notes: entry.notes.trim() }
+          : {})
+      };
+    });
+}
+
+export function loadHaccpLogs(): HaccpLogEntry[] {
+  const raw = getIdbItemSync<HaccpLogEntry[]>(STORAGE_KEYS.HACCP_LOGS, []);
+  return normalizeHaccpLogs(raw);
+}
+
+export async function loadHaccpLogsAsync(): Promise<HaccpLogEntry[]> {
+  const raw = await loadIdbItem<HaccpLogEntry[]>(STORAGE_KEYS.HACCP_LOGS, []);
+  return normalizeHaccpLogs(raw);
+}
+
+export function saveHaccpLogs(entries: HaccpLogEntry[]): Promise<void> {
+  const normalized = normalizeHaccpLogs(entries);
+  const p = saveIdbItem(STORAGE_KEYS.HACCP_LOGS, normalized);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('banditos:haccp-logs-updated', { detail: normalized }));
+  }
+  return p;
+}
+
+export function normalizeSmartHomeSwitches(raw: unknown): SmartHomeSwitchItem[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((entry) => entry && typeof entry === 'object')
+    .map((entry: any, idx: number): SmartHomeSwitchItem => ({
+      id: String(entry.id || `sw-${Date.now()}-${idx}`),
+      label: String(entry.label || 'Schalter').trim() || 'Schalter',
+      endpointUrl: String(entry.endpointUrl || '').trim(),
+      method: entry.method === 'GET' ? 'GET' : 'POST',
+      ...(typeof entry.lastTriggeredAt === 'string' && entry.lastTriggeredAt
+        ? { lastTriggeredAt: entry.lastTriggeredAt }
+        : {})
+    }));
+}
+
+export function loadSmartHomeSwitches(): SmartHomeSwitchItem[] {
+  const raw = getIdbItemSync<SmartHomeSwitchItem[]>(STORAGE_KEYS.SMART_HOME_SWITCHES, []);
+  return normalizeSmartHomeSwitches(raw);
+}
+
+export async function loadSmartHomeSwitchesAsync(): Promise<SmartHomeSwitchItem[]> {
+  const raw = await loadIdbItem<SmartHomeSwitchItem[]>(STORAGE_KEYS.SMART_HOME_SWITCHES, []);
+  return normalizeSmartHomeSwitches(raw);
+}
+
+export function saveSmartHomeSwitches(items: SmartHomeSwitchItem[]): Promise<void> {
+  const normalized = normalizeSmartHomeSwitches(items);
+  const p = saveIdbItem(STORAGE_KEYS.SMART_HOME_SWITCHES, normalized);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(
+      new CustomEvent('banditos:smart-home-switches-updated', { detail: normalized })
+    );
+  }
+  return p;
+}
+
 // ── Pizza-Katalog & POS-Slots (Paket 3) ─────────────────────────────────────
 
 export const PIZZA_CATALOG_KEY = 'banditos_pizza_catalog_v1';
@@ -1462,6 +1626,8 @@ export async function downloadFullBackupV2(snapshot: AppStateSnapshot): Promise<
     dismissedThinkerIds,
     visionCaptures,
     offlineAudioMemos,
+    haccpLogs,
+    smartHomeSwitches,
     pizzaCatalog,
     posSlots,
     doughCalcDefaults
@@ -1476,6 +1642,8 @@ export async function downloadFullBackupV2(snapshot: AppStateSnapshot): Promise<
     loadIdbItem<string[]>(STORAGE_KEYS.DISMISSED_THINKER_IDS, []),
     loadIdbItem<VisionCaptureItem[]>(STORAGE_KEYS.VISION_CAPTURES, []),
     loadIdbItem<OfflineAudioMemo[]>(STORAGE_KEYS.OFFLINE_AUDIO_MEMOS, []),
+    loadIdbItem<HaccpLogEntry[]>(STORAGE_KEYS.HACCP_LOGS, []),
+    loadIdbItem<SmartHomeSwitchItem[]>(STORAGE_KEYS.SMART_HOME_SWITCHES, []),
     loadIdbItem<PizzaCatalogItem[]>(PIZZA_CATALOG_KEY, DEFAULT_PIZZA_CATALOG),
     loadIdbItem<PosPizzaSlot[]>(POS_SLOTS_KEY, []),
     loadIdbItem<DoughCalcDefaults>(DOUGH_CALC_DEFAULTS_KEY, DEFAULT_DOUGH_CALC_DEFAULTS),
@@ -1497,6 +1665,8 @@ export async function downloadFullBackupV2(snapshot: AppStateSnapshot): Promise<
     dismissedThinkerIds: normalizeDismissedThinkerIds(dismissedThinkerIds),
     visionCaptures: normalizeVisionCaptures(visionCaptures),
     offlineAudioMemos: normalizeOfflineAudioMemos(offlineAudioMemos),
+    haccpLogs: normalizeHaccpLogs(haccpLogs),
+    smartHomeSwitches: normalizeSmartHomeSwitches(smartHomeSwitches),
     pizzaCatalog,
     posSlots,
     doughCalcDefaults,
@@ -1579,6 +1749,12 @@ export async function importFullBackupV2(
     }
     if (Array.isArray(raw.offlineAudioMemos)) {
       saves.push(saveOfflineAudioMemos(raw.offlineAudioMemos));
+    }
+    if (Array.isArray(raw.haccpLogs)) {
+      saves.push(saveHaccpLogs(raw.haccpLogs));
+    }
+    if (Array.isArray(raw.smartHomeSwitches)) {
+      saves.push(saveSmartHomeSwitches(raw.smartHomeSwitches));
     }
     if (Array.isArray(raw.pizzaCatalog) && raw.pizzaCatalog.length > 0) {
       saves.push(saveIdbItem(PIZZA_CATALOG_KEY, raw.pizzaCatalog));
