@@ -147,6 +147,7 @@ interface FrontWorkspaceProps {
   onOpenFloatingCart?: () => void;
   isFloatingCartOpen?: boolean;
   prefs?: BanditUserPreferences;
+  nowStageEnabled?: boolean;
   onUpdatePrefs?: (patch: Partial<BanditUserPreferences>) => void;
   foremanProposals?: ForemanProposal[];
   dismissedThinkerIds?: string[];
@@ -209,6 +210,7 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
   onOpenFloatingCart,
   isFloatingCartOpen = false,
   prefs: prefsProp,
+  nowStageEnabled,
   onUpdatePrefs: onUpdatePrefsProp,
   foremanProposals = [],
   dismissedThinkerIds = [],
@@ -691,6 +693,11 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
               prefs={prefs}
               taskExtendedMetaEnabled={prefs.taskExtendedMetaEnabled !== false}
               changeHistoryEnabled={prefs.changeHistoryEnabled !== false}
+              nowStageEnabled={
+                typeof nowStageEnabled === 'boolean'
+                  ? nowStageEnabled
+                  : prefs.nowStageEnabled === true
+              }
               searchQuery={searchQuery}
               highlightedItemId={highlightedItemId}
               onToggleTask={onToggleTask}

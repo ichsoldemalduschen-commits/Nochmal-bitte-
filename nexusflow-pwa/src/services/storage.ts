@@ -967,6 +967,7 @@ export const DEFAULT_USER_PREFS: BanditUserPreferences = {
   knowledgeStepReadAloudEnabled: true,
   changeHistoryEnabled: true,
   aiLogsViewerEnabled: false,
+  nowStageEnabled: false,
   quickCommands: [
     'Gib mir ein kurzes 3-Punkte-Briefing für dieses Projekt',
     'Welche Materialien fehlen noch im Einkaufswagen?',
@@ -1117,6 +1118,10 @@ export function normalizeUserPrefs(
       typeof src.aiLogsViewerEnabled === 'boolean'
         ? src.aiLogsViewerEnabled
         : DEFAULT_USER_PREFS.aiLogsViewerEnabled,
+    nowStageEnabled:
+      typeof src.nowStageEnabled === 'boolean'
+        ? src.nowStageEnabled
+        : DEFAULT_USER_PREFS.nowStageEnabled,
     quickCommands: Array.isArray(src.quickCommands)
       ? src.quickCommands
       : DEFAULT_USER_PREFS.quickCommands,

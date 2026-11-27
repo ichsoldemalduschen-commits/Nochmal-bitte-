@@ -37,6 +37,7 @@ import { triggerHapticFeedback } from '../../services/storage';
 import { DESIGN_TOKENS } from '../../config/designTokens';
 import { CHECK_GLOW_MS } from '../../config/runtimeConfig';
 import { ChangeLogAccordion } from './ChangeLogAccordion';
+import { TasksNowStage } from './TasksNowStage';
 import { ThemeColors } from './FrontHeader';
 
 const DAY_BLOCK_OPTIONS: Array<{ id: DayBlockId; label: string; testKey: string }> = [
@@ -64,6 +65,7 @@ interface TasksViewProps {
   prefs: BanditUserPreferences;
   taskExtendedMetaEnabled?: boolean;
   changeHistoryEnabled?: boolean;
+  nowStageEnabled?: boolean;
   searchQuery: string;
   highlightedItemId: string | null;
   onToggleTask: (projectId: string, taskId: string) => void;
@@ -103,6 +105,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
   prefs,
   taskExtendedMetaEnabled,
   changeHistoryEnabled,
+  nowStageEnabled,
   searchQuery,
   highlightedItemId,
   onToggleTask,
@@ -148,6 +151,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
   const [editTaskDayBlock, setEditTaskDayBlock] = useState<DayBlockId>(null);
   const [energyFilter, setEnergyFilter] = useState<EnergyLevel | 'all'>('all');
   const [singleFocusActive, setSingleFocusActive] = useState(false);
+  const [nowListExpanded, setNowListExpanded] = useState(false);
   const [expandedActionCards, setExpandedActionCards] = useState<Record<string, boolean>>({});
   const [glowTaskId, setGlowTaskId] = useState<string | null>(null);
   const [glowSubTaskId, setGlowSubTaskId] = useState<string | null>(null);
@@ -187,6 +191,8 @@ export const TasksView: React.FC<TasksViewProps> = ({
     typeof changeHistoryEnabled === 'boolean'
       ? changeHistoryEnabled
       : prefs.changeHistoryEnabled !== false;
+  const isNowStageActive =
+    typeof nowStageEnabled === 'boolean' ? nowStageEnabled : prefs.nowStageEnabled === true;
   const effectiveEnergyFilter: EnergyLevel | 'all' = energyPlannerEnabled ? energyFilter : 'all';
 
   const toggleActionCard = (id: string) => {
@@ -224,8 +230,12 @@ export const TasksView: React.FC<TasksViewProps> = ({
     return filtered;
   }, [activeProject, searchQuery, prefs, singleFocusActive, glowTaskId, effectiveEnergyFilter]);
 
-  const handleSoftToggle = (e: React.MouseEvent, task: TaskItem) => {
-    e.stopPropagation();
+  const openTasksForNowStage = useMemo(
+    () => sortedTasks.filter((t) => !t.completed),
+    [sortedTasks]
+  );
+
+  const triggerSoftCompleteTask = (task: TaskItem) => {
     triggerHapticFeedback([15, 40, 20]);
 
     if (!task.completed) {
@@ -250,6 +260,11 @@ export const TasksView: React.FC<TasksViewProps> = ({
         undo: () => onToggleTask(activeProject.id, task.id)
       });
     }
+  };
+
+  const handleSoftToggle = (e: React.MouseEvent, task: TaskItem) => {
+    e.stopPropagation();
+    triggerSoftCompleteTask(task);
   };
 
   const handleSoftSubTaskToggle = (task: TaskItem, subTask: SubTaskItem) => {
@@ -660,6 +675,9 @@ export const TasksView: React.FC<TasksViewProps> = ({
             setNewTaskDayBlock(null);
             setShowNewTaskExtendedMeta(false);
             setIsAddingTask(false);
+            if (isNowStageActive) {
+              setNowListExpanded(true);
+            }
             onNotify('Aufgabe hinzugefügt.');
           }}
           className="p-4 rounded-2xl bg-[#191C22] border border-white/10 space-y-3 shadow-lg"
@@ -821,8 +839,26 @@ export const TasksView: React.FC<TasksViewProps> = ({
         </div>
       )}
 
+      {/* Opt-in A+C-„Jetzt-Vorbühne“ über der Aufgabenliste */}
+      {isNowStageActive && openTasksForNowStage.length > 0 && (
+        <TasksNowStage
+          openTasks={openTasksForNowStage}
+          projectColor={themeColors.primary}
+          timeBufferMultiplier={
+            prefs.adhdMasterEnabled && prefs.adhdTimeBufferAndHaptics ? 1.25 : 1
+          }
+          completingTaskId={glowTaskId}
+          listExpanded={nowListExpanded}
+          onToggleListExpanded={() => setNowListExpanded((v) => !v)}
+          totalRestCount={sortedTasks.length}
+          onCompleteTask={triggerSoftCompleteTask}
+          onStartSingleFocus={onOpenSingleFocus}
+        />
+      )}
+
       {/* Tasks-Liste: Zwei-Zonen-Karten direkt auf dem Canvas */}
-      <div className="space-y-2.5">
+      {(!isNowStageActive || nowListExpanded || isAddingTask || openTasksForNowStage.length === 0) && (
+      <div className={isNowStageActive ? 'space-y-2.5 bandit-reveal' : 'space-y-2.5'}>
         {energyPlannerEnabled && effectiveEnergyFilter !== 'all' && sortedTasks.length === 0 && (
           <div
             data-testid="energy-filter-empty"
@@ -1430,6 +1466,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
           );
         })}
       </div>
+      )}
     </section>
   );
 };

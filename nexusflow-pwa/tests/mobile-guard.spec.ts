@@ -2658,4 +2658,82 @@ test.describe('Block C: Mobile-Guard 390×844 px Gesamt-Schutznetz', () => {
     await page.locator('button:has-text("Zurück")').click();
     await assertNoHorizontalOverflow(page, 'Station 24 – Abschluss');
   });
+
+  test('Station 25 – Taktil-Politur & opt-in A+C-„Jetzt-Vorbühne“: Zentrale-Schalter (Default Aus), Reload-Persistenz, Fokus-Blättern, Klapp-Riegel & sauberes Ausblenden (390px-Schutz)', async ({ page }) => {
+    await page.goto('./');
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.locator('h1')).toBeVisible({ timeout: 10000 });
+
+    const openZentraleFocus = async () => {
+      await page.locator('button[aria-label="Navigation öffnen"]').click();
+      await page.getByRole('button', { name: 'Zentrale', exact: true }).click();
+      await page.locator('button:has-text("Fokus, Bedienung & Smartphone")').click();
+    };
+
+    // 1. Standardmäßig geschlossene Schublade prüfen: keine JETZT IM FOKUS Vorbühne sichtbar
+    await expect(page.locator('[data-testid="tasks-now-stage"]')).toHaveCount(0);
+
+    await openZentraleFocus();
+    const nowStageToggle = page.locator('[data-testid="toggle-now-stage"]');
+    await expect(nowStageToggle).toBeVisible();
+    await expect(nowStageToggle).toHaveAttribute('aria-checked', 'false');
+    await expect(nowStageToggle).toContainText('Aus');
+    expect((await nowStageToggle.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+
+    // Einschalten -> Reload -> Persistenz prüfen
+    await nowStageToggle.click();
+    await expect(nowStageToggle).toHaveAttribute('aria-checked', 'true');
+    await expect(nowStageToggle).toContainText('An');
+    await page.waitForTimeout(250);
+
+    await page.reload();
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.locator('h1')).toBeVisible({ timeout: 10000 });
+
+    await openZentraleFocus();
+    await expect(page.locator('[data-testid="toggle-now-stage"]')).toHaveAttribute('aria-checked', 'true');
+    await page.locator('button:has-text("Zurück")').click();
+
+    // 2. TasksView mit aktiver A+C-Jetzt-Vorbühne prüfen
+    const nowStage = page.locator('[data-testid="tasks-now-stage"]');
+    await expect(nowStage).toBeVisible();
+    await expect(nowStage).toContainText('JETZT IM FOKUS');
+    const counter = nowStage.locator('[data-testid="now-stage-counter"]');
+    await expect(counter).toContainText('1 / ');
+
+    const nextBtn = nowStage.locator('[data-testid="now-stage-next"]');
+    const completeBtn = nowStage.locator('[data-testid="now-stage-complete"]');
+    const toggleListBtn = nowStage.locator('[data-testid="now-stage-toggle-list"]');
+    for (const btn of [nextBtn, completeBtn, toggleListBtn]) {
+      await expect(btn).toBeVisible();
+      expect((await btn.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+    }
+
+    // Vollständige Restliste startet eingeklappt
+    await expect(toggleListBtn).toContainText('Alle weiteren Einträge entfalten');
+    await expect(page.locator('#item-card-tsa-bg5-t1')).toHaveCount(0);
+    await assertNoHorizontalOverflow(page, 'Station 25 – Jetzt-Vorbühne eingeklappt');
+
+    // Weiter blättern -> Zähler wechselt auf 2 / N
+    await nextBtn.click();
+    await expect(counter).toContainText('2 / ');
+    await assertNoHorizontalOverflow(page, 'Station 25 – Nach Weiter blättern');
+
+    // Klapp-Riegel antippen -> Restliste klappt auf
+    await toggleListBtn.click();
+    await expect(toggleListBtn).toContainText('Liste wieder einklappen');
+    await expect(page.locator('#item-card-tsa-bg5-t1')).toBeVisible();
+    await assertNoHorizontalOverflow(page, 'Station 25 – Restliste entfaltet');
+
+    // 3. Sauber wieder auf AUS zurückstellen -> Vorbühne verschwindet komplett
+    await openZentraleFocus();
+    await page.locator('[data-testid="toggle-now-stage"]').click();
+    await expect(page.locator('[data-testid="toggle-now-stage"]')).toHaveAttribute('aria-checked', 'false');
+    await page.waitForTimeout(200);
+    await page.locator('button:has-text("Zurück")').click();
+
+    await expect(page.locator('[data-testid="tasks-now-stage"]')).toHaveCount(0);
+    await expect(page.locator('#item-card-tsa-bg5-t1')).toBeVisible();
+    await assertNoHorizontalOverflow(page, 'Station 25 – Abschluss');
+  });
 });

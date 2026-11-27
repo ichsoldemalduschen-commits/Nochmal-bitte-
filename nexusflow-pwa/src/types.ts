@@ -54,6 +54,8 @@ export interface BanditUserPreferences {
   knowledgeStepReadAloudEnabled?: boolean;
   changeHistoryEnabled?: boolean;
   aiLogsViewerEnabled?: boolean;
+  // Welle 6 / Ticket 6.1b: Opt-in A+C-Jetzt-Vorbühne
+  nowStageEnabled?: boolean;
   quickCommands: string[];
   activeFocusTaskId: string | null;
   activeFocusTaskTitle: string | null;

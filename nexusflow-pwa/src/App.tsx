@@ -292,6 +292,11 @@ export default function App() {
   }, [prefs.uiDensity]);
 
   useEffect(() => {
+    document.documentElement.dataset.organicMotion =
+      prefs.organicMotion !== false ? 'on' : 'off';
+  }, [prefs.organicMotion]);
+
+  useEffect(() => {
     if (typeof navigator === 'undefined' || typeof navigator.vibrate !== 'function') return;
     const originalVibrate = navigator.vibrate.bind(navigator);
     try {
@@ -2318,6 +2323,7 @@ export default function App() {
               onOpenFloatingCart={() => setFloatingCartOpen(true)}
               isFloatingCartOpen={floatingCartOpen}
               prefs={prefs}
+              nowStageEnabled={prefs.nowStageEnabled === true}
               onUpdatePrefs={handleUpdatePrefs}
               foremanProposals={foremanProposals}
               dismissedThinkerIds={dismissedThinkerIds}

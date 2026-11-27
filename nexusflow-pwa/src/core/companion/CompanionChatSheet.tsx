@@ -20,6 +20,7 @@ import { AiExecutedAction, Attachment, OfflineAudioMemo, Project, THEME } from '
 import { CompanionComposer } from './CompanionComposer';
 import { CompanionMessageItem } from './CompanionMessageItem';
 import { ConversationMessage } from './useVoiceSession';
+import { VoiceWaveformBars } from './VoiceWaveformBars';
 
 export interface CompanionChatSheetProps {
   activeProjectName: string;
@@ -270,9 +271,14 @@ export const CompanionChatSheet: React.FC<CompanionChatSheetProps> = ({
                 <div className="text-sm font-semibold text-[#F1F5F9] truncate">
                   {activeProjectName}
                 </div>
-                <div className="text-xs text-[#94A3B8] truncate">
-                  {phaseText}
-                  {wakeLockActive ? ' · Display wach' : ''}
+                <div className="text-xs text-[#94A3B8] flex items-center gap-2 min-w-0">
+                  <span className="truncate">
+                    {phaseText}
+                    {wakeLockActive ? ' · Display wach' : ''}
+                  </span>
+                  {isListening && (
+                    <VoiceWaveformBars color={projectColor} organicMotion={organicMotion} />
+                  )}
                 </div>
               </div>
             </div>
