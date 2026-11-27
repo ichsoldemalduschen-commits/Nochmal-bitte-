@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { Bell, Cloud, Receipt, Scale, X } from 'lucide-react';
 import { AppStateSnapshot, KnowledgeKind, PriorityType, Project } from '../types';
+import { getActiveBrandMeta } from '../config/brandConfig';
 import { DESIGN_TOKENS } from '../config/designTokens';
+import { loadUserPrefs } from '../services/storage';
 import { DeepResearchView } from '../core/front/DeepResearchView';
 import { ReceiptScanView } from '../core/front/ReceiptScanView';
 import { ThemeColors } from '../core/front/FrontHeader';
@@ -13,6 +15,7 @@ interface DeepResearchAndAuditModalProps {
   open: boolean;
   projects: Project[];
   activeProject?: Project;
+  starterProfile?: 'bandit' | 'neutral';
   userApiKey: string;
   fullState: AppStateSnapshot;
   themeColors?: ThemeColors;
@@ -41,6 +44,7 @@ export const DeepResearchAndAuditModal: React.FC<DeepResearchAndAuditModalProps>
   open,
   projects,
   activeProject,
+  starterProfile,
   userApiKey,
   fullState,
   themeColors = {
@@ -88,7 +92,7 @@ export const DeepResearchAndAuditModal: React.FC<DeepResearchAndAuditModalProps>
         >
           <div className="min-w-0">
             <div className="text-xs font-extrabold uppercase tracking-wider text-[#F1F5F9] truncate">
-              BANDIT.OS Deep Research, Scanner &amp; Cloud
+              {getActiveBrandMeta(starterProfile ?? loadUserPrefs().starterProfile).researchTitle}
             </div>
             <div className="text-xs text-[#94A3B8] truncate">
               Rechts-Dossiers, Kassenbon-Scanner &amp; Echtzeit-Sync

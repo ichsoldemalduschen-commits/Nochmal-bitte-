@@ -644,6 +644,7 @@ export const FrontWorkspace: React.FC<FrontWorkspaceProps> = ({
         viewAllSections={viewAllSections}
         activeTab={activeTab}
         cartOpenMode={prefs.cartOpenMode || 'floating'}
+        starterProfile={prefs.starterProfile}
         onSelectProjectAndSection={selectProjectAndSection}
         onClose={() => setDrawerOpen(false)}
         onOpenNewProjectModal={onOpenNewProjectModal}

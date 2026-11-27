@@ -7,8 +7,9 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
+    "self-check": "node scripts/self-check.mjs",
     "test:guard": "playwright test",
-    "verify": "npm run build && npm run test:guard"
+    "verify": "node scripts/self-check.mjs && tsc && vite build && node scripts/self-check.mjs --dist && playwright test"
   },
   "dependencies": {
     "idb-keyval": "^6.2.1",

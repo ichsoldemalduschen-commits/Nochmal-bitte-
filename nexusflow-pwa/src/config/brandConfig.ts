@@ -22,6 +22,7 @@ export interface NeutralBrandMeta {
   zentraleTitle: string;
   zentraleSubtitle: string;
   defaultProjectId: string;
+  defaultProjectName: string;
 }
 
 export const NEUTRAL_BRAND_META: NeutralBrandMeta = {
@@ -29,8 +30,21 @@ export const NEUTRAL_BRAND_META: NeutralBrandMeta = {
   subtitle: 'Sprachgeführtes externes Gedächtnis (BYOK)',
   zentraleTitle: 'FOCUS.OS Zentrale',
   zentraleSubtitle: 'Projekte, Fokus, KI, Automation & System',
-  defaultProjectId: 'proj-work'
+  defaultProjectId: 'proj-work',
+  defaultProjectName: 'Mein Projekt'
 };
+
+export interface ActiveBrandMeta {
+  appName: string;
+  subtitle: string;
+  zentraleTitle: string;
+  zentraleSubtitle: string;
+  navigationTitle: string;
+  researchTitle: string;
+  defaultProjectId: string;
+  defaultProjectName: string;
+  defaultWorkspaceId: string;
+}
 
 export interface BrandConfig {
   appName: string;
@@ -195,3 +209,31 @@ Setze stattdessen STRIKT:
 "actions": [],
 und stelle in "spokenFeedback" und "directAnswer" eine kurze, präzise Rückfrage nach dem gewünschten Projekt (z. B. "Geht das Silikon an den Foodtruck oder in die Baustelle?").`
 };
+
+export function getActiveBrandMeta(starterProfile?: 'bandit' | 'neutral'): ActiveBrandMeta {
+  if (starterProfile === 'neutral') {
+    return {
+      appName: NEUTRAL_BRAND_META.appName,
+      subtitle: NEUTRAL_BRAND_META.subtitle,
+      zentraleTitle: NEUTRAL_BRAND_META.zentraleTitle,
+      zentraleSubtitle: NEUTRAL_BRAND_META.zentraleSubtitle,
+      navigationTitle: `${NEUTRAL_BRAND_META.appName} Navigation`,
+      researchTitle: `${NEUTRAL_BRAND_META.appName} Deep Research, Scanner & Cloud`,
+      defaultProjectId: NEUTRAL_BRAND_META.defaultProjectId,
+      defaultProjectName: NEUTRAL_BRAND_META.defaultProjectName,
+      defaultWorkspaceId: 'focus-os-main'
+    };
+  }
+  return {
+    appName: BRAND_CONFIG.appName,
+    subtitle: 'Workflow & Sprachgedächtnis PWA',
+    zentraleTitle: `${BRAND_CONFIG.appName} Zentrale`,
+    zentraleSubtitle: 'Projekte, Fokus, KI, Automation & System',
+    navigationTitle: `${BRAND_CONFIG.appName} Navigation`,
+    researchTitle: `${BRAND_CONFIG.appName} Deep Research, Scanner & Cloud`,
+    defaultProjectId: BRAND_CONFIG.defaultProjectId,
+    defaultProjectName:
+      BRAND_CONFIG.projects[BRAND_CONFIG.defaultProjectId]?.name || BRAND_CONFIG.appName,
+    defaultWorkspaceId: BRAND_CONFIG.defaultWorkspaceId
+  };
+}

@@ -256,7 +256,7 @@ export const HexThumbHub: React.FC<HexThumbHubProps> = ({
 
             {/* 2. Projektwechsel */}
             <div className="space-y-1.5">
-              <div className="text-[11px] font-bold uppercase tracking-wider text-[#94A3B8] px-0.5">
+              <div className="text-xs font-bold uppercase tracking-wider text-[#94A3B8] px-0.5">
                 Projekte
               </div>
               <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 no-scrollbar">
@@ -288,7 +288,7 @@ export const HexThumbHub: React.FC<HexThumbHubProps> = ({
 
             {/* 3. Bereichswechsel */}
             <div className="space-y-1.5">
-              <div className="text-[11px] font-bold uppercase tracking-wider text-[#94A3B8] px-0.5">
+              <div className="text-xs font-bold uppercase tracking-wider text-[#94A3B8] px-0.5">
                 Bereiche
               </div>
               <div className="grid grid-cols-3 gap-1.5">
@@ -335,7 +335,7 @@ export const HexThumbHub: React.FC<HexThumbHubProps> = ({
 
             {/* 4. Werkzeuge: 1-Fokus, Einkauf (Schwebend), Vorschriften-Wächter (wenn legalWatchEnabled), Zentrale */}
             <div className="space-y-1.5">
-              <div className="text-[11px] font-bold uppercase tracking-wider text-[#94A3B8] px-0.5">
+              <div className="text-xs font-bold uppercase tracking-wider text-[#94A3B8] px-0.5">
                 Werkzeuge
               </div>
               <div className="grid grid-cols-2 gap-1.5">

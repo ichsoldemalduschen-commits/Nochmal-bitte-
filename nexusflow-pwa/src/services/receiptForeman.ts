@@ -1,4 +1,6 @@
+import { getActiveBrandMeta } from '../config/brandConfig';
 import { Project, ScannedReceipt } from '../types';
+import { loadUserPrefs } from './storage';
 
 export const RECEIPT_CATEGORIES = [
   'Material',
@@ -554,8 +556,9 @@ export function formatTaxAdvisorSummaryText(
       ? 'Alle Projekte'
       : projectMap.get(projectFilterId)?.name || projectFilterId;
 
+  const appName = getActiveBrandMeta(loadUserPrefs().starterProfile).appName;
   const lines: string[] = [
-    `BANDIT.OS Steuerberater-Monatspaket (${formatMonthLabel(monthKey)} | ${projectLabel})`,
+    `${appName} Steuerberater-Monatspaket (${formatMonthLabel(monthKey)} | ${projectLabel})`,
     `Belege: ${summary.count} (davon ${summary.reconciledCount} abgeglichen)`,
     `Netto: ${formatEuroDe(summary.totalNet)} €`,
     `MwSt: ${formatEuroDe(summary.totalVat)} €`,

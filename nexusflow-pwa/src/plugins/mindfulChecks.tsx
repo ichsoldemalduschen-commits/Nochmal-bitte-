@@ -70,7 +70,7 @@ export const RealityCheckModal: React.FC<{
             <Compass className="w-5 h-5 text-[#14B8A6]" />
             <div>
               <h3 className="text-sm font-bold text-white">Reality-Check Impuls (3 Fragen)</h3>
-              <p className="text-[11px] text-[#9CA3AF]">Fokus: {current.category}</p>
+              <p className="text-xs text-[#9CA3AF]">Fokus: {current.category}</p>
             </div>
           </div>
           <button onClick={onClose} className="w-11 h-11 flex items-center justify-center rounded-xl text-[#9CA3AF] hover:text-white hover:bg-white/5 active:scale-95 transition">
@@ -171,7 +171,7 @@ export const SelfCheckModal: React.FC<{
             <HeartHandshake className="w-5 h-5 text-[#14B8A6]" />
             <div>
               <h3 className="text-sm font-bold text-white">Wertfreier 10-Sekunden Selbst-Check</h3>
-              <p className="text-[11px] text-[#9CA3AF]">Zustand ohne Bewertung festhalten</p>
+              <p className="text-xs text-[#9CA3AF]">Zustand ohne Bewertung festhalten</p>
             </div>
           </div>
           <button onClick={onClose} className="w-11 h-11 flex items-center justify-center rounded-xl text-[#9CA3AF] hover:text-white hover:bg-white/5 active:scale-95 transition">
@@ -283,11 +283,11 @@ export const SelfCheckHistoryPanel: React.FC<{ entries: SelfCheckEntry[] }> = ({
         className="p-4 rounded-xl border border-white/10 space-y-2"
         style={{ backgroundColor: THEME.bgSub }}
       >
-        <div className="flex items-center justify-between text-xs text-[#9CA3AF]">
+        <div className="flex items-center justify-between gap-2 flex-wrap text-xs text-[#9CA3AF]">
           <span className="font-mono text-[#14B8A6]">{sc.timestamp}</span>
-          <div className="flex gap-1">
+          <div className="flex flex-wrap gap-1">
             {sc.moodTags.map((m) => (
-              <span key={m} className="text-[10px] px-1.5 py-0.5 rounded bg-[#181A1B] text-[#9CA3AF]">
+              <span key={m} className="text-xs px-1.5 py-0.5 rounded bg-[#181A1B] text-[#9CA3AF]">
                 #{m}
               </span>
             ))}

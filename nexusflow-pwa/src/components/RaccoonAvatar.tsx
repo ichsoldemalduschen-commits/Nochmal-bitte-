@@ -12,6 +12,7 @@ import {
   Wifi
 } from 'lucide-react';
 import { Project } from '../types';
+import { BRAND_CONFIG } from '../config/brandConfig';
 
 export const PizzaBanditRaccoonSvg: React.FC<{ className?: string }> = ({
   className = 'w-8 h-8'
@@ -122,10 +123,7 @@ export const ProjectAvatar: React.FC<{ project?: Project; sizeClass?: string }> 
   }
   if (
     project?.icon === 'RaccoonBandit' ||
-    project?.id === 'proj-foodtruck' ||
-    project?.name?.toLowerCase().includes('pizza bandit') ||
-    project?.name?.toLowerCase().includes('foodtruck') ||
-    imgError
+    project?.id === BRAND_CONFIG.defaultProjectId
   ) {
     return <PizzaBanditRaccoonSvg className={sizeClass} />;
   }

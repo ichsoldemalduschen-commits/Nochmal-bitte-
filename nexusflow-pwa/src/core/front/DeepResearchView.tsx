@@ -344,7 +344,7 @@ export const DeepResearchView: React.FC<DeepResearchViewProps> = ({
             rows={2}
             value={searchTopic}
             onChange={(e) => setSearchTopic(e.target.value)}
-            placeholder="z. B. 'DVGW G 607 Gasanlagenprüfung & Wandabstände für Pizzaofen im Foodtruck'..."
+            placeholder="z. B. 'DVGW G 607 Gasanlagenprüfung, DIN-Normen oder Abnahme-Vorschriften'..."
             className="w-full min-h-[52px] p-3 rounded-2xl text-xs bg-[#111317] text-[#F1F5F9] border border-white/10 placeholder-[#94A3B8] focus:outline-none focus:border-white/20"
           />
         </div>
@@ -457,7 +457,7 @@ export const DeepResearchView: React.FC<DeepResearchViewProps> = ({
               >
                 <div className="min-w-0 flex-1">
                   <div className="text-[#F1F5F9] font-medium truncate">{item.topic}</div>
-                  <div className="text-[11px] text-[#94A3B8] truncate">
+                  <div className="text-xs text-[#94A3B8] truncate">
                     {item.projectName} • {item.detectedReason}
                   </div>
                 </div>
@@ -529,7 +529,7 @@ export const DeepResearchView: React.FC<DeepResearchViewProps> = ({
                       {dos.title}
                     </h4>
                     <div className="flex items-center gap-2 flex-wrap pt-0.5">
-                      <span className="text-[11px] px-2 py-0.5 rounded-md bg-white/5 text-[#94A3B8] font-medium">
+                      <span className="text-xs px-2 py-0.5 rounded-md bg-white/5 text-[#94A3B8] font-medium">
                         {dos.projectName}
                       </span>
                       <span className="font-mono text-xs text-[#94A3B8]">

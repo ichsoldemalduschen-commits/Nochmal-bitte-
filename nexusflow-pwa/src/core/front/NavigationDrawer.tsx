@@ -12,7 +12,8 @@ import {
   X
 } from 'lucide-react';
 import { CartOpenMode, DomainType, Project, ProjectTabId } from '../../types';
-import { BRAND_CONFIG } from '../../config/brandConfig';
+import { BRAND_CONFIG, getActiveBrandMeta } from '../../config/brandConfig';
+import { loadUserPrefs } from '../../services/storage';
 import { ProjectAvatar } from '../../components/RaccoonAvatar';
 import { ZentraleSectionId } from '../BackofficeWorkspace';
 import { ThemeColors } from './FrontHeader';
@@ -27,6 +28,7 @@ interface NavigationDrawerProps {
   viewAllSections: boolean;
   activeTab: ProjectTabId;
   cartOpenMode?: CartOpenMode;
+  starterProfile?: 'bandit' | 'neutral';
   onSelectProjectAndSection: (proj: Project, tab: ProjectTabId | 'ALL') => void;
   onClose: () => void;
   onOpenNewProjectModal: () => void;
@@ -46,6 +48,7 @@ export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({
   viewAllSections,
   activeTab,
   cartOpenMode = 'floating',
+  starterProfile,
   onSelectProjectAndSection,
   onClose,
   onOpenNewProjectModal,
@@ -210,7 +213,7 @@ export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({
           <div className="flex items-center justify-between border-b border-white/10 pb-3.5">
             <div>
               <div className="text-sm font-extrabold uppercase tracking-wider text-white">
-                BANDIT.OS Navigation
+                {getActiveBrandMeta(starterProfile ?? loadUserPrefs().starterProfile).navigationTitle}
               </div>
               <div className="text-xs text-[#9CA3AF]">
                 Projekt &amp; Arbeitsbereich wählen

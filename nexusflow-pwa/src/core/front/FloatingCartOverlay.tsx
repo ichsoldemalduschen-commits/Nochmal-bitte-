@@ -120,7 +120,7 @@ export const FloatingCartOverlay: React.FC<FloatingCartOverlayProps> = ({
               <div className="text-xs font-extrabold uppercase tracking-wider text-white truncate">
                 Einkauf (Schwebend)
               </div>
-              <div className="text-[11px] text-[#94A3B8] truncate">
+              <div className="text-xs text-[#94A3B8] truncate">
                 {activeProject.name}
               </div>
             </div>

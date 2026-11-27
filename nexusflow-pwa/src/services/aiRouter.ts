@@ -1,66 +1,33 @@
-import { AiActionType, AiVoiceSettings, Attachment, KnowledgeKind, PriorityType, Project, VoiceInteractionMode } from '../types';
-import { BRAND_CONFIG } from '../config/brandConfig';
-import { STORAGE_KEYS, getActiveAiMode, getIdbItemSync, saveIdbItem } from './storage';
+import {
+  AiActionType,
+  AiVoiceSettings,
+  Attachment,
+  BanditUserPreferences,
+  KnowledgeKind,
+  PriorityType,
+  Project,
+  VoiceInteractionMode
+} from '../types';
+import { BRAND_CONFIG, getActiveBrandMeta } from '../config/brandConfig';
+import {
+  STORAGE_KEYS,
+  getActiveAiMode,
+  getIdbItemSync,
+  loadUserPrefs,
+  saveIdbItem,
+  triggerHapticFeedback
+} from './storage';
 import { speakText, stopAllSpeech, stopSpeaking, testGiselaVoice, unlockAudioPlayback } from './azureSpeech';
 import { classifyLiveSpeechIntent } from './voiceModeClassifier';
 
-export { speakText, stopAllSpeech, stopSpeaking, testGiselaVoice, unlockAudioPlayback };
-
-export interface BanditUserPreferences {
-  // Schaltbare ADHS-Unterstützung
-  adhdMasterEnabled: boolean;
-  adhdFocusAnchor: boolean;       // 1. "Wo war ich gerade?"-Anker oben anpinnen
-  adhdSingleTaskMode: boolean;    // 2. 1-Fokus-Blende gegen Paralyse verfügbar
-  adhdTwoMinuteStarter: boolean;  // 3. Automatischer 2-Minuten-Einstieg durch KI
-  adhdTimeBufferAndHaptics: boolean; // 4. +25% Zeitpuffer & Haptik-Vibration
-  // Update 5: Personalisierung
-  uiDensity: 'compact' | 'standard' | 'large';
-  aiTone: 'short' | 'partner' | 'coach';
-  organicMotion: boolean;
-  quickCommands: string[];
-  activeFocusTaskId: string | null;
-  activeFocusTaskTitle: string | null;
-  activeFocusProjectId: string | null;
-}
-
-export const DEFAULT_USER_PREFS: BanditUserPreferences = {
-  adhdMasterEnabled: true,
-  adhdFocusAnchor: true,
-  adhdSingleTaskMode: true,
-  adhdTwoMinuteStarter: true,
-  adhdTimeBufferAndHaptics: true,
-  uiDensity: 'standard',
-  aiTone: 'partner',
-  organicMotion: true,
-  quickCommands: [
-    'Gib mir ein kurzes 3-Punkte-Briefing für dieses Projekt',
-    'Welche Materialien fehlen noch im Einkaufswagen?',
-    'Brich mir die nächste große Aufgabe in 2-Minuten-Schritte herunter'
-  ],
-  activeFocusTaskId: null,
-  activeFocusTaskTitle: null,
-  activeFocusProjectId: null
+export {
+  speakText,
+  stopAllSpeech,
+  stopSpeaking,
+  testGiselaVoice,
+  triggerHapticFeedback,
+  unlockAudioPlayback
 };
-
-export function loadUserPrefs(): BanditUserPreferences {
-  return getIdbItemSync<BanditUserPreferences>(STORAGE_KEYS.USER_PREFS, DEFAULT_USER_PREFS);
-}
-
-export function saveUserPrefs(prefs: BanditUserPreferences): void {
-  saveIdbItem(STORAGE_KEYS.USER_PREFS, prefs);
-}
-
-export function triggerHapticFeedback(pattern: number | number[] = 14): void {
-  const prefs = loadUserPrefs();
-  if (!prefs.adhdMasterEnabled || !prefs.adhdTimeBufferAndHaptics) return;
-  try {
-    if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
-      navigator.vibrate(pattern);
-    }
-  } catch {
-    // ignore
-  }
-}
 
 /**
  * Update 1 (Performance): Komprimiert große Handy-Fotos automatisch vor dem Speichern in IndexedDB
@@ -567,6 +534,42 @@ function buildWorkspaceContextSummary(projects: Project[], activeProjectId?: str
 const EXPLICIT_OFFLINE_COMMAND_REGEX =
   /^(?:notiere|erstelle|füge|lege|packe|ergänze|erinnere|kaufe|bestelle|besorge|hake)\b|\b(?:aufgabe\s+(?:anlegen|erstellen|notieren|hinzufügen)|auf\s+(?:den\s+)?einkauf(?:swagen)?|in\s+(?:den\s+)?einkauf(?:swagen)?|auf\s+die\s+einkaufsliste|notiere\s+(?:mir\s+)?(?:mal\s+)?(?:aufgabe|task|info|wissen)|erstelle\s+(?:eine\s+)?aufgabe|erinnere\s+mich\s+an|als\s+(?:aufgabe|task|einkauf|wissen|info)\s+(?:speichern|eintragen|anlegen)|(?:ist\s+)?(?:erledigt|abgehakt))\b/i;
 
+const PROJECT_STOP_WORDS = new Set([
+  'und',
+  'oder',
+  'für',
+  'mit',
+  'von',
+  'aus',
+  'der',
+  'die',
+  'das',
+  'im',
+  'in',
+  'am'
+]);
+
+function escapeRegExp(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function doesTextMatchProject(lowerText: string, project: Project): boolean {
+  const brandProj = (BRAND_CONFIG.projects as Record<string, any>)[project.id];
+  if (brandProj?.routingKeywords && brandProj.routingKeywords.test(lowerText)) {
+    return true;
+  }
+  const sourceText = `${project.name || ''} ${project.subtitle || ''}`.toLowerCase();
+  const tokens = sourceText
+    .split(/[^a-zäöüß0-9]+/i)
+    .map((t) => t.trim())
+    .filter((t) => t.length >= 3 && !PROJECT_STOP_WORDS.has(t));
+
+  return tokens.some((tok) => {
+    const pattern = new RegExp(`(?:^|[^a-zäöüß0-9])${escapeRegExp(tok)}(?:$|[^a-zäöüß0-9])`, 'i');
+    return pattern.test(lowerText);
+  });
+}
+
 export function buildLocalFallbackPlan(
   rawText: string,
   defaultProjectId: string,
@@ -574,8 +577,11 @@ export function buildLocalFallbackPlan(
   hintMode?: VoiceInteractionMode,
   previousMode?: VoiceInteractionMode | null
 ): StructuredAiResponse {
-  const prefs = loadUserPrefs();
+  const prefs: BanditUserPreferences = loadUserPrefs();
+  const brandMeta = getActiveBrandMeta(prefs.starterProfile);
+  const activeProjects = Array.isArray(allProjects) ? allProjects.filter((p) => !p.archived) : [];
   const trimmed = rawText.trim();
+  const lowerTrimmed = trimmed.toLowerCase();
   const words = trimmed.split(/\s+/).filter(Boolean);
   const classifiedHint = hintMode || classifyLiveSpeechIntent(trimmed, previousMode).mode;
   const isQuestion =
@@ -618,23 +624,40 @@ export function buildLocalFallbackPlan(
   }
 
   // Rückfrage-Schutz bei neutralen / mehrdeutigen Begriffen ohne Projektkontext
-  const isAmbiguous =
-    /(?:^|\b)(silikon|schrauben|maße|acryl|dichtband|malerband|dübel|nägel)(?:\b|$)/i.test(trimmed) &&
-    !/(foodtruck|anhänger|tsa|pizza|baustelle|bäckerei|backstube|privat|smarthome)/i.test(trimmed);
+  const hasKnownProjectMatch =
+    activeProjects.length > 0
+      ? activeProjects.some((p) => doesTextMatchProject(lowerTrimmed, p))
+      : Object.values(BRAND_CONFIG.projects).some((cfg) =>
+          cfg.routingKeywords?.test(lowerTrimmed)
+        );
 
-  if (isAmbiguous) {
+  const isAmbiguous =
+    /(?:^|\b)(silikon|schrauben|maße|acryl|dichtband|malerband|dübel|nägel)(?:\b|$)/i.test(
+      trimmed
+    ) && !hasKnownProjectMatch;
+
+  if (isAmbiguous && activeProjects.length !== 1) {
+    const p1 = activeProjects[0]?.name;
+    const p2 = activeProjects[1]?.name;
+    const choiceHint = p1 && p2 ? ` – ${p1} oder ${p2}` : '';
+    const bracketExamples = p1 && p2 ? ` (z. B. ${p1} oder ${p2})` : '';
     return {
       isQuestion: true,
       needsClarification: true,
       detectedMode: classifiedHint,
       expectFollowUp: true,
-      spokenFeedback: 'Für welches Projekt soll ich das eintragen – Foodtruck oder Baustelle?',
-      directAnswer:
-        'Rückfrage: Zu welchem Projekt gehört das (z. B. Pizza Bandit Foodtruck oder Baustelle Bäckerei)?',
+      spokenFeedback: `Für welches Projekt soll ich das eintragen${choiceHint}?`,
+      directAnswer: `Rückfrage: Zu welchem Projekt gehört das${bracketExamples}?`,
       summary: 'Rückfrage zu Projektzuordnung',
       actions: []
     };
   }
+
+  const validDefaultProjectId =
+    (activeProjects.some((p) => p.id === defaultProjectId) ? defaultProjectId : undefined) ||
+    activeProjects[0]?.id ||
+    defaultProjectId ||
+    brandMeta.defaultProjectId;
 
   const segments = trimmed
     .split(
@@ -645,12 +668,18 @@ export function buildLocalFallbackPlan(
 
   const actions: StructuredAiActionPlan[] = segments.map((seg) => {
     const lower = seg.toLowerCase();
-    let targetProjectId = defaultProjectId || BRAND_CONFIG.defaultProjectId;
+    let targetProjectId = validDefaultProjectId;
 
-    for (const pConfig of Object.values(BRAND_CONFIG.projects)) {
-      if (pConfig.routingKeywords && pConfig.routingKeywords.test(lower)) {
-        const isArchived = allProjects?.find((p) => p.id === pConfig.id)?.archived;
-        if (!isArchived) {
+    if (activeProjects.length > 0) {
+      for (const proj of activeProjects) {
+        if (doesTextMatchProject(lower, proj)) {
+          targetProjectId = proj.id;
+          break;
+        }
+      }
+    } else {
+      for (const pConfig of Object.values(BRAND_CONFIG.projects)) {
+        if (pConfig.routingKeywords && pConfig.routingKeywords.test(lower)) {
           targetProjectId = pConfig.id;
           break;
         }
@@ -746,7 +775,11 @@ export async function routeVoiceCommand(
   aborted?: boolean;
 }> {
   const cleanKey = apiKey ? apiKey.trim() : '';
-  const prefs = loadUserPrefs();
+  const prefs: BanditUserPreferences = loadUserPrefs();
+  const brandMeta = getActiveBrandMeta(prefs.starterProfile);
+  const activeProjectsList = Array.isArray(allProjects)
+    ? allProjects.filter((p) => !p.archived)
+    : [];
   const signal = options?.signal;
   const autoHint = options?.hintMode || classifyLiveSpeechIntent(rawText, options?.previousMode).mode;
 
@@ -786,11 +819,27 @@ export async function routeVoiceCommand(
       ? 'ADHS-STARTHILFE AKTIV: Wenn du einen neuen Task (ADD_TASK) anlegst oder Aufgaben besprichst, füge in "detailedExplanation" immer eine Zeile "Erster 2-Minuten-Handgriff: [konkreter sofort machbarer erster Handgriff]" hinzu.'
       : '';
 
-  const dynamicSystemPrompt = `Du bist der autonome System-Agent von ${BRAND_CONFIG.appName}.
+  const projectContextPrompt =
+    prefs.starterProfile === 'neutral' ||
+    (activeProjectsList.length > 0 &&
+      !activeProjectsList.some((p) => p.id in BRAND_CONFIG.projects))
+      ? `PROJEKT-ZUORDNUNG:
+Nutze ausschließlich die unten im DATENBESTAND aufgeführten Projekt-IDs.
+
+WICHTIG BEI MEHRDEUTIGEN BEGRIFFEN:
+Wenn der Nutzer neutrale Werkzeuge, Materialien oder Maße nennt, die ohne Kontext nicht eindeutig einem Projekt zuordenbar sind (z. B. "Silikon kaufen", "Schrauben besorgen", "Maße nehmen", "Acryl", "Malerband", "Dichtband"), ordne diese NICHT blind zu!
+Setze stattdessen STRIKT:
+"needsClarification": true,
+"isQuestion": true,
+"actions": [],
+und stelle in "spokenFeedback" und "directAnswer" eine kurze, präzise Rückfrage nach dem gewünschten Projekt.`
+      : BRAND_CONFIG.systemPromptProjectContext;
+
+  const dynamicSystemPrompt = `Du bist der autonome System-Agent von ${brandMeta.appName}.
 Verwende KEINE Emojis. ${toneInstruction}
 ${adhdInstruction}
 
-${BRAND_CONFIG.systemPromptProjectContext}
+${projectContextPrompt}
 
 REGELN:
 - Du hast vollen Lesezugriff auf alle Projekte, Tasks, Einkäufe und Wissenseinträge (Abläufe & Infos) im Kontext.
@@ -813,7 +862,7 @@ REGELN:
                 const cleanTurn = String(h.text || '').trim().replace(/\s+/g, ' ');
                 const clippedTurn =
                   cleanTurn.length > 400 ? `${cleanTurn.slice(0, 397)}...` : cleanTurn;
-                return `${h.role === 'user' ? 'Nutzer' : 'BANDIT.OS'}: ${clippedTurn}`;
+                return `${h.role === 'user' ? 'Nutzer' : 'Assistent'}: ${clippedTurn}`;
               })
               .join('\n')
           : 'Kein vorheriger Gesprächsverlauf.';
@@ -911,21 +960,36 @@ REGELN:
         const bufferMultiplier =
           prefs.adhdMasterEnabled && prefs.adhdTimeBufferAndHaptics ? 1.25 : 1;
 
+        const safeDefaultProjectId =
+          (defaultProjectId &&
+          (activeProjectsList.length === 0 ||
+            activeProjectsList.some((p) => p.id === defaultProjectId))
+            ? defaultProjectId
+            : activeProjectsList[0]?.id || defaultProjectId) ||
+          brandMeta.defaultProjectId;
+
         const sanitizedActions = Array.isArray(parsed.actions)
-          ? parsed.actions.map((act) => ({
-            ...act,
-            targetProjectId: act.targetProjectId || defaultProjectId || 'proj-foodtruck',
-            shortCheckableTitle: enforceMaxSixWords(act.shortCheckableTitle, 'Neuer Punkt'),
-            detailedExplanation: act.detailedExplanation || rawText,
-            quantityOrMeasure: act.quantityOrMeasure || '1x',
-            estimatedPrice: act.estimatedPrice || '',
-            changeFooterNote: enforceMaxSixWords(
-              act.changeFooterNote || `Durch ${result.usedModel}`,
-              'Durch KI zugeordnet'
-            ),
-            estimatedMinutes: Math.round((Number(act.estimatedMinutes) || 25) * bufferMultiplier),
-            priority: act.priority || 'Mittel'
-          }))
+          ? parsed.actions.map((act) => {
+            const candidateId = String(act.targetProjectId || '').trim();
+            const candidateExists =
+              activeProjectsList.length === 0 ||
+              activeProjectsList.some((p) => p.id === candidateId);
+            return {
+              ...act,
+              targetProjectId:
+                candidateId && candidateExists ? candidateId : safeDefaultProjectId,
+              shortCheckableTitle: enforceMaxSixWords(act.shortCheckableTitle, 'Neuer Punkt'),
+              detailedExplanation: act.detailedExplanation || rawText,
+              quantityOrMeasure: act.quantityOrMeasure || '1x',
+              estimatedPrice: act.estimatedPrice || '',
+              changeFooterNote: enforceMaxSixWords(
+                act.changeFooterNote || `Durch ${result.usedModel}`,
+                'Durch KI zugeordnet'
+              ),
+              estimatedMinutes: Math.round((Number(act.estimatedMinutes) || 25) * bufferMultiplier),
+              priority: act.priority || 'Mittel'
+            };
+          })
           : [];
 
         const resolvedMode: VoiceInteractionMode =
@@ -997,7 +1061,7 @@ REGELN:
           aborted: true
         };
       }
-      console.warn('[BANDIT.OS AI-Router] Fehler:', err);
+      console.warn('[AI-Router] Fehler:', err);
       const errorReason: 'network' | 'api' = err instanceof SyntaxError ? 'api' : 'network';
       return {
         plan: {
@@ -1047,10 +1111,13 @@ export async function askQuickAssistantQuestion(
     settings?: AiVoiceSettings;
   }
 ): Promise<string> {
+  const fallbackProjId =
+    options?.allProjects?.find((p) => !p.archived)?.id ||
+    getActiveBrandMeta(loadUserPrefs().starterProfile).defaultProjectId;
   const { plan } = await routeVoiceCommand(
     question,
     apiKey,
-    projectId || BRAND_CONFIG.defaultProjectId,
+    projectId || fallbackProjId,
     options?.allProjects,
     undefined,
     attachment,

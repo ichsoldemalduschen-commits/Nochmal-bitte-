@@ -46,6 +46,7 @@ import {
   TTS_ECHO_COOLDOWN_MS,
   VOICE_START_DEBOUNCE_MS
 } from '../../config/runtimeConfig';
+import { getActiveBrandMeta } from '../../config/brandConfig';
 import { classifyLiveSpeechIntent } from '../../services/voiceModeClassifier';
 import { useWakeLock } from '../../hooks/useWakeLock';
 import {
@@ -389,11 +390,17 @@ export function useVoiceSession(props: VoiceModalProps): UseVoiceSessionReturn {
     }
   };
 
+  const prefs = loadUserPrefs();
+
   const resolvedProjectId =
-    activeProjectId ||
+    (activeProjectId &&
+    (projects.length === 0 || projects.some((p) => p.id === activeProjectId && !p.archived))
+      ? activeProjectId
+      : undefined) ||
     projects.find((p) => p.name === activeProjectName && !p.archived)?.id ||
+    projects.find((p) => !p.archived)?.id ||
     projects[0]?.id ||
-    'proj-foodtruck';
+    getActiveBrandMeta(prefs.starterProfile).defaultProjectId;
 
   const effectiveSettings: AiVoiceSettings = aiVoiceSettings || {
     ttsEnabled: localTtsActive,
@@ -442,7 +449,6 @@ export function useVoiceSession(props: VoiceModalProps): UseVoiceSessionReturn {
   const activeTimeoutRef = useRef<number | null>(null);
   const isSendingRef = useRef(false);
 
-  const prefs = loadUserPrefs();
   const messageToolsEnabled =
     companionMessageToolsEnabled !== undefined
       ? companionMessageToolsEnabled

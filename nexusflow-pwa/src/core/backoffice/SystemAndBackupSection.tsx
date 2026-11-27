@@ -21,19 +21,35 @@ export interface BlueprintTemplate {
   cart: string[];
 }
 
-const DEFAULT_BLUEPRINTS: BlueprintTemplate[] = [
-  {
-    id: 'bp-event',
-    name: 'Standard-Event Vor-Ort-Checkliste (Pizza Bandit)',
-    tasks: [
-      '[Vorbereitung] Gasflaschen (2x 11kg) + 50 mbar Regler prüfen',
-      '[Vorbereitung] Frischwasser- & Abwasserkanister einsetzen',
-      '[Vorbereitung] Euroboxen mit Teigballen verladen',
-      '[Vor Ort] Saladette-Lift auf 92 cm Arbeitshöhe arretieren'
-    ],
-    cart: ['Einweghandschuhe Nitril', 'Pizzakartons / Servietten']
+function buildDefaultBlueprints(starterProfile?: 'bandit' | 'neutral'): BlueprintTemplate[] {
+  if (starterProfile === 'neutral') {
+    return [
+      {
+        id: 'bp-starter',
+        name: 'Projekt-Start-Checkliste (Vorlage)',
+        tasks: [
+          '[Vorbereitung] Ziele & wichtige Termine festhalten',
+          '[Vorbereitung] Benötigte Materialien prüfen',
+          '[Umsetzung] Ersten kleinen Schritt festlegen'
+        ],
+        cart: ['Notizbuch & Stifte']
+      }
+    ];
   }
-];
+  return [
+    {
+      id: 'bp-event',
+      name: 'Standard-Event Vor-Ort-Checkliste',
+      tasks: [
+        '[Vorbereitung] Gasflaschen (2x 11kg) + 50 mbar Regler prüfen',
+        '[Vorbereitung] Frischwasser- & Abwasserkanister einsetzen',
+        '[Vorbereitung] Euroboxen mit Teigballen verladen',
+        '[Vor Ort] Saladette-Lift auf 92 cm Arbeitshöhe arretieren'
+      ],
+      cart: ['Einweghandschuhe Nitril', 'Pizzakartons / Servietten']
+    }
+  ];
+}
 
 interface SystemAndBackupSectionProps {
   isOpen: boolean;
@@ -83,13 +99,15 @@ export const SystemAndBackupSection: React.FC<SystemAndBackupSectionProps> = ({
   const [confirmNeutralSwitch, setConfirmNeutralSwitch] = useState(false);
   const aiLogs = Array.isArray(fullState?.aiLogs) ? fullState.aiLogs : [];
 
+  const defaultBlueprints = buildDefaultBlueprints(prefs?.starterProfile);
   const [blueprints, setBlueprints] = useState<BlueprintTemplate[]>(() =>
-    getIdbItemSync<BlueprintTemplate[]>(STORAGE_KEYS.BLUEPRINTS, DEFAULT_BLUEPRINTS)
+    getIdbItemSync<BlueprintTemplate[]>(STORAGE_KEYS.BLUEPRINTS, defaultBlueprints)
   );
 
   useEffect(() => {
     let cancelled = false;
-    void loadIdbItem<BlueprintTemplate[]>(STORAGE_KEYS.BLUEPRINTS, DEFAULT_BLUEPRINTS).then(
+    const defaultsForProfile = buildDefaultBlueprints(prefs?.starterProfile);
+    void loadIdbItem<BlueprintTemplate[]>(STORAGE_KEYS.BLUEPRINTS, defaultsForProfile).then(
       (loaded) => {
         if (!cancelled && Array.isArray(loaded)) {
           setBlueprints(loaded);
@@ -99,10 +117,16 @@ export const SystemAndBackupSection: React.FC<SystemAndBackupSectionProps> = ({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [prefs?.starterProfile]);
   const [selectedBlueprintProjectId, setSelectedBlueprintProjectId] = useState(
-    projects[0]?.id || 'proj-foodtruck'
+    activeProjects[0]?.id || projects[0]?.id || ''
   );
+
+  useEffect(() => {
+    if (!projects.some((p) => p.id === selectedBlueprintProjectId)) {
+      setSelectedBlueprintProjectId(activeProjects[0]?.id || projects[0]?.id || '');
+    }
+  }, [projects, activeProjects, selectedBlueprintProjectId]);
   const [newBlueprintName, setNewBlueprintName] = useState('');
 
   const [backupReceipt, setBackupReceipt] = useState<{
